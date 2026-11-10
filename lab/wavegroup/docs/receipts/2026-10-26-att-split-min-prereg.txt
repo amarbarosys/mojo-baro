@@ -1,0 +1,5 @@
+Preregistration, BARO_ATT_SPLIT_MIN sweep, frozen before the run, 2026-10-26.
+Arms (one binary, interleaved, 21 prompts, g64 and g256): base (split off), m64, m128, m192 (split on when context >= N).
+Predictions: g64 every m arm within +-0.5% of base (prompts ~20 ids, so m128/m192 never split at g64; m64 splits only the
+last ~20 steps). g256: m64 and m128 +1.5% to +2.5% over base, m192 smaller (fewer split steps). ids 21/21 equal to base in all arms.
+Pick: the arm with the best g256 ratio whose g64 ratio is >= 0.995.

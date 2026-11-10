@@ -1,0 +1,12 @@
+<|im_start|>user
+Hi<|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+
+<|im_end|>
+<|im_start|>user
+again<|im_end|>
+<|im_start|>assistant
+<think>

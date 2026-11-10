@@ -1,0 +1,6 @@
+Water boils at 100 degrees Celsius at sea level because
+def fibonacci(n):
+    """Return the n-th Fibonacci number."""
+
+Once upon a time, in a small village by the sea, there lived an old fisherman who
+List the planets of the solar syst

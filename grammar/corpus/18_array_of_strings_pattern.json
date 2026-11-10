@@ -1,0 +1,1 @@
+{"type": "array", "items": {"type": "string", "pattern": "[a-z]{2,4}"}, "minItems": 1, "maxItems": 3}

@@ -1,0 +1,13 @@
+BARO_ATT_SPLIT_MIN sweep (prereg 4bfd169), binary 95f7e47b2ff23dff, TMAX 16384
+spark=~/Projects/mojo/mojo-baro/lab/wavegroup/.work/pf16/spark.att2 sha=95f7e47b2ff23dff pack=~/Projects/mojo/mojo-baro/lab/wavegroup/.work/baro-head/pack arms=base:BARO_ATT_SPLIT=0 m64:BARO_ATT_SPLIT=1,BARO_ATT_SPLIT_MIN=64 m128:BARO_ATT_SPLIT=1,BARO_ATT_SPLIT_MIN=128 m192:BARO_ATT_SPLIT=1,BARO_ATT_SPLIT_MIN=192 load=12.76 16.10 12.73
+g64 base     median  551.9 tok/s, /base median 1.0000 (min 1.0000, max 1.0000), ids same 21/21, prefill_s median 0.0188
+g64 m64      median  549.2 tok/s, /base median 0.9974 (min 0.9717, max 1.1732), ids same 21/21, prefill_s median 0.0193
+g64 m128     median  554.9 tok/s, /base median 1.0051 (min 0.7315, max 1.1698), ids same 21/21, prefill_s median 0.0189
+g64 m192     median  552.4 tok/s, /base median 0.9978 (min 0.9748, max 1.1877), ids same 21/21, prefill_s median 0.0194
+g256 base     median  547.0 tok/s, /base median 1.0000 (min 1.0000, max 1.0000), ids same 21/21, prefill_s median 0.0189
+g256 m64      median  563.0 tok/s, /base median 1.0289 (min 1.0203, max 1.0529), ids same 21/21, prefill_s median 0.0190
+g256 m128     median  562.0 tok/s, /base median 1.0294 (min 1.0217, max 1.0593), ids same 21/21, prefill_s median 0.0191
+g256 m192     median  556.8 tok/s, /base median 1.0191 (min 1.0055, max 1.0503), ids same 21/21, prefill_s median 0.0192
+verdict: pick m128 (g256 1.0294 min 1.0217, g64 1.0051); predictions: g64 within +-0.5% HIT, g256 m64/m128 +1.5-2.5% beaten (+2.9%), ids 21/21 HIT
+4K-context check (long4k.tokens, 64 tokens), landed binary 5644a368a2d11fb9, knobs renamed to engine.mojo's BARO_ATT_SPLIT_T:
+off (BARO_ATT_SPLIT_T=99999) 158.29 tok/s ids ee81ec51; default 422.00 tok/s ids ee81ec51 (2.67x)

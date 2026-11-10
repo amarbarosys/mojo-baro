@@ -1,0 +1,5 @@
+Preregistration, spark fused decode rope (BARO_ROPE_FUSE=1), frozen before the A/B, 2026-10-26.
+Byte test kernels/test_rope_qkv.mojo PASS on 5 cases (0 differing values), mutant (fused at POS+1) FAILS with 27619.
+Arms: one binary, BARO_ROPE_FUSE 0 vs 1 interleaved, 21 prompts, g64 and g256, split attention at its default.
+Predictions: ids hash identical on 21/21 at both lengths (bit-exact). g64 and g256 ratio +1.0% to +2.5% (kernel table:
+rope 2.92 -> ~1.8 us/layer plus one fewer dispatch gap, 16 layers, ~1.75 ms/token).

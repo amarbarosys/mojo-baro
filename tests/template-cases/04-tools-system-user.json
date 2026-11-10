@@ -1,0 +1,1 @@
+{"messages":[{"role":"system","content":"Be brief."},{"role":"user","content":"weather in Rome?"}],"tools":[{"type":"function","function":{"name":"get_weather","description":"Weather","parameters":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"]}}}],"add_generation_prompt":true}

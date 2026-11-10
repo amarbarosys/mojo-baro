@@ -1,0 +1,16 @@
+PASS: megakernel gate at m = 1 and m = 3 (q8) and m = 1 (q4)
+m = 1  4-layer+head us/window: launch= 2065.4829999999997  mega(G= 96 )= 1740.06883  ratio= 0.8424512958954395  fail= 0
+PASS spec=0 mega==launch  launch:tok/s_gen: 107.26008530190278  mega:tok/s_gen: 124.96125184642895
+PASS spec=1 mega==launch  launch:tok/s_gen: 187.0895516938484  mega:tok/s_gen: 184.6714424773138
+PASS launch vs model-ref 64/64
+PASS run-tests: GEMM OK — 4 x 3 @ 3 x 2 matches host reference;54 kernels, 26 in registry, 0 orphans;
+mega fail word: 0 
+co26 None group_segment_fixed_size=31008
+co26 mega_amar_mega_token_SIMD_D6A6AcB6A6AcB6A6A_5a13f9b5993ba985 vgpr_spill_count=142
+##### P2b no-spec lds32 vs lds-mixed
+lds32 median 127.30 tok/s_gen spread 2.0%  |  mixed median 125.43 spread 2.3%  |  ratio 0.985  |  identity fails: none
+clock-probe: busy 119/165 samples (skipped 10 in first 3.5s)  sclk min/med/max 1242/2989/3318 MHz  power 62-354 W (cap 290 W, 52 busy samples above it: rocm-smi package power is instantaneous, the cap is a moving average)  junction max 72 C  -- .work/clock-probe-20260906-050921.log
+     20 mega fail word: 0 
+mixed run1 tok/s_gen: 125.3822631551837 | ssm  15 102 1019 90 46 525 52 606 | ffn  128 2308 70 1389 | total total 7850.56
+mixed run2 tok/s_gen: 125.40310804198525 | ssm  15 101 1025 86 45 525 52 588 | ffn  126 2312 76 1396 | total total 7848.84
+exit 0

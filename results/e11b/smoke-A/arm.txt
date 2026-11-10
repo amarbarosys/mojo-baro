@@ -1,0 +1,16 @@
+stage=A
+arms=n/a
+layers=
+function=G,C,X,I:replace M:mean
+items=bench/e11b/fixtures/stub_items.jsonl sha256=b4a04d7cdb5bba73b650ac9039a7ca6d1a7357b47e6e64d23bf965ab72a55af1 records=40
+item_set=split:'dev' game:'' limit:0 selected:20 first:cty-dev-000 last:tip-dev-009
+bank=.work/e11b/bank.f32 sha256=none
+relays=.work/e11b/relays.jsonl
+recv_max=64 relay_max=48 tmax=512 greedy=1 stop_ids=1
+graft_step=layer-loop(mega off) tap=on-every-arm decode_mega=True
+pack=.work/engine-pack-q4 index_sha256=d2c11dff21e06bfc5874e910b16b6f186bc3b6ac5e5a27ab15d4eac8ef478bc1 pack_bin_sha256=7e44a51fd5c32d2dfe6c4242f80bcf2a4767b0c35cf1b95b1fef83234c798ab1
+gguf=~/Models/qwythos-9b-claude-mythos-5-1m-mtp-bf16/Qwythos-9B-Claude-Mythos-5-1M-MTP-Q4_0-pure.gguf
+engine_commit=654eb70 dirty='not-given'
+dev_receipt_commit=n/a
+graft_position=last prompt token id 271 'ĊĊ' probe_prompt_tokens=52
+layers_total=32 hidden=4096 vec_bytes=16384

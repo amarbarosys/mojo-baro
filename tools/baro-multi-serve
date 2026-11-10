@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+# Launch one pinned baro-serve process per device behind baro-router.
+set -euo pipefail
+here=$(cd "$(dirname "$0")/.." && pwd)
+. "$here/tools/baro-lib.sh"
+die() { echo "baro multi-serve: $*" >&2; exit 1; }
+
+model=${1:-}; shift || true
+case "$model" in
+  -h|--help)
+    echo "usage: baro multi-serve MODEL.gguf [--devices 0,1] [--port N] [--engine-port-base N] [--chat-template-file PATH]"
+    exit 0
+    ;;
+esac
+[ -f "$model" ] || die "no such model file: ${model:-<none>}"
+model=$(readlink -f "$model")
+devices=${BARO_DEVICES:-0,1}; port=8090; engine_base=8100; template=""
+while [ $# -gt 0 ]; do
+  case $1 in
+    --devices) devices=$2; shift 2;;
+    --port) port=$2; shift 2;;
+    --engine-port-base) engine_base=$2; shift 2;;
+    --chat-template-file) template=$(readlink -f "$2"); shift 2;;
+    *) die "unknown option $1";;
+  esac
+done
+[ -n "$devices" ] || die "--devices cannot be empty"
+IFS=',' read -r -a device_list <<< "$devices"
+work=${BARO_MULTI_WORK:-$here/.work/multi-serve-$(basename "${model%.gguf}")}
+mkdir -p "$work"
+cache_log=$work/cache.log
+"$here/tools/baro" serve "$model" --no-serve --work "$work/cache" > "$cache_log" 2>&1 \
+  || die "model preparation failed, see $cache_log"
+# The paths come from the one machine-readable `receipt:` line, never from the prose lines around it.
+receipt=$(grep '^receipt: ' "$cache_log" | tail -1)
+engine=$(receipt_get "$receipt" engine_path)
+pack=$(receipt_get "$receipt" pack_path)
+[ -n "$receipt" ] || die "baro serve printed no receipt line, see $cache_log"
+[ -x "$engine" ] || die "prepared engine missing (receipt engine_path='${engine}'), see $cache_log"
+[ -s "$pack/index.txt" ] || die "prepared pack missing (receipt pack_path='${pack}'), see $cache_log"
+
+serve=$here/serve/target/release/baro-serve
+router=$here/serve/target/release/router
+if [ ! -x "$serve" ] || [ ! -x "$router" ]; then
+  cargo build --release --manifest-path "$here/serve/Cargo.toml" --bins > "$work/cargo.log" 2>&1 \
+    || die "cargo build failed, see $work/cargo.log"
+fi
+engines=(); pids=(); router_pid=""
+cleanup() {
+  for pid in "${pids[@]}" "$router_pid"; do
+    [ -n "$pid" ] && kill -TERM "$pid" 2>/dev/null || true
+  done
+  wait 2>/dev/null || true
+}
+trap cleanup EXIT INT TERM
+for i in "${!device_list[@]}"; do
+  device=${device_list[$i]}; engine_port=$((engine_base + i)); log=$work/engine-$device.log
+  engines+=("engine-$i=127.0.0.1:$engine_port")
+  args=(--engine "$engine" --pack "$pack" --port "$engine_port")
+  [ -z "$template" ] || args+=(--chat-template-file "$template")
+  env ROCR_VISIBLE_DEVICES="$device" "$serve" "${args[@]}" > "$log" 2>&1 &
+  pids+=("$!")
+done
+for i in "${!pids[@]}"; do
+  log=$work/engine-${device_list[$i]}.log
+  for _ in $(seq 120); do
+    grep -q '^listening on' "$log" && break
+    kill -0 "${pids[$i]}" 2>/dev/null || die "engine ${device_list[$i]} exited, see $log"
+    sleep 0.5
+  done
+  grep -q '^listening on' "$log" || die "engine ${device_list[$i]} did not become ready"
+done
+BARO_ROUTER_ENGINES=$(IFS=,; echo "${engines[*]}") \
+  "$router" --host 0.0.0.0 --port "$port" --node-id "multi-$(hostname)" > "$work/router.stdout" 2> "$work/router.stderr" &
+router_pid=$!
+for _ in $(seq 120); do
+  grep -q '^listening on' "$work/router.stdout" && break
+  kill -0 "$router_pid" 2>/dev/null || die "router exited, see $work/router.stderr"
+  sleep 0.5
+done
+grep -q '^listening on' "$work/router.stdout" || die "router did not become ready"
+echo "baro multi-serve: http://127.0.0.1:$port, devices=$devices, work=$work"
+wait "$router_pid"

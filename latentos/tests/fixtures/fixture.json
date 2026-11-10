@@ -1,0 +1,13 @@
+{
+  "fixture": "cpu-training-oracle-v1",
+  "sender_dim": 4,
+  "receiver_dim": 3,
+  "positions": 2,
+  "weights_sha256": "e8c021fe510686767475a87311728656945bbab1b8c3ad493dab964e23cef950",
+  "input_sha256": "6ed8f2ed50f640aee447486f182af9824229903489d5d991170ac1374ac3e034",
+  "expected_sha256": "f3c9ba3db970bf56e27820cc40c99de935c76ca2d95ce55d1cfa172b4606bd5a",
+  "manifest_sha256": "cb846107345f0292c384c7c3848ff454307d61aa9f4e2edaa807d4f6574bb561",
+  "sender_digest": "f671511beb72db94ddc0751bf350278871145b91789af0cdb407613d5666c624",
+  "receiver_digest": "e63fdfc8a4574a4e10321a42e7e1d63e95ad1022040acf7831e91ac0c0db9495",
+  "adapter_digest": "e8c021fe510686767475a87311728656945bbab1b8c3ad493dab964e23cef950"
+}

@@ -1,0 +1,12 @@
+ours median 568.1 tok/s, llama.cpp median 413.2, ratio median 1.378 (min 1.351, max 1.394), faster 21/21, drift 1.0016
+ids equal to llama.cpp: 13/21 prompts all 64; matching prefix per prompt [64, 3, 64, 64, 64, 64, 64, 64, 6, 64, 64, 45, 49, 64, 64, 64, 29, 27, 42, 28, 64]
+
+llama.cpp self-consistency (matching prefix, 64 = equal):
+p02 llama fa-off vs fa-on 3 | ours vs fa-on 3 | ours vs fa-off 64
+p09 llama fa-off vs fa-on 6 | ours vs fa-on 64 | ours vs fa-off 6
+p12 llama fa-off vs fa-on 26 | ours vs fa-on 45 | ours vs fa-off 26
+p13 llama fa-off vs fa-on 64 | ours vs fa-on 49 | ours vs fa-off 49
+p17 llama fa-off vs fa-on 29 | ours vs fa-on 29 | ours vs fa-off 64
+p18 llama fa-off vs fa-on 64 | ours vs fa-on 27 | ours vs fa-off 27
+p19 llama fa-off vs fa-on 23 | ours vs fa-on 42 | ours vs fa-off 23
+p20 llama fa-off vs fa-on 10 | ours vs fa-on 28 | ours vs fa-off 10

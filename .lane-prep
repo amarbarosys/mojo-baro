@@ -1,0 +1,11 @@
+# lane-prep: names under .work/ to link from the main checkout into a lane worktree (iTools harness/lane-prep)
+engine-pack-q4
+engine-pack
+engine-pack-q8
+spark
+gguf
+moe-tier
+moe-w1
+b4
+refcache
+m5

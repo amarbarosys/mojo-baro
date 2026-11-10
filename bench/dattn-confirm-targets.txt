@@ -1,0 +1,20 @@
+# Confirmation run of bench/dattn-protocol.md. Arm O configs frozen from stint 3
+# (.work/dattn-run/stint3/summary.md, best device time per shape) and committed before this run.
+# arm | label | args   (R: op_bench args; O: bench_dattn SHAPE T ITERS NS NLD ROT PATH)
+# 5000 timed iterations per target on both arms (op_bench trailing arg, bench_dattn ITERS): at 200 the
+# ~10 ms targets never let clocks settle and R spread 15-37 % (.work/dattn-confirm/c3). Configs unchanged.
+R | S1_kv4096        | flash_attn 16 4 256 4096 1 5000
+R | S2_kv4096        | flash_attn 40 8 64 4096 1 5000
+R | S3_kv4096        | flash_attn 28 4 128 4096 1 5000
+R | S1_kv512         | flash_attn 16 4 256 512 1 5000
+R | S1_kv1024        | flash_attn 16 4 256 1024 1 5000
+R | S1_kv16384       | flash_attn 16 4 256 16384 1 5000
+O | S1_kv4096        | S1 4096 5000 8 8 0 split
+O | S2_kv4096        | S2 4096 5000 8 4 1 split
+O | S3_kv4096        | S3 4096 5000 16 2 0 split
+O | S1_kv512         | S1 512 5000 8 8 0 split
+O | S1_kv1024        | S1 1024 5000 8 8 0 split
+O | S1_kv16384       | S1 16384 5000 16 8 0 split
+O | S1_kv512_exact   | S1 512 5000 1 4 0 exact
+O | S1_kv1024_exact  | S1 1024 5000 1 4 0 exact
+O | S1_kv4096_exact  | S1 4096 5000 1 4 0 exact

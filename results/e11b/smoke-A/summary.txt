@@ -1,0 +1,1 @@
+stage=A a_prompts=40 relays=20 bank_bytes=20971520 bank_sha256=d5f6abe1508e012ee4392261b6b7ae14bdd7c5e67229d2e2b80672b5a92d7e28 last_token_mismatch=0 elapsed_s=8.852047801

@@ -1,0 +1,103 @@
+{
+  "arm": "regex amar_mega_token engine ~/Projects/mojo/mojo-baro/.work/preflight/engine-dense sha256 5cccf7dc0383c057 pack ~/Projects/mojo/mojo-baro/.work/e11b-qwythos-pack knobs BARO_TMAX=16384 BARO_MEGA=1 BARO_SPEC=0 wavewait 92",
+  "grand": 74553400,
+  "waves": 4,
+  "classes": {
+    "vmem load": {
+      "cycles": 1570242,
+      "share": 2.1,
+      "issues": 99632,
+      "per_wave": 24908
+    },
+    "vmem store": {
+      "cycles": 139133,
+      "share": 0.2,
+      "issues": 8808,
+      "per_wave": 2202
+    },
+    "smem": {
+      "cycles": 5489,
+      "share": 0.0,
+      "issues": 300,
+      "per_wave": 75
+    },
+    "lds": {
+      "cycles": 3477622,
+      "share": 4.7,
+      "issues": 309282,
+      "per_wave": 77320
+    },
+    "waitcnt vmcnt": {
+      "cycles": 42116485,
+      "share": 56.5,
+      "issues": 94296,
+      "per_wave": 23574
+    },
+    "waitcnt lgkmcnt": {
+      "cycles": 1711968,
+      "share": 2.3,
+      "issues": 230594,
+      "per_wave": 57648
+    },
+    "waitcnt expcnt": {
+      "cycles": 0,
+      "share": 0.0,
+      "issues": 0,
+      "per_wave": 0
+    },
+    "waitcnt vscnt": {
+      "cycles": 134458,
+      "share": 0.2,
+      "issues": 2304,
+      "per_wave": 576
+    },
+    "waitcnt depctr": {
+      "cycles": 90192,
+      "share": 0.1,
+      "issues": 4608,
+      "per_wave": 1152
+    },
+    "waitcnt mixed": {
+      "cycles": 44254,
+      "share": 0.1,
+      "issues": 724,
+      "per_wave": 181
+    },
+    "valu": {
+      "cycles": 14820692,
+      "share": 19.9,
+      "issues": 6591722,
+      "per_wave": 1647930
+    },
+    "salu": {
+      "cycles": 1588027,
+      "share": 2.1,
+      "issues": 191686,
+      "per_wave": 47921
+    },
+    "branch": {
+      "cycles": 349951,
+      "share": 0.5,
+      "issues": 74762,
+      "per_wave": 18690
+    },
+    "other": {
+      "cycles": 4613,
+      "share": 0.0,
+      "issues": 4228,
+      "per_wave": 1057
+    },
+    "spill": {
+      "cycles": 54824,
+      "share": 0.1,
+      "issues": 5804,
+      "per_wave": 1451
+    },
+    "barrier": {
+      "cycles": 8445450,
+      "share": 11.3,
+      "issues": 2676,
+      "per_wave": 669
+    }
+  }
+}

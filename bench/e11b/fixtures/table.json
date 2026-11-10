@@ -1,0 +1,68 @@
+[
+  {
+    "game": "countries",
+    "arm": "0",
+    "correct": 1,
+    "n": 1,
+    "delta_vs_0": 0,
+    "lower95": 0.0,
+    "multi_candidate": 0,
+    "follows_vector": 0,
+    "follows_vector_n": 0
+  },
+  {
+    "game": "countries",
+    "arm": "C",
+    "correct": 0,
+    "n": 1,
+    "delta_vs_0": -1.0,
+    "lower95": -1.0,
+    "multi_candidate": 0,
+    "follows_vector": 1,
+    "follows_vector_n": 1
+  },
+  {
+    "game": "countries",
+    "arm": "S",
+    "correct": 0,
+    "n": 1,
+    "delta_vs_0": -1.0,
+    "lower95": -1.0,
+    "multi_candidate": 1,
+    "follows_vector": 0,
+    "follows_vector_n": 0
+  },
+  {
+    "game": "countries",
+    "arm": "T",
+    "correct": 1,
+    "n": 1,
+    "delta_vs_0": 0.0,
+    "lower95": 0.0,
+    "multi_candidate": 0,
+    "follows_vector": 0,
+    "follows_vector_n": 0
+  },
+  {
+    "game": "tips",
+    "arm": "0",
+    "correct": 0,
+    "n": 1,
+    "delta_vs_0": 0,
+    "lower95": 0.0,
+    "multi_candidate": 1,
+    "follows_vector": 0,
+    "follows_vector_n": 0
+  },
+  {
+    "game": "tips",
+    "arm": "T",
+    "correct": 1,
+    "n": 1,
+    "delta_vs_0": 1.0,
+    "lower95": 1.0,
+    "multi_candidate": 0,
+    "follows_vector": 0,
+    "follows_vector_n": 0
+  }
+]

@@ -1,0 +1,23 @@
+# mojo-upgrade check: build flags this repo's own scripts use (run-tests.sh, bench/, tools/).
+include kernels
+include serve
+include tools
+include cpu
+flags --target-accelerator gfx1100
+# amarbaro shim: built by run-tests.sh into .work/shim-build
+flags_for kernels/amarbaro.mojo -Xlinker -L.work/shim-build -Xlinker -lamarbaro_shim -Xlinker -rpath -Xlinker .work/shim-build
+flags_for kernels/test_gemm.mojo -Xlinker -L.work/shim-build -Xlinker -lamarbaro_shim -Xlinker -rpath -Xlinker .work/shim-build
+flags_for bench/bench*.mojo -Xlinker -L.work/shim-build -Xlinker -lamarbaro_shim -Xlinker -rpath -Xlinker .work/shim-build
+timeout_for kernels/test_q4x_hostops.mojo 180
+skip latentos/boot/s1_models.mojo links latentos_mount from AMDHQ tools/latent-os/mount_shim.c
+skip latentos/tests/crypto_smoke.mojo links latentos_mount from AMDHQ tools/latent-os/mount_shim.c
+skip latentos/tests/transport_smoke.mojo links latentos_mount from AMDHQ tools/latent-os/mount_shim.c
+# whole-engine builds: 2-3 min each when the box is busy
+timeout_for bench/bench_latent_handoff.mojo 300
+timeout_for bench/draft_dump.mojo 300
+timeout_for bench/e11b/e11b_harness.mojo 300
+timeout_for bench/e13_engine_dump.mojo 300
+timeout_for bench/e14-handoff.mojo 300
+timeout_for bench/bench_hidden_dtype.mojo 300
+timeout_for kernels/test_prefix.mojo 300
+timeout_for kernels/test_realign.mojo 300

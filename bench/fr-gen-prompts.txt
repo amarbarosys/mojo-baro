@@ -1,0 +1,634 @@
+Write three sentences about electric cars in French.
+Explain vaccines in simple French.
+Show a Kotlin implementation of binary search with tests.
+Draft a one-page study guide on supply and demand.
+Implement a small tokenizer for arithmetic expressions in Python.
+Write a news-style article about a new discovery related to antibiotics.
+Write a news-style article about a new discovery related to plate tectonics.
+How do I prepare for a system design interview?
+Summarize the main debates around renewable energy.
+Create a quiz of six multiple-choice questions about the printing press with answers.
+Write a news-style article about a new discovery related to quantum entanglement.
+Write a Go function that parses a CSV line, handling quoted fields.
+Write a news-style article about a new discovery related to the water cycle.
+Write a Python function that parses a CSV line, handling quoted fields.
+Write three sentences about the Roman Empire in Korean.
+Write a TypeScript program that walks a directory tree and sums file sizes by extension.
+Translate a short paragraph about black holes into German, then explain two translation choices.
+Write a SQL schema for a database that tracks research papers about GPS, with example queries.
+Write a short essay on neural networks with three sections.
+Write a dialogue between a teacher and a student about plate tectonics.
+Write a short essay on the Roman Empire with three sections.
+Write a SQL schema for a database that tracks research papers about plate tectonics, with example queries.
+Return a JSON object describing the Silk Road with fields name, summary, key_facts (array), and related_topics.
+Translate a short paragraph about neural networks into Arabic, then explain two translation choices.
+Compare two common misconceptions about supply and demand and correct them.
+Write YAML configuration for a hypothetical service that monitors photosynthesis data.
+Write a SQL schema for a database that tracks research papers about quantum entanglement, with example queries.
+Create a quiz of six multiple-choice questions about supply and demand with answers.
+Explain black holes to a curious twelve-year-old.
+Write a short essay on the French Revolution with three sections.
+Implement a small tokenizer for arithmetic expressions in JavaScript.
+Write a SQL schema for a database that tracks research papers about the Moon landing, with example queries.
+Explain the printing press to a curious twelve-year-old.
+Help me outline a talk about open-source software.
+Explain the Silk Road to a curious twelve-year-old.
+Return a JSON object describing inflation with fields name, summary, key_facts (array), and related_topics.
+Show a Haskell implementation of binary search with tests.
+Give five surprising facts about GPS, each with one sentence of context.
+Compare two common misconceptions about photosynthesis and correct them.
+Translate a short paragraph about blockchain into Arabic, then explain two translation choices.
+Write YAML configuration for a hypothetical service that monitors coral reefs data.
+Translate a short paragraph about the printing press into Portuguese, then explain two translation choices.
+Write a short essay on the stock market with three sections.
+Implement a small tokenizer for arithmetic expressions in TypeScript.
+What are good habits for reading research papers?
+Write Swift code that reads a JSON file and prints the ten most common keys.
+Write a SQL schema for a database that tracks research papers about the French Revolution, with example queries.
+Explain the difference between stack and heap memory with a C example.
+Implement a thread-safe LRU cache in Rust and explain the design.
+Write Bash code that reads a JSON file and prints the ten most common keys.
+Give five surprising facts about sleep, each with one sentence of context.
+Implement a thread-safe LRU cache in Haskell and explain the design.
+Summarize the main debates around the French Revolution.
+Write a SQL schema for a database that tracks research papers about supply and demand, with example queries.
+Implement a small tokenizer for arithmetic expressions in Kotlin.
+Implement a thread-safe LRU cache in Bash and explain the design.
+Explain cryptography in simple Russian.
+Write a news-style article about a new discovery related to inflation.
+Translate a short paragraph about blockchain into French, then explain two translation choices.
+Translate a short paragraph about blockchain into Italian, then explain two translation choices.
+Create a quiz of six multiple-choice questions about photosynthesis with answers.
+Write a short essay on GPS with three sections.
+Write a Swift function that parses a CSV line, handling quoted fields.
+Write a dialogue between a teacher and a student about vaccines.
+Give me a weekly workout plan for a beginner.
+Implement a small tokenizer for arithmetic expressions in Java.
+Write three sentences about the printing press in Italian.
+Draft a one-page study guide on black holes.
+Translate a short paragraph about coral reefs into German, then explain two translation choices.
+Return a JSON object describing the French Revolution with fields name, summary, key_facts (array), and related_topics.
+Produce a Markdown table comparing four aspects of compound interest.
+Explain electric cars to a curious twelve-year-old.
+Give five surprising facts about plate tectonics, each with one sentence of context.
+Write three sentences about GPS in Spanish.
+Summarize the main debates around climate change.
+Return a JSON object describing the Moon landing with fields name, summary, key_facts (array), and related_topics.
+Summarize the main debates around volcanoes.
+Produce a Markdown table comparing four aspects of renewable energy.
+Implement a thread-safe LRU cache in Swift and explain the design.
+Write a news-style article about a new discovery related to photosynthesis.
+Translate a short paragraph about the printing press into Italian, then explain two translation choices.
+Write YAML configuration for a hypothetical service that monitors plate tectonics data.
+Return a JSON object describing GPS with fields name, summary, key_facts (array), and related_topics.
+Explain antibiotics to a curious twelve-year-old.
+Summarize the main debates around the Roman Empire.
+Write a news-style article about a new discovery related to the Silk Road.
+Explain compound interest to a curious twelve-year-old.
+Return a JSON object describing the human immune system with fields name, summary, key_facts (array), and related_topics.
+Write three sentences about supply and demand in German.
+Write a news-style article about a new discovery related to compound interest.
+Write a short essay on photosynthesis with three sections.
+Explain honeybees in simple Spanish.
+Write Rust code that reads a JSON file and prints the ten most common keys.
+Write a Rust function that parses a CSV line, handling quoted fields.
+Give five surprising facts about honeybees, each with one sentence of context.
+Write Java code that reads a JSON file and prints the ten most common keys.
+Summarize the main debates around coral reefs.
+Return a JSON object describing antibiotics with fields name, summary, key_facts (array), and related_topics.
+Give five surprising facts about neural networks, each with one sentence of context.
+Summarize the main debates around the human immune system.
+Translate a short paragraph about coral reefs into French, then explain two translation choices.
+Give five surprising facts about the Roman Empire, each with one sentence of context.
+Write a dialogue between a teacher and a student about climate change.
+Refactor this idea into idiomatic Rust: a loop that retries an HTTP request with exponential backoff.
+Compare two common misconceptions about inflation and correct them.
+Give five surprising facts about the French Revolution, each with one sentence of context.
+Write a short essay on the human immune system with three sections.
+Translate a short paragraph about volcanoes into Spanish, then explain two translation choices.
+Return a JSON object describing renewable energy with fields name, summary, key_facts (array), and related_topics.
+Compare two common misconceptions about renewable energy and correct them.
+Translate a short paragraph about climate change into Portuguese, then explain two translation choices.
+Draft a one-page study guide on DNA replication.
+Produce a Markdown table comparing four aspects of the stock market.
+Compare two common misconceptions about jazz history and correct them.
+Summarize the main debates around compound interest.
+Write a Java function that parses a CSV line, handling quoted fields.
+Write a short essay on the printing press with three sections.
+Explain the difference between stack and heap memory with a TypeScript example.
+Write a short essay on volcanoes with three sections.
+Write a SQL schema for a database that tracks research papers about honeybees, with example queries.
+Compare two common misconceptions about coral reefs and correct them.
+Write a SQL schema for a database that tracks research papers about the water cycle, with example queries.
+Write a short essay on black holes with three sections.
+Write three sentences about the water cycle in Korean.
+Implement a thread-safe LRU cache in C and explain the design.
+Draft a one-page study guide on GPS.
+Write three sentences about sleep in French.
+Produce a Markdown table comparing four aspects of the human immune system.
+Write a news-style article about a new discovery related to the Roman Empire.
+Write a SQL schema for a database that tracks research papers about coral reefs, with example queries.
+Translate a short paragraph about the Moon landing into French, then explain two translation choices.
+Explain coral reefs to a curious twelve-year-old.
+Explain DNA replication in simple Spanish.
+Explain the human immune system to a curious twelve-year-old.
+Write a short essay on renewable energy with three sections.
+Refactor this idea into idiomatic Mojo: a loop that retries an HTTP request with exponential backoff.
+Write YAML configuration for a hypothetical service that monitors blockchain data.
+Explain the French Revolution in simple French.
+Compare two common misconceptions about the human immune system and correct them.
+Translate a short paragraph about the water cycle into Arabic, then explain two translation choices.
+Produce a Markdown table comparing four aspects of honeybees.
+Produce a Markdown table comparing four aspects of blockchain.
+Write a short essay on coral reefs with three sections.
+Create a quiz of six multiple-choice questions about the human immune system with answers.
+Write YAML configuration for a hypothetical service that monitors the Roman Empire data.
+Return a JSON object describing vaccines with fields name, summary, key_facts (array), and related_topics.
+Compare two common misconceptions about quantum entanglement and correct them.
+Refactor this idea into idiomatic Python: a loop that retries an HTTP request with exponential backoff.
+Implement a thread-safe LRU cache in Kotlin and explain the design.
+Write a news-style article about a new discovery related to neural networks.
+Write YAML configuration for a hypothetical service that monitors GPS data.
+Explain the Moon landing to a curious twelve-year-old.
+Write a news-style article about a new discovery related to the human immune system.
+Explain coral reefs in simple Arabic.
+Draft a one-page study guide on coral reefs.
+Explain the Roman Empire to a curious twelve-year-old.
+Draft a one-page study guide on climate change.
+Return a JSON object describing plate tectonics with fields name, summary, key_facts (array), and related_topics.
+Explain the stock market in simple Japanese.
+Explain volcanoes to a curious twelve-year-old.
+Produce a Markdown table comparing four aspects of volcanoes.
+Write YAML configuration for a hypothetical service that monitors black holes data.
+Give five surprising facts about DNA replication, each with one sentence of context.
+Compare two common misconceptions about plate tectonics and correct them.
+Explain renewable energy in simple German.
+Return a JSON object describing volcanoes with fields name, summary, key_facts (array), and related_topics.
+Create a quiz of six multiple-choice questions about inflation with answers.
+Compare two common misconceptions about the Roman Empire and correct them.
+Write a dialogue between a teacher and a student about GPS.
+Draft a one-page study guide on antibiotics.
+Write a short essay on the water cycle with three sections.
+Write YAML configuration for a hypothetical service that monitors jazz history data.
+Draft a one-page study guide on vaccines.
+Explain the French Revolution in simple Hindi.
+Explain photosynthesis to a curious twelve-year-old.
+Write three sentences about honeybees in Korean.
+Give five surprising facts about volcanoes, each with one sentence of context.
+Write YAML configuration for a hypothetical service that monitors compound interest data.
+Write three sentences about GPS in Italian.
+Write a dialogue between a teacher and a student about the water cycle.
+Give five surprising facts about climate change, each with one sentence of context.
+Summarize the main debates around quantum entanglement.
+Summarize the main debates around antibiotics.
+Explain the printing press in simple Portuguese.
+Draft a one-page study guide on quantum entanglement.
+Compare two common misconceptions about the printing press and correct them.
+Write YAML configuration for a hypothetical service that monitors the stock market data.
+Explain antibiotics in simple Italian.
+Give five surprising facts about cryptography, each with one sentence of context.
+Write a dialogue between a teacher and a student about the human immune system.
+Give five surprising facts about quantum entanglement, each with one sentence of context.
+Give five surprising facts about the human immune system, each with one sentence of context.
+Write a SQL schema for a database that tracks research papers about volcanoes, with example queries.
+Write a SQL schema for a database that tracks research papers about renewable energy, with example queries.
+Write a news-style article about a new discovery related to cryptography.
+Summarize the main debates around cryptography.
+Explain the difference between stack and heap memory with a Kotlin example.
+Explain cryptography to a curious twelve-year-old.
+Explain blockchain to a curious twelve-year-old.
+Explain black holes in simple Russian.
+Summarize the main debates around the stock market.
+Write three sentences about neural networks in Japanese.
+Compare two common misconceptions about the Silk Road and correct them.
+Create a quiz of six multiple-choice questions about GPS with answers.
+Give five surprising facts about photosynthesis, each with one sentence of context.
+Write YAML configuration for a hypothetical service that monitors climate change data.
+Plan a three-day trip to Lisbon on a budget.
+Explain electric cars in simple German.
+Summarize the main debates around sleep.
+Give five surprising facts about electric cars, each with one sentence of context.
+Summarize the main debates around the Silk Road.
+Summarize the main debates around honeybees.
+Write a SQL schema for a database that tracks research papers about blockchain, with example queries.
+Write a short essay on vaccines with three sections.
+Return a JSON object describing electric cars with fields name, summary, key_facts (array), and related_topics.
+Write a Swift program that walks a directory tree and sums file sizes by extension.
+Write a news-style article about a new discovery related to the printing press.
+Give five surprising facts about blockchain, each with one sentence of context.
+Create a quiz of six multiple-choice questions about electric cars with answers.
+Explain the human immune system in simple Arabic.
+Write a news-style article about a new discovery related to black holes.
+Show a Rust implementation of binary search with tests.
+Show a C++ implementation of binary search with tests.
+Summarize the main debates around neural networks.
+Write a Mojo function that parses a CSV line, handling quoted fields.
+Write a short essay on cryptography with three sections.
+Compare two common misconceptions about neural networks and correct them.
+Produce a Markdown table comparing four aspects of jazz history.
+Write a C program that walks a directory tree and sums file sizes by extension.
+Write a short essay on compound interest with three sections.
+Compare two common misconceptions about the French Revolution and correct them.
+Create a quiz of six multiple-choice questions about the Moon landing with answers.
+Write a Python program that walks a directory tree and sums file sizes by extension.
+Draft a one-page study guide on electric cars.
+Write a SQL schema for a database that tracks research papers about electric cars, with example queries.
+Create a quiz of six multiple-choice questions about DNA replication with answers.
+Produce a Markdown table comparing four aspects of sleep.
+Explain the difference between stack and heap memory with a Bash example.
+Draft a one-page study guide on inflation.
+Draft a one-page study guide on the stock market.
+Write a dialogue between a teacher and a student about the stock market.
+Explain black holes in simple Japanese.
+Write a short essay on DNA replication with three sections.
+Help me write a polite email declining a meeting.
+Compare two common misconceptions about black holes and correct them.
+Return a JSON object describing photosynthesis with fields name, summary, key_facts (array), and related_topics.
+Implement a thread-safe LRU cache in SQL and explain the design.
+Write a short essay on electric cars with three sections.
+Explain the French Revolution in simple Chinese.
+Draft a one-page study guide on the printing press.
+Write Mojo code that reads a JSON file and prints the ten most common keys.
+Write YAML configuration for a hypothetical service that monitors quantum entanglement data.
+Return a JSON object describing neural networks with fields name, summary, key_facts (array), and related_topics.
+Show a Java implementation of binary search with tests.
+Implement a thread-safe LRU cache in Ruby and explain the design.
+Write a Go program that walks a directory tree and sums file sizes by extension.
+Write a Java program that walks a directory tree and sums file sizes by extension.
+Explain the difference between stack and heap memory with a Python example.
+Write a dialogue between a teacher and a student about electric cars.
+Write a SQL schema for a database that tracks research papers about climate change, with example queries.
+Translate a short paragraph about the Silk Road into German, then explain two translation choices.
+Show a SQL implementation of binary search with tests.
+Write a dialogue between a teacher and a student about neural networks.
+Write C++ code that reads a JSON file and prints the ten most common keys.
+Write a C++ program that walks a directory tree and sums file sizes by extension.
+Write YAML configuration for a hypothetical service that monitors volcanoes data.
+Translate a short paragraph about antibiotics into Hindi, then explain two translation choices.
+Write a SQL schema for a database that tracks research papers about the human immune system, with example queries.
+Show a Ruby implementation of binary search with tests.
+Give five surprising facts about vaccines, each with one sentence of context.
+Give five surprising facts about compound interest, each with one sentence of context.
+Write a news-style article about a new discovery related to the French Revolution.
+Create a quiz of six multiple-choice questions about blockchain with answers.
+Write a SQL function that parses a CSV line, handling quoted fields.
+Compare two common misconceptions about volcanoes and correct them.
+Write a SQL schema for a database that tracks research papers about cryptography, with example queries.
+Refactor this idea into idiomatic Go: a loop that retries an HTTP request with exponential backoff.
+Write a SQL schema for a database that tracks research papers about vaccines, with example queries.
+Compare two common misconceptions about blockchain and correct them.
+Draft a one-page study guide on the Silk Road.
+Produce a Markdown table comparing four aspects of antibiotics.
+Translate a short paragraph about renewable energy into German, then explain two translation choices.
+Write three sentences about the Moon landing in Chinese.
+Refactor this idea into idiomatic Java: a loop that retries an HTTP request with exponential backoff.
+Explain the French Revolution to a curious twelve-year-old.
+Explain cryptography in simple Hindi.
+Show a Go implementation of binary search with tests.
+Create a quiz of six multiple-choice questions about the stock market with answers.
+Create a quiz of six multiple-choice questions about cryptography with answers.
+Translate a short paragraph about honeybees into Japanese, then explain two translation choices.
+Write three sentences about climate change in French.
+Write a short essay on quantum entanglement with three sections.
+Translate a short paragraph about the Silk Road into Korean, then explain two translation choices.
+Explain the water cycle in simple Italian.
+Implement a small tokenizer for arithmetic expressions in Ruby.
+Refactor this idea into idiomatic SQL: a loop that retries an HTTP request with exponential backoff.
+Create a quiz of six multiple-choice questions about the Roman Empire with answers.
+Implement a small tokenizer for arithmetic expressions in C.
+Write a news-style article about a new discovery related to vaccines.
+Produce a Markdown table comparing four aspects of neural networks.
+Explain volcanoes in simple German.
+Explain GPS in simple Spanish.
+I feel stuck learning to code. What should I do this week?
+Translate a short paragraph about the Roman Empire into Korean, then explain two translation choices.
+Draft a one-page study guide on compound interest.
+Return a JSON object describing supply and demand with fields name, summary, key_facts (array), and related_topics.
+Produce a Markdown table comparing four aspects of the Moon landing.
+Write a SQL schema for a database that tracks research papers about inflation, with example queries.
+Summarize the main debates around the water cycle.
+Create a quiz of six multiple-choice questions about black holes with answers.
+Write YAML configuration for a hypothetical service that monitors the Moon landing data.
+Explain climate change to a curious twelve-year-old.
+Explain volcanoes in simple Arabic.
+Compare two common misconceptions about DNA replication and correct them.
+Create a quiz of six multiple-choice questions about honeybees with answers.
+Write three sentences about cryptography in Arabic.
+Show a Bash implementation of binary search with tests.
+Write a dialogue between a teacher and a student about the printing press.
+Translate a short paragraph about coral reefs into Italian, then explain two translation choices.
+Explain plate tectonics to a curious twelve-year-old.
+Give five surprising facts about black holes, each with one sentence of context.
+Write a SQL schema for a database that tracks research papers about the printing press, with example queries.
+Explain inflation to a curious twelve-year-old.
+Write a C++ function that parses a CSV line, handling quoted fields.
+Implement a small tokenizer for arithmetic expressions in Haskell.
+Write three sentences about inflation in Korean.
+Write a SQL program that walks a directory tree and sums file sizes by extension.
+Write YAML configuration for a hypothetical service that monitors the printing press data.
+Translate a short paragraph about volcanoes into Chinese, then explain two translation choices.
+Produce a Markdown table comparing four aspects of GPS.
+Explain the water cycle to a curious twelve-year-old.
+Implement a thread-safe LRU cache in Python and explain the design.
+Explain compound interest in simple French.
+Write three sentences about the human immune system in German.
+Write a Bash program that walks a directory tree and sums file sizes by extension.
+Show a Mojo implementation of binary search with tests.
+Write a short essay on supply and demand with three sections.
+Draft a one-page study guide on cryptography.
+Write YAML configuration for a hypothetical service that monitors DNA replication data.
+Summarize the main debates around supply and demand.
+Translate a short paragraph about climate change into Chinese, then explain two translation choices.
+Write three sentences about blockchain in German.
+Return a JSON object describing blockchain with fields name, summary, key_facts (array), and related_topics.
+Write a dialogue between a teacher and a student about the French Revolution.
+Explain neural networks to a curious twelve-year-old.
+Write three sentences about the human immune system in Chinese.
+Give five surprising facts about renewable energy, each with one sentence of context.
+Summarize the main debates around black holes.
+Summarize the main debates around DNA replication.
+Write three sentences about renewable energy in Italian.
+Write TypeScript code that reads a JSON file and prints the ten most common keys.
+Write three sentences about DNA replication in Russian.
+Show a JavaScript implementation of binary search with tests.
+Write a dialogue between a teacher and a student about quantum entanglement.
+Refactor this idea into idiomatic JavaScript: a loop that retries an HTTP request with exponential backoff.
+Create a quiz of six multiple-choice questions about coral reefs with answers.
+Draft a one-page study guide on jazz history.
+Write three sentences about quantum entanglement in French.
+Produce a Markdown table comparing four aspects of cryptography.
+Explain sleep in simple Romanian.
+Create a quiz of six multiple-choice questions about plate tectonics with answers.
+Write a SQL schema for a database that tracks research papers about photosynthesis, with example queries.
+Give five surprising facts about the water cycle, each with one sentence of context.
+Write a news-style article about a new discovery related to blockchain.
+Write a JavaScript function that parses a CSV line, handling quoted fields.
+Produce a Markdown table comparing four aspects of climate change.
+Show a Swift implementation of binary search with tests.
+Write a SQL schema for a database that tracks research papers about sleep, with example queries.
+Produce a Markdown table comparing four aspects of DNA replication.
+Write YAML configuration for a hypothetical service that monitors renewable energy data.
+Write a dialogue between a teacher and a student about jazz history.
+Create a quiz of six multiple-choice questions about the Silk Road with answers.
+Write three sentences about sleep in Chinese.
+Write a dialogue between a teacher and a student about honeybees.
+Create a quiz of six multiple-choice questions about climate change with answers.
+Refactor this idea into idiomatic Kotlin: a loop that retries an HTTP request with exponential backoff.
+Write a short essay on plate tectonics with three sections.
+Implement a small tokenizer for arithmetic expressions in Rust.
+Write a news-style article about a new discovery related to supply and demand.
+Give five surprising facts about the printing press, each with one sentence of context.
+Compare two common misconceptions about the water cycle and correct them.
+Write a short essay on blockchain with three sections.
+Write YAML configuration for a hypothetical service that monitors the Silk Road data.
+Explain neural networks in simple Portuguese.
+Explain antibiotics in simple Korean.
+Write a dialogue between a teacher and a student about the Moon landing.
+Explain the difference between stack and heap memory with a SQL example.
+Write a news-style article about a new discovery related to the Moon landing.
+Translate a short paragraph about vaccines into French, then explain two translation choices.
+Draft a one-page study guide on the water cycle.
+Explain honeybees to a curious twelve-year-old.
+Create a quiz of six multiple-choice questions about volcanoes with answers.
+Write a dialogue between a teacher and a student about cryptography.
+Write three sentences about the stock market in Spanish.
+Implement a small tokenizer for arithmetic expressions in Bash.
+Write three sentences about the Silk Road in Italian.
+Write a SQL schema for a database that tracks research papers about the stock market, with example queries.
+Return a JSON object describing quantum entanglement with fields name, summary, key_facts (array), and related_topics.
+Create a quiz of six multiple-choice questions about renewable energy with answers.
+Write a dialogue between a teacher and a student about supply and demand.
+Translate a short paragraph about inflation into Italian, then explain two translation choices.
+Compare two common misconceptions about electric cars and correct them.
+Compare two common misconceptions about sleep and correct them.
+Write a dialogue between a teacher and a student about inflation.
+Draft a one-page study guide on the human immune system.
+Write a dialogue between a teacher and a student about DNA replication.
+Explain the stock market in simple Romanian.
+Write a dialogue between a teacher and a student about photosynthesis.
+Refactor this idea into idiomatic Haskell: a loop that retries an HTTP request with exponential backoff.
+Return a JSON object describing the water cycle with fields name, summary, key_facts (array), and related_topics.
+Compare two common misconceptions about antibiotics and correct them.
+Write a short essay on antibiotics with three sections.
+Translate a short paragraph about the French Revolution into German, then explain two translation choices.
+Explain the difference between stack and heap memory with a Swift example.
+Implement a thread-safe LRU cache in JavaScript and explain the design.
+Return a JSON object describing the stock market with fields name, summary, key_facts (array), and related_topics.
+Translate a short paragraph about the Roman Empire into Hindi, then explain two translation choices.
+Explain jazz history in simple Chinese.
+Write three sentences about compound interest in Arabic.
+Explain photosynthesis in simple Russian.
+Write three sentences about DNA replication in Portuguese.
+Write a dialogue between a teacher and a student about blockchain.
+Explain GPS to a curious twelve-year-old.
+Write three sentences about quantum entanglement in Romanian.
+Summarize the main debates around plate tectonics.
+Produce a Markdown table comparing four aspects of supply and demand.
+Produce a Markdown table comparing four aspects of plate tectonics.
+Summarize the main debates around the printing press.
+Explain compound interest in simple Spanish.
+Translate a short paragraph about vaccines into Italian, then explain two translation choices.
+Write a dialogue between a teacher and a student about coral reefs.
+Write a short essay on honeybees with three sections.
+Write a Bash function that parses a CSV line, handling quoted fields.
+Write a SQL schema for a database that tracks research papers about DNA replication, with example queries.
+Explain jazz history to a curious twelve-year-old.
+Write a short essay on jazz history with three sections.
+Return a JSON object describing jazz history with fields name, summary, key_facts (array), and related_topics.
+Create a quiz of six multiple-choice questions about vaccines with answers.
+Write a short essay on climate change with three sections.
+Produce a Markdown table comparing four aspects of inflation.
+Give five surprising facts about the stock market, each with one sentence of context.
+Explain vaccines to a curious twelve-year-old.
+Implement a small tokenizer for arithmetic expressions in Go.
+Refactor this idea into idiomatic TypeScript: a loop that retries an HTTP request with exponential backoff.
+Draft a one-page study guide on the Roman Empire.
+Translate a short paragraph about neural networks into Japanese, then explain two translation choices.
+Return a JSON object describing coral reefs with fields name, summary, key_facts (array), and related_topics.
+Return a JSON object describing honeybees with fields name, summary, key_facts (array), and related_topics.
+Write a SQL schema for a database that tracks research papers about the Silk Road, with example queries.
+Produce a Markdown table comparing four aspects of electric cars.
+Show a C implementation of binary search with tests.
+Write a Ruby program that walks a directory tree and sums file sizes by extension.
+Compare two common misconceptions about compound interest and correct them.
+Write a short essay on sleep with three sections.
+Summarize the main debates around the Moon landing.
+Write a short essay on inflation with three sections.
+Return a JSON object describing cryptography with fields name, summary, key_facts (array), and related_topics.
+Return a JSON object describing sleep with fields name, summary, key_facts (array), and related_topics.
+Write a dialogue between a teacher and a student about sleep.
+Produce a Markdown table comparing four aspects of photosynthesis.
+Write three sentences about the water cycle in Japanese.
+Create a quiz of six multiple-choice questions about antibiotics with answers.
+Write three sentences about the Roman Empire in Romanian.
+Give five surprising facts about supply and demand, each with one sentence of context.
+Write a TypeScript function that parses a CSV line, handling quoted fields.
+Produce a Markdown table comparing four aspects of vaccines.
+Write a news-style article about a new discovery related to GPS.
+Write a Mojo program that walks a directory tree and sums file sizes by extension.
+Summarize the main debates around electric cars.
+Summarize the main debates around GPS.
+Refactor this idea into idiomatic C++: a loop that retries an HTTP request with exponential backoff.
+Give five surprising facts about coral reefs, each with one sentence of context.
+Draft a one-page study guide on blockchain.
+Translate a short paragraph about photosynthesis into Spanish, then explain two translation choices.
+Summarize the main debates around photosynthesis.
+Write Ruby code that reads a JSON file and prints the ten most common keys.
+Implement a small tokenizer for arithmetic expressions in SQL.
+Translate a short paragraph about plate tectonics into Arabic, then explain two translation choices.
+Compare two common misconceptions about honeybees and correct them.
+Return a JSON object describing the printing press with fields name, summary, key_facts (array), and related_topics.
+Write a SQL schema for a database that tracks research papers about jazz history, with example queries.
+Give five surprising facts about antibiotics, each with one sentence of context.
+Explain the difference between stack and heap memory with a C++ example.
+Draft a one-page study guide on the Moon landing.
+Write a news-style article about a new discovery related to jazz history.
+Explain supply and demand in simple German.
+Write a dialogue between a teacher and a student about renewable energy.
+Explain inflation in simple Russian.
+Compare two common misconceptions about the Moon landing and correct them.
+Create a quiz of six multiple-choice questions about neural networks with answers.
+Write a short essay on the Moon landing with three sections.
+Return a JSON object describing climate change with fields name, summary, key_facts (array), and related_topics.
+Explain compound interest in simple Russian.
+Translate a short paragraph about climate change into Russian, then explain two translation choices.
+Write YAML configuration for a hypothetical service that monitors electric cars data.
+Suggest names for a small bakery and explain each.
+Write YAML configuration for a hypothetical service that monitors antibiotics data.
+Create a quiz of six multiple-choice questions about compound interest with answers.
+Write a dialogue between a teacher and a student about black holes.
+Draft a one-page study guide on renewable energy.
+Write a C function that parses a CSV line, handling quoted fields.
+Draft a one-page study guide on plate tectonics.
+Write a Rust program that walks a directory tree and sums file sizes by extension.
+Explain quantum entanglement to a curious twelve-year-old.
+Write three sentences about black holes in Portuguese.
+Write a SQL schema for a database that tracks research papers about black holes, with example queries.
+Write a Kotlin program that walks a directory tree and sums file sizes by extension.
+Write a Haskell program that walks a directory tree and sums file sizes by extension.
+Translate a short paragraph about jazz history into Hindi, then explain two translation choices.
+Write SQL code that reads a JSON file and prints the ten most common keys.
+Write YAML configuration for a hypothetical service that monitors the human immune system data.
+Draft a one-page study guide on sleep.
+Implement a small tokenizer for arithmetic expressions in C++.
+Produce a Markdown table comparing four aspects of the Roman Empire.
+Translate a short paragraph about electric cars into Arabic, then explain two translation choices.
+Show a TypeScript implementation of binary search with tests.
+Explain DNA replication to a curious twelve-year-old.
+Write a dialogue between a teacher and a student about compound interest.
+Create a quiz of six multiple-choice questions about the French Revolution with answers.
+Implement a thread-safe LRU cache in Mojo and explain the design.
+Give five surprising facts about jazz history, each with one sentence of context.
+Produce a Markdown table comparing four aspects of the printing press.
+Translate a short paragraph about supply and demand into French, then explain two translation choices.
+Explain the human immune system in simple Chinese.
+Implement a thread-safe LRU cache in Go and explain the design.
+Write a news-style article about a new discovery related to volcanoes.
+Draft a one-page study guide on the French Revolution.
+Create a quiz of six multiple-choice questions about sleep with answers.
+Write Kotlin code that reads a JSON file and prints the ten most common keys.
+Create a quiz of six multiple-choice questions about jazz history with answers.
+Write JavaScript code that reads a JSON file and prints the ten most common keys.
+Translate a short paragraph about cryptography into Russian, then explain two translation choices.
+Write a news-style article about a new discovery related to honeybees.
+Translate a short paragraph about the Moon landing into Portuguese, then explain two translation choices.
+Write a news-style article about a new discovery related to electric cars.
+Write YAML configuration for a hypothetical service that monitors inflation data.
+Translate a short paragraph about plate tectonics into Korean, then explain two translation choices.
+Explain the Silk Road in simple Hindi.
+Write a SQL schema for a database that tracks research papers about compound interest, with example queries.
+Translate a short paragraph about quantum entanglement into Portuguese, then explain two translation choices.
+Create a quiz of six multiple-choice questions about quantum entanglement with answers.
+Write YAML configuration for a hypothetical service that monitors the French Revolution data.
+Produce a Markdown table comparing four aspects of quantum entanglement.
+Translate a short paragraph about sleep into Japanese, then explain two translation choices.
+Translate a short paragraph about jazz history into Chinese, then explain two translation choices.
+Create a quiz of six multiple-choice questions about the water cycle with answers.
+Refactor this idea into idiomatic C: a loop that retries an HTTP request with exponential backoff.
+Write Haskell code that reads a JSON file and prints the ten most common keys.
+Compare two common misconceptions about cryptography and correct them.
+Write YAML configuration for a hypothetical service that monitors honeybees data.
+Explain sleep to a curious twelve-year-old.
+Translate a short paragraph about honeybees into Romanian, then explain two translation choices.
+Summarize the main debates around vaccines.
+Write a news-style article about a new discovery related to DNA replication.
+Summarize the main debates around jazz history.
+Return a JSON object describing compound interest with fields name, summary, key_facts (array), and related_topics.
+Summarize the main debates around blockchain.
+Give five surprising facts about inflation, each with one sentence of context.
+Write a SQL schema for a database that tracks research papers about antibiotics, with example queries.
+Give five surprising facts about the Silk Road, each with one sentence of context.
+Write a dialogue between a teacher and a student about volcanoes.
+Return a JSON object describing DNA replication with fields name, summary, key_facts (array), and related_topics.
+Compare two common misconceptions about vaccines and correct them.
+Write a dialogue between a teacher and a student about the Roman Empire.
+Write three sentences about photosynthesis in Korean.
+Produce a Markdown table comparing four aspects of the French Revolution.
+Compare two common misconceptions about GPS and correct them.
+Write a short essay on the Silk Road with three sections.
+Write three sentences about plate tectonics in Romanian.
+Give five surprising facts about the Moon landing, each with one sentence of context.
+Explain renewable energy to a curious twelve-year-old.
+Write a news-style article about a new discovery related to climate change.
+Write three sentences about the Moon landing in Italian.
+Write a Haskell function that parses a CSV line, handling quoted fields.
+Write a dialogue between a teacher and a student about antibiotics.
+Write YAML configuration for a hypothetical service that monitors sleep data.
+Write YAML configuration for a hypothetical service that monitors cryptography data.
+Implement a small tokenizer for arithmetic expressions in Mojo.
+Summarize the main debates around inflation.
+Implement a thread-safe LRU cache in Java and explain the design.
+Write YAML configuration for a hypothetical service that monitors supply and demand data.
+Explain the difference between stack and heap memory with a Ruby example.
+Write a news-style article about a new discovery related to sleep.
+Explain inflation in simple German.
+Explain vaccines in simple German.
+Write three sentences about plate tectonics in Russian.
+Explain the difference between stack and heap memory with a Mojo example.
+Translate a short paragraph about quantum entanglement into Arabic, then explain two translation choices.
+Produce a Markdown table comparing four aspects of the Silk Road.
+Produce a Markdown table comparing four aspects of black holes.
+Produce a Markdown table comparing four aspects of coral reefs.
+Return a JSON object describing the Roman Empire with fields name, summary, key_facts (array), and related_topics.
+Compare two common misconceptions about climate change and correct them.
+Write a SQL schema for a database that tracks research papers about neural networks, with example queries.
+Write a dialogue between a teacher and a student about the Silk Road.
+Implement a small tokenizer for arithmetic expressions in Swift.
+Write a JavaScript program that walks a directory tree and sums file sizes by extension.
+Explain the difference between stack and heap memory with a Java example.
+Refactor this idea into idiomatic Swift: a loop that retries an HTTP request with exponential backoff.
+Write a Kotlin function that parses a CSV line, handling quoted fields.
+Write three sentences about electric cars in Japanese.
+Draft a one-page study guide on honeybees.
+Return a JSON object describing black holes with fields name, summary, key_facts (array), and related_topics.
+Write a Ruby function that parses a CSV line, handling quoted fields.
+Write three sentences about the stock market in Russian.
+Write three sentences about photosynthesis in Japanese.
+Write Python code that reads a JSON file and prints the ten most common keys.
+Write a SQL schema for a database that tracks research papers about the Roman Empire, with example queries.
+Explain the difference between stack and heap memory with a Go example.
+Write YAML configuration for a hypothetical service that monitors vaccines data.
+Explain the difference between stack and heap memory with a Haskell example.
+Draft a one-page study guide on photosynthesis.
+Compare two common misconceptions about the stock market and correct them.
+Explain supply and demand to a curious twelve-year-old.
+Show a Python implementation of binary search with tests.
+Draft a one-page study guide on volcanoes.
+Translate a short paragraph about supply and demand into Italian, then explain two translation choices.
+Produce a Markdown table comparing four aspects of the water cycle.
+Explain the difference between stack and heap memory with a JavaScript example.
+Refactor this idea into idiomatic Ruby: a loop that retries an HTTP request with exponential backoff.
+Explain the stock market to a curious twelve-year-old.
+Write a news-style article about a new discovery related to renewable energy.
+Write a news-style article about a new discovery related to coral reefs.
+Refactor this idea into idiomatic Bash: a loop that retries an HTTP request with exponential backoff.
+Write YAML configuration for a hypothetical service that monitors the water cycle data.
+Explain the difference between stack and heap memory with a Rust example.
+Translate a short paragraph about renewable energy into Hindi, then explain two translation choices.
+Implement a thread-safe LRU cache in C++ and explain the design.
+Write Go code that reads a JSON file and prints the ten most common keys.
+Write a news-style article about a new discovery related to the stock market.
+Draft a one-page study guide on neural networks.
+Write YAML configuration for a hypothetical service that monitors neural networks data.
+Implement a thread-safe LRU cache in TypeScript and explain the design.
+Write C code that reads a JSON file and prints the ten most common keys.

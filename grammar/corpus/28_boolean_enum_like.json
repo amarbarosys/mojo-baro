@@ -1,0 +1,1 @@
+{"type": "object", "properties": {"mode": {"type": "string", "enum": ["read", "write", "read_write"]}, "strict": {"type": "boolean"}}, "required": ["mode", "strict"]}

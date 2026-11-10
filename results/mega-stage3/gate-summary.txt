@@ -1,0 +1,10 @@
+PASS build: engine + test_mega_block
+PASS kernel: ratio= 0.8703313678037544
+PASS tests: GEMM OK — 4 x 3 @ 3 x 2 matches host reference;52 kernels, 25 in registry, 0 orphans;
+PASS identity: engine-pack-q8 spec=0 mega==launch (tok/s_gen: 81.97626559399205)
+PASS identity: engine-pack-q8 spec=1 mega==launch (tok/s_gen: 127.15535081059275)
+PASS identity: engine-pack-q8 vs ref-tokens-64
+PASS identity: engine-pack-q8d spec=0 mega==launch (tok/s_gen: 81.9093169964169)
+PASS identity: engine-pack-q8d spec=1 mega==launch (tok/s_gen: 127.41393485999389)
+PASS perf: launch median 67.13 (spread 0.4%)  mega median 81.98 (spread 0.2%)  ratio 1.221
+ALL PASS

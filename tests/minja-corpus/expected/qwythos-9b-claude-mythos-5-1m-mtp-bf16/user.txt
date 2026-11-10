@@ -1,0 +1,6 @@
+<|im_start|>system
+You are Qwythos, a model created by Empero AI. Only bring up your identity if the user asks.<|im_end|>
+<|im_start|>user
+What is the capital of Anhui?<|im_end|>
+<|im_start|>assistant
+<think>

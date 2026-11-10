@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>baro UI</title>
+  <link rel="manifest" href="/web/manifest.webmanifest">
+  <link rel="icon" href="/web/icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/web/icons/icon.svg">
+  <meta name="theme-color" content="#0f1117">
+  <link rel="stylesheet" href="/web/app.css">
+</head>
+<body>
+  <header>
+    <div class="header-left">
+      <button id="settings-btn" class="icon-btn" aria-label="Settings" type="button" title="Settings">&#9881;</button>
+      <h1 id="brand-title">baro</h1>
+    </div>
+
+    <div class="header-center">
+      <div class="model-picker-group">
+        <span id="status-pill" class="status-pill offline" title="Model Status"></span>
+        <select id="model-select" aria-label="Select Model">
+          <option value="">Scanning models...</option>
+        </select>
+        <button id="model-load-btn" type="button" class="btn-sm">Load</button>
+        <button id="model-stop-btn" type="button" class="btn-sm danger-sm" hidden>Stop</button>
+      </div>
+    </div>
+
+    <div class="header-right">
+      <span id="telemetry-badge" class="telemetry-badge" title="Generation Telemetry">0 tok/s</span>
+      <button id="new-chat-btn" class="icon-btn" aria-label="New chat" type="button" title="New Chat">&#10133;</button>
+    </div>
+  </header>
+
+  <main id="messages" data-role="message-list">
+    <p class="empty" id="empty-hint">No conversation yet. Say something.</p>
+  </main>
+
+  <form id="composer" autocomplete="off">
+    <button id="mic" class="icon-btn" type="button" aria-label="Voice input" hidden>&#127908;</button>
+    <textarea id="message-input" rows="1" placeholder="Message baro..." required></textarea>
+    <button id="send-button" type="submit" aria-label="Send">&#10148;</button>
+  </form>
+
+  <div id="settings-backdrop" class="sheet-backdrop" hidden>
+    <div class="sheet" role="dialog" aria-label="Settings">
+      <h2>Generation & Model Settings</h2>
+
+      <div class="field">
+        <label for="server-address">Server Address</label>
+        <input id="server-address" type="text" placeholder="http://127.0.0.1:8094" inputmode="url">
+      </div>
+
+      <div class="field">
+        <label for="temperature">Temperature <span id="temperature-val">0.7</span></label>
+        <input id="temperature" type="range" min="0" max="2" step="0.1" value="0.7">
+      </div>
+
+      <div class="field">
+        <label for="max-tokens">Max Tokens</label>
+        <input id="max-tokens" type="number" min="1" max="8192" value="512">
+      </div>
+
+      <div class="field-grid">
+        <div>
+          <label for="top-p">Top-p</label>
+          <input id="top-p" type="number" min="0" max="1" step="0.01" value="1">
+        </div>
+        <div>
+          <label for="top-k">Top-k</label>
+          <input id="top-k" type="number" min="0" value="0">
+        </div>
+        <div>
+          <label for="min-p">Min-p</label>
+          <input id="min-p" type="number" min="0" max="1" step="0.01" value="0">
+        </div>
+        <div>
+          <label for="seed">Seed</label>
+          <input id="seed" type="number" placeholder="random">
+        </div>
+      </div>
+
+      <div class="field-grid" style="margin-top: 10px;">
+        <div>
+          <label for="frequency-penalty">Freq Penalty</label>
+          <input id="frequency-penalty" type="number" step="0.1" value="0">
+        </div>
+        <div>
+          <label for="presence-penalty">Presence Penalty</label>
+          <input id="presence-penalty" type="number" step="0.1" value="0">
+        </div>
+      </div>
+
+      <div class="field" style="margin-top: 10px;">
+        <label for="stop-sequences">Stop Sequences</label>
+        <input id="stop-sequences" type="text" placeholder="comma-separated">
+      </div>
+
+      <div class="checkbox-grid">
+        <label><input id="spec" type="checkbox"> Speculative decoding</label>
+        <label><input id="thinking" type="checkbox" checked> Enable thinking</label>
+        <label><input id="hidden" type="checkbox"> Include hidden states</label>
+        <label><input id="logprobs" type="checkbox"> Include logprobs</label>
+      </div>
+
+      <div class="field" style="margin-top: 10px;">
+        <label for="json-schema">JSON Schema</label>
+        <textarea id="json-schema" placeholder="Optional JSON schema"></textarea>
+      </div>
+
+      <div class="field">
+        <label for="system-prompt">System Prompt</label>
+        <textarea id="system-prompt" placeholder="Optional system prompt..."></textarea>
+      </div>
+
+      <div class="row-buttons">
+        <button type="button" id="settings-close">Close</button>
+        <button type="button" id="settings-clear" class="primary">Clear Conversation</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/web/app.js" defer></script>
+</body>
+</html>

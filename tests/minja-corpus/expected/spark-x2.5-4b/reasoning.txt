@@ -1,0 +1,2 @@
+<｜start▁of▁sentence｜><|System|>
+you are a helpful assistant.<｜end▁of▁sentence｜><｜start▁of▁sentence｜><|User|>Think.<｜end▁of▁sentence｜><｜start▁of▁sentence｜><|Bot|><think>step 1, step 2</think>Done.<｜end▁of▁sentence｜><｜start▁of▁sentence｜><|User|>ok<｜end▁of▁sentence｜><｜start▁of▁sentence｜><|Bot|><think>

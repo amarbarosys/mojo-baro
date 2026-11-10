@@ -1,0 +1,1 @@
+{"messages":[{"role":"user","content":"Q"}],"latent_notes":[{"from":"colleague 1","text":"  The answer is 7.  \n\n"}],"latent_instruction":"Answer.","add_generation_prompt":true}

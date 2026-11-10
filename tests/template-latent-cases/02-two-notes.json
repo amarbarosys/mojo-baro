@@ -1,0 +1,1 @@
+{"messages":[{"role":"system","content":"Be brief."},{"role":"user","content":"Question?"}],"latent_notes":[{"from":"worker A","text":"Result is 42."},{"from":"worker B","text":"Result is 41."}],"latent_instruction":"Which result is right? Reply with the number.","enable_thinking":false,"add_generation_prompt":true}

@@ -1,0 +1,28 @@
+[package]
+name = "baro-serve"
+version = "0.1.0"
+edition = "2021"
+description = "OpenAI-compatible HTTP front for the mojo-baro engine (serve/engine.mojo, BARO_SERVE=1)"
+license = "MIT"
+publish = false
+
+[[bin]]
+name = "baro-serve"
+path = "src/main.rs"
+
+[dependencies]
+axum = { version = "0.8", features = ["json", "multipart"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "io-util", "sync", "signal", "net", "time", "fs"] }
+tokio-stream = "0.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+futures-core = "0.3"
+tokenizers = { version = "0.23", default-features = false, features = ["onig"] }
+minijinja = { version = "2", features = ["loader", "json", "loop_controls", "preserve_order"] }
+minijinja-contrib = { version = "2", features = ["pycompat"] }
+libc = "0.2.189"
+mdns-sd = "0.21.3"
+reqwest = { version = "0.12", default-features = false, features = ["stream", "json", "rustls-tls"] }
+
+[profile.release]
+opt-level = 2

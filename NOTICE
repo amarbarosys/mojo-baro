@@ -1,0 +1,27 @@
+mojo-baro
+Copyright 2026 amarbaro.org / amarbaro.com
+
+Licensed under the Apache License, Version 2.0. See LICENSE.
+
+This product includes third-party material:
+
+- TOML parser, vendored at `toml/` as the reader behind `tools/baro --profile`.
+  Copyright DataBooth, from github.com/DataBooth/mojo-toml, licensed under
+  Apache-2.0. Its license text is kept with it at `toml/LICENSE`.
+
+- Pre-tokenizer regular expressions in `serve/pretok-table.json`, transcribed
+  from llama.cpp's `src/llama-vocab.cpp` and `convert_hf_to_gguf_update.py` at
+  commit 3057bb66c, Copyright the llama.cpp authors, licensed under MIT. The
+  file records that origin in its own `source` and `llama_cpp_commit` fields,
+  and `tools/pretok-check.py` compares this repo's tokenizer against it.
+
+llama.cpp itself is never vendored or redistributed. It is fetched at a pinned
+commit when a benchmark or gate needs it as the reference arm, and it stays
+under its own MIT license wherever it is checked out.
+
+Model weights are not distributed with this repository. Each model carries its
+own license from its publisher.
+
+The vendored packages `uregex/`, `minja/`, `latentos/` and `grammar/` are this
+project's own work, kept as real files rather than paths outside the tree so a
+clone builds without any sibling checkout.

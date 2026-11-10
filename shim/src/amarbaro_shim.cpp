@@ -1,0 +1,384 @@
+#include <algorithm>
+#include <cstring>
+#include "amarbaro_shim.h"
+
+#include <hip/hip_runtime.h>
+#include <hipblaslt/hipblaslt.h>
+#include <hipblaslt/hipblaslt-ext.hpp>
+
+#include <cstdint>
+#include <string>
+#include <vector>
+
+#define BARO_MAX_ALGOS 32
+#define BARO_TUNE_REPS 5
+#define BARO_SEARCH_WORKSPACE (64ull * 1024 * 1024)
+
+namespace {
+thread_local std::string g_last_error;
+
+void set_error(const char *what) { g_last_error = what; }
+} // namespace
+
+namespace {
+/* Grown to the search budget during a search, then shrunk to what the cached
+   winners need. */
+bool ensure_workspace(amarbaro_ctx *ctx, size_t bytes);
+}
+
+struct amarbaro_ctx {
+  hipStream_t stream;
+  hipblasLtHandle_t lt;
+  /* Workspace and algorithm selection are cached across calls. Doing the
+     heuristic lookup and a hipMalloc per call costs more than the GEMM at
+     these sizes and made hipBLASLt benchmark below a naive kernel. */
+  void *workspace;
+  size_t workspace_size;
+  hipblasLtMatmulAlgo_t algo;
+  /* Workspace the cached (NN / NT) winner needs. The two entries share one
+     workspace buffer, so it must cover the larger of the two. */
+  size_t ws_need, ws_need_nt;
+  int cached_m, cached_n, cached_k;
+  int n_algos, chosen_algo;
+  /* Best (algorithm, splitK, workgroup-mapping) found for the cached shape.
+     splitK and wgm are only reachable through the ext API and are worth far
+     more than algorithm choice alone on gfx1100. */
+  int best_splitk, best_wgm;
+  bool have_tuned;
+  hipDataType cached_dt;
+  /* Same, for the NT (opB = HIPBLAS_OP_T) entry -- a different kernel
+     population, so the tuned (algo, splitK, wgm) does not transfer. */
+  hipblasLtMatmulAlgo_t algo_nt;
+  int cached_m_nt, cached_n_nt, cached_k_nt;
+  int n_algos_nt, chosen_algo_nt;
+  int best_splitk_nt, best_wgm_nt;
+  bool have_tuned_nt;
+  hipDataType cached_dt_nt;
+  /* How many times a shape change ran the tuning search (NN and NT together): the search lands inside whatever the
+     caller is timing, so a bench records this count as part of the arm's identity (amarbaro_tune_count). */
+  int tune_count;
+};
+
+extern "C" amarbaro_ctx *amarbaro_init(int device_id) {
+  if (hipSetDevice(device_id) != hipSuccess) {
+    set_error("hipSetDevice failed");
+    return nullptr;
+  }
+  auto *ctx = new amarbaro_ctx{};
+  if (hipStreamCreate(&ctx->stream) != hipSuccess) {
+    set_error("hipStreamCreate failed");
+    delete ctx;
+    return nullptr;
+  }
+  /* Workspace is sized to what the tuned algorithm actually needs, not to a
+     fixed budget. splitK is the consumer -- it stages partial sums -- so the
+     requirement varies with the tuned configuration and is often zero. */
+  ctx->workspace = nullptr;
+  ctx->workspace_size = 0;
+  if (hipblasLtCreate(&ctx->lt) != HIPBLAS_STATUS_SUCCESS) {
+    set_error("hipblasLtCreate failed");
+    (void)hipStreamDestroy(ctx->stream);
+    delete ctx;
+    return nullptr;
+  }
+  return ctx;
+}
+
+extern "C" void amarbaro_destroy(amarbaro_ctx *ctx) {
+  if (!ctx)
+    return;
+  if (ctx->workspace)
+    (void)hipFree(ctx->workspace);
+  hipblasLtDestroy(ctx->lt);
+  (void)hipStreamDestroy(ctx->stream);
+  delete ctx;
+}
+
+namespace {
+
+bool ensure_workspace(amarbaro_ctx *ctx, size_t bytes) {
+  if (bytes == ctx->workspace_size)
+    return true;
+  if (ctx->workspace) {
+    (void)hipFree(ctx->workspace);
+    ctx->workspace = nullptr;
+  }
+  ctx->workspace_size = 0;
+  if (bytes == 0)
+    return true;
+  if (hipMalloc(&ctx->workspace, bytes) != hipSuccess) {
+    set_error("workspace hipMalloc failed");
+    return false;
+  }
+  ctx->workspace_size = bytes;
+  return true;
+}
+
+/* Row-major A(m,k)*B(k,n) is issued as the column-major product B'(n,k)*A'(k,m),
+   so hipBLASLt sees a plain NN GEMM with the operands swapped.
+
+   nt: b is [n][k] row-major (ldb = k) instead of [k][n]. Reinterpreted
+   column-major that buffer is B_original(k,n) directly (not B^T like the NN
+   case), so the swapped operand needs OP_T (with lda = k) to land back on
+   the B'(n,k) shape the rest of the formula expects. Uses a separate cache
+   (have_tuned_nt etc.) since NT is a different kernel population. */
+int gemm_impl(amarbaro_ctx *ctx, int m, int n, int k, const void *a, const void *b,
+              void *c, float alpha, float beta, hipDataType dt, bool nt) {
+  if (!ctx || !a || !b || !c) {
+    set_error("null argument");
+    return -1;
+  }
+
+  bool &have_tuned = nt ? ctx->have_tuned_nt : ctx->have_tuned;
+  int &cached_m = nt ? ctx->cached_m_nt : ctx->cached_m;
+  int &cached_n = nt ? ctx->cached_n_nt : ctx->cached_n;
+  int &cached_k = nt ? ctx->cached_k_nt : ctx->cached_k;
+  hipDataType &cached_dt = nt ? ctx->cached_dt_nt : ctx->cached_dt;
+  hipblasLtMatmulAlgo_t &algo = nt ? ctx->algo_nt : ctx->algo;
+  int &best_splitk = nt ? ctx->best_splitk_nt : ctx->best_splitk;
+  int &best_wgm = nt ? ctx->best_wgm_nt : ctx->best_wgm;
+  int &n_algos = nt ? ctx->n_algos_nt : ctx->n_algos;
+  int &chosen_algo = nt ? ctx->chosen_algo_nt : ctx->chosen_algo;
+  size_t &ws_need = nt ? ctx->ws_need_nt : ctx->ws_need;
+
+  hipblaslt_ext::Gemm gemm(ctx->lt, nt ? HIPBLAS_OP_T : HIPBLAS_OP_N,
+                           HIPBLAS_OP_N, dt, dt, dt, dt,
+                           HIPBLAS_COMPUTE_32F);
+  hipblaslt_ext::GemmEpilogue epilogue;
+  hipblaslt_ext::GemmInputs inputs;
+  inputs.setA(const_cast<void *>(b));
+  inputs.setB(const_cast<void *>(a));
+  inputs.setC(c);
+  inputs.setD(c);
+  inputs.setAlpha(&alpha);
+  inputs.setBeta(&beta);
+
+  hipblasStatus_t problem_status;
+  if (nt) {
+    hipblaslt_ext::GemmProblemType ptype(HIPBLAS_OP_T, HIPBLAS_OP_N, dt, dt,
+                                         dt, dt, HIPBLAS_COMPUTE_32F);
+    problem_status = gemm.setProblem(n, m, k, 1, k, k, n, n, 0, 0, 0, 0,
+                                     epilogue, inputs, ptype);
+  } else {
+    problem_status = gemm.setProblem(n, m, k, 1, epilogue, inputs);
+  }
+  if (problem_status != HIPBLAS_STATUS_SUCCESS) {
+    set_error("ext setProblem failed");
+    return -1;
+  }
+
+  const bool shape_changed = !have_tuned || cached_m != m ||
+                             cached_n != n || cached_k != k ||
+                             cached_dt != dt;
+
+  if (shape_changed) {
+    /* Search needs headroom for candidates that stage partial sums. */
+    if (!ensure_workspace(ctx, BARO_SEARCH_WORKSPACE))
+      return -1;
+    hipblaslt_ext::GemmPreference pref;
+    pref.setMaxWorkspaceBytes(ctx->workspace_size);
+    std::vector<hipblasLtMatmulHeuristicResult_t> cand;
+    if (gemm.algoGetHeuristic(BARO_MAX_ALGOS, pref, cand) !=
+            HIPBLAS_STATUS_SUCCESS ||
+        cand.empty()) {
+      set_error("no hipBLASLt algorithm for this problem shape");
+      return -1;
+    }
+
+    /* Search (algorithm, splitK, wgm). splitK matters most at small sizes,
+       where a single-split GEMM cannot fill the GPU with workgroups. Paid
+       once per shape. */
+    static const int kSplitK[] = {0, 1, 2, 4, 8, 16, 32};
+    static const int kWgm[] = {0, 1, 2, 4, 8, 16};
+
+    hipEvent_t ev0, ev1;
+    if (hipEventCreate(&ev0) != hipSuccess ||
+        hipEventCreate(&ev1) != hipSuccess) {
+      set_error("hipEventCreate failed");
+      return -1;
+    }
+
+    float best_ms = -1.0f;
+    int best_algo = -1, best_sk = 0, best_wg_local = 0;
+    size_t best_need = 0;
+
+    for (size_t i = 0; i < cand.size(); ++i) {
+      for (int sk : kSplitK) {
+        for (int wg : kWgm) {
+          hipblaslt_ext::GemmTuning tuning;
+          tuning.setSplitK(static_cast<uint16_t>(sk));
+          tuning.setWgm(static_cast<int16_t>(wg));
+          size_t need = 0;
+          if (gemm.isAlgoSupported(cand[i].algo, tuning, need) !=
+                  HIPBLAS_STATUS_SUCCESS ||
+              need > ctx->workspace_size)
+            continue;
+          if (gemm.initialize(cand[i].algo, tuning, ctx->workspace, true,
+                              ctx->stream) != HIPBLAS_STATUS_SUCCESS)
+            continue;
+          if (gemm.run(ctx->stream) != HIPBLAS_STATUS_SUCCESS)
+            continue;
+          (void)hipStreamSynchronize(ctx->stream);
+
+          (void)hipEventRecord(ev0, ctx->stream);
+          for (int rep = 0; rep < BARO_TUNE_REPS; ++rep)
+            (void)gemm.run(ctx->stream);
+          (void)hipEventRecord(ev1, ctx->stream);
+          (void)hipEventSynchronize(ev1);
+
+          float ms = 0.0f;
+          if (hipEventElapsedTime(&ms, ev0, ev1) == hipSuccess &&
+              (best_ms < 0.0f || ms < best_ms)) {
+            best_ms = ms;
+            best_algo = static_cast<int>(i);
+            best_sk = sk;
+            best_wg_local = wg;
+            best_need = need;
+          }
+        }
+      }
+    }
+    (void)hipEventDestroy(ev0);
+    (void)hipEventDestroy(ev1);
+
+    if (best_algo < 0) {
+      set_error("no supported (algo, splitK, wgm) combination");
+      return -1;
+    }
+
+    /* Drop the search budget down to what the cached winners require. The
+       other entry's winner keeps its workspace: shrinking to best_need alone
+       left it with a smaller buffer than its algorithm was tuned for. */
+    const size_t other_need = nt ? ctx->ws_need : ctx->ws_need_nt;
+    if (!ensure_workspace(ctx, std::max(best_need, other_need)))
+      return -1;
+    ws_need = best_need;
+
+    algo = cand[best_algo].algo;
+    best_splitk = best_sk;
+    best_wgm = best_wg_local;
+    n_algos = static_cast<int>(cand.size());
+    chosen_algo = best_algo;
+    cached_m = m;
+    cached_n = n;
+    cached_k = k;
+    cached_dt = dt;
+    have_tuned = true;
+    ctx->tune_count++;
+  }
+
+  hipblaslt_ext::GemmTuning tuning;
+  tuning.setSplitK(static_cast<uint16_t>(best_splitk));
+  tuning.setWgm(static_cast<int16_t>(best_wgm));
+  if (gemm.initialize(algo, tuning, ctx->workspace, true, ctx->stream) !=
+      HIPBLAS_STATUS_SUCCESS) {
+    set_error("ext initialize failed");
+    return -1;
+  }
+  if (gemm.run(ctx->stream) != HIPBLAS_STATUS_SUCCESS) {
+    set_error("ext run failed");
+    return -1;
+  }
+  return 0;
+}
+
+} // namespace
+
+extern "C" int amarbaro_gemm_f16(amarbaro_ctx *ctx, int m, int n, int k, const void *a,
+                             const void *b, void *c, float alpha, float beta) {
+  return gemm_impl(ctx, m, n, k, a, b, c, alpha, beta, HIP_R_16F, false);
+}
+
+extern "C" int amarbaro_gemm_f32(amarbaro_ctx *ctx, int m, int n, int k, const void *a,
+                             const void *b, void *c, float alpha, float beta) {
+  return gemm_impl(ctx, m, n, k, a, b, c, alpha, beta, HIP_R_32F, false);
+}
+
+extern "C" int amarbaro_gemm_f16_nt(amarbaro_ctx *ctx, int m, int n, int k, const void *a,
+                                const void *b, void *c, float alpha, float beta) {
+  return gemm_impl(ctx, m, n, k, a, b, c, alpha, beta, HIP_R_16F, true);
+}
+
+extern "C" void *amarbaro_device_alloc(size_t bytes) {
+  void *ptr = nullptr;
+  if (hipMalloc(&ptr, bytes) != hipSuccess) {
+    set_error("hipMalloc failed");
+    return nullptr;
+  }
+  return ptr;
+}
+
+extern "C" void amarbaro_device_free(void *ptr) {
+  if (ptr)
+    (void)hipFree(ptr);
+}
+
+extern "C" int amarbaro_upload(amarbaro_ctx *ctx, void *dst, const void *src,
+                           size_t bytes) {
+  if (!ctx) {
+    set_error("null context");
+    return -1;
+  }
+  if (hipMemcpyHtoDAsync(reinterpret_cast<hipDeviceptr_t>(dst),
+                         const_cast<void *>(src), bytes,
+                         ctx->stream) != hipSuccess) {
+    set_error("hipMemcpyHtoDAsync failed");
+    return -1;
+  }
+  return amarbaro_sync(ctx);
+}
+
+extern "C" int amarbaro_download(amarbaro_ctx *ctx, void *dst, const void *src,
+                             size_t bytes) {
+  if (!ctx) {
+    set_error("null context");
+    return -1;
+  }
+  if (hipMemcpyDtoHAsync(dst,
+                         reinterpret_cast<hipDeviceptr_t>(const_cast<void *>(src)),
+                         bytes, ctx->stream) != hipSuccess) {
+    set_error("hipMemcpyDtoHAsync failed");
+    return -1;
+  }
+  return amarbaro_sync(ctx);
+}
+
+extern "C" int amarbaro_sync(amarbaro_ctx *ctx) {
+  if (!ctx) {
+    set_error("null context");
+    return -1;
+  }
+  if (hipStreamSynchronize(ctx->stream) != hipSuccess) {
+    set_error("hipStreamSynchronize failed");
+    return -1;
+  }
+  return 0;
+}
+
+extern "C" int amarbaro_tune_count(amarbaro_ctx *ctx) {
+  return ctx ? ctx->tune_count : -1;
+}
+
+extern "C" int amarbaro_algo_count(amarbaro_ctx *ctx) {
+  return ctx ? ctx->n_algos : 0;
+}
+
+extern "C" int amarbaro_splitk(amarbaro_ctx *ctx) { return ctx ? ctx->best_splitk : -1; }
+
+extern "C" size_t amarbaro_workspace_bytes(amarbaro_ctx *ctx) {
+  return ctx ? ctx->workspace_size : 0;
+}
+
+extern "C" int amarbaro_wgm(amarbaro_ctx *ctx) { return ctx ? ctx->best_wgm : -1; }
+
+extern "C" int amarbaro_algo_chosen(amarbaro_ctx *ctx) {
+  return ctx ? ctx->chosen_algo : -1;
+}
+
+extern "C" const char *amarbaro_last_error(void) { return g_last_error.c_str(); }
+
+extern "C" int amarbaro_ipc_open(void **out, const void *handle, unsigned flags) {
+    hipIpcMemHandle_t h;
+    std::memcpy(&h, handle, sizeof h);
+    return static_cast<int>(hipIpcOpenMemHandle(out, h, flags));
+}

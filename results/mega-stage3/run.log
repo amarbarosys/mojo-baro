@@ -1,0 +1,25 @@
+power_cap_uW=290000000 vddgfx=-100mV
+prompt            n_prompt  A_tok_s            M_tok_s            identity
+p01-water         13        66.91961445319976  81.91626654720449  PASS
+p02-python-fib    15        67.97446553228757  81.82112642238219  PASS
+p03-story         20        67.52159328495826  81.83680000902855  PASS
+p04-list-planets  16        68.0222413899061   81.84124872099017  PASS
+p05-math          15        67.95559254334113  81.83788434197862  PASS
+p06-translate     21        66.6562658204481   81.97631754152744  PASS
+p07-json          20        67.62119021409319  81.96767243659275  PASS
+p08-sql           26        66.66401555516552  81.58714514184378  PASS
+p09-explain-gpu   19        67.6212891426248   81.72860461399874  PASS
+p10-recipe        11        66.74241952470791  81.95352988214583  PASS
+p11-email         15        66.96769979994208  81.98630367783363  PASS
+p12-rust          32        67.6989814264857   81.71365826975341  PASS
+p13-haiku         9         66.90963154045858  81.91530304829662  PASS
+p14-history       7         67.96179635278143  81.86556996915577  PASS
+p15-bash          18        67.87722786354472  81.94917352782112  PASS
+p16-chat          16        68.1343031327786   81.98005452339875  PASS
+p17-summarize     59        66.35856140832333  80.99183724925311  PASS
+p18-regex         11        66.67475533754092  81.92268324407272  PASS
+p19-numbers       24        68.05567426439602  81.9002164786522   PASS
+p20-dialog        12        67.70108966934855  81.8565998844967   PASS
+A median 67.62 tok/s_gen spread 2.6%  |  M median 81.88 spread 1.2%  |  ratio 1.211  |  identity fails: none
+clock-probe: busy 172/228 samples (skipped 3 in first 1s)  sclk min/med/max 1233/3040/3317 MHz  power 59-336 W  junction max 70 C  -- .work/clock-probe-20260906-005233.log
+exit=0

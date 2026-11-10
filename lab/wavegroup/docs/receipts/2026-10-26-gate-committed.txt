@@ -1,0 +1,12 @@
+lab gate tools/gate.sh, first committed run; ALT = spark main b469c02 (arena fix), TMAX 16384
+tok 9 / 9 load_ms 83.203699
+plan PASS
+rope PASS
+weights PASS
+ref_story 64/64 equal
+engine=.work/decode sha=3f6afec43186ad24 server=~/Projects/imports/llama.cpp/build/bin/llama-server sha=5d954eb24804be38 model=~/Models/llama-3.2-1b-instruct-q4_K_M/Llama-3.2-1B-Instruct-Q4_K_M.gguf load=3.88 4.44 4.98
+ours median 571.1 tok/s, llama.cpp median 416.1, ratio median 1.375 (min 1.334, max 1.412), faster 21/21, drift 1.0093
+alt median 563.3 tok/s, ours/alt ratio median 1.014, alt/llama.cpp 1.365
+ids equal to llama.cpp: 13/21 prompts all 64; matching prefix per prompt [64, 3, 64, 64, 64, 64, 64, 64, 6, 64, 64, 45, 49, 64, 64, 64, 29, 27, 42, 28, 64]
+stint summary rerun on .work/gate/stint with the ALT id checks (24d9239 gate output):
+alt ids equal to llama.cpp: 13/21 all 64; alt ids equal to ours: 21/21 all 64, prefix [64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64]

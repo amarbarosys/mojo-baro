@@ -1,0 +1,7 @@
+<|im_start|>user
+Think.<|im_end|>
+<|im_start|>assistant
+Done.<|im_end|>
+<|im_start|>user
+ok<|im_end|>
+<|im_start|>assistant

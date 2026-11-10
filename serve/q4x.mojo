@@ -1,0 +1,2040 @@
+"""qwen4exp (Qwen3.8-Flash-Next) forward, plan p8 v0.
+
+GEMVs run on the GPU, picked per tensor by its ggml type (kernels/q4x_kernels.mojo),
+and so do the small ops (norms, hyper-connection mix, SSM glue, attention, FFN
+glue), in the order of llama.cpp src/models/qwen4exp.cpp (1744c6bde). The residual
+stream lives on the device; the host keeps the router top-10, the expert slot
+cache and the sparse indexer selection past IDX_W tokens. Weights come from the
+mmap'd GGUF shards (serve/shard_index.mojo): dense tensors are uploaded once, the
+routed experts of a layer are copied per batch, the PLE table is read 16 rows
+at a time.
+
+One forward over a batch of T tokens (layer-major, every weight read once per batch,
+every multi-row GEMM calling the m=1 dot in the same per-element order); decode is
+the T=1 batch, prefill the whole prompt.
+
+usage: q4x FIRST_SHARD N_GEN TOK...      env Q4X_DUMP=1 prints block sums
+       Q4X_FORCE=id,id,...  teacher-forces these ids after the prompt
+       Q4X_PROF=1 synchronizes at block boundaries so the prof line is per block
+       Q4X_TMAX=N KV cache length (default 8192)
+       Q4X_ECACHE_GB=N expert slot cache size (default: VRAM free after the dense/KV buffers minus Q4X_ECACHE_MARGIN_MB, default 2048)
+       Q4X_ZC=0 do not hipHostRegister the expert region (misses then memcpy through a staging buffer)
+       Q4X_EXPERTS=path writes the routed expert ids, one line per layer per token: "il id0 .. id9"
+       Q4X_MTP_TRACE=path writes draft routes and verify miss bytes (diagnostic)
+       Q4X_KEEP=path routes only to the listed experts, lines "il id" (router logit of every other expert -inf before
+           softmax and top-k, as a pruned file with the same router would; at least TOPK per layer)
+       Q4X_WARM=path preloads experts at start, lines "il id" in priority order (tools/q4x-warm.mojo), up to 80% of the slots;
+           default FIRST_SHARD.warm when that file exists, Q4X_WARM=0 turns it off
+       Q4X_SPARSE=1 enables the sparse indexer past IDX_W tokens (default dense: the sparse selection moves with
+           f32 drift at the block cut and lost the 2766-token gate, 87.5% vs dense 100%; Q4X_DENSE=1 forces dense)
+       Q4X_IDXW=N sparse-indexer window (default 2051; small values exercise the sparse path on short prompts)
+       Q4X_IDXDBG=1 prints the sparse selection per attention layer (SEL/IDX/IDXCHK lines, host recompute of k/q_proj)
+       Q4X_PREFILL=1 runs the prompt as one batched forward (batch buffers sized Q4X_TMAX); Q4X_CHUNK=N runs a single
+           sequence as forwards of N tokens instead (byte-identical, buffers sized N: for a Q4X_TMAX whose buffers do not
+           fit; 1.5x slower at 8192 as 4 x 2048, each chunk refetches its experts); Q4X_SEQ=N splits the prompt into
+           sequences of N tokens processed together in one forward (states per sequence, attention within a sequence)
+       Q4X_ATTSPLIT=N decode attention (T = 1, dense) runs as three byte-exact kernels once the context has N tokens (default 512, 0 = the one-kernel path)
+       Q4X_STDIN=1 resident mode: one request per stdin line "TAG N_GEN TOK...", engine state reset between requests
+           (the expert cache stays warm); prints "out TAG ids id..." after each request's own report lines
+       BARO_SERVE=1 BARO_PACK=FIRST_SHARD serves the baro-serve line protocol (serve/PROTOCOL.md): ready line with tmax=Q4X_TMAX,
+           per-token {"id","tok"} lines, a done line, stop sequences, greedy only (sampling fields answer an error line)
+       Q4X_HIDDEN=path appends the final-norm hidden of every position as bf16 rows (2560 x 2 B), count in path.n;
+           Q4X_HIDDEN_F32=1 writes f32 rows instead
+       Q4X_VEC=path Q4X_VEC_IDS=id,id,... after the prompt, one step per f32 row (2560 x 4 B) whose input is that
+           vector in place of the token_embd row; the id is still appended for the per-layer n-gram embedding
+       Q4X_SOFT=m after the prompt, m soft steps: input softmax(top-K logits) . token_embd rows (engine dequant),
+           rescaled to Q4X_SOFT_NORM (0 = unscaled), PLE id = the step's greedy token; Q4X_SOFT_K=K (default 1024: top-64 missed cos 0.999 on 1 of 20 prompts);
+           Q4X_SOFT_OUT=path writes the m f32 rows and path.ids (replay with Q4X_VEC / Q4X_VEC_IDS); needs Q4X_PREFILL=1
+       Q4X_MTP=path loads the MTP head (blk.48 of the model's mtp-*.gguf; routed experts requantized Q8_0 -> Q4_0, resident)
+       Q4X_SPEC=K greedy speculative decoding with up to K MTP drafts per verify window (needs Q4X_MTP); a draft
+           enters the window while the MTP head's probability is >= Q4X_SPEC_P (default 0.5). The recurrent states
+           keep K+2 slots per layer, so a rejected draft costs no recompute; output ids equal plain decoding.
+           Q4X_DRAFT_VOCAB=N: drafts are argmax over the first N output rows (default 65536; low ids are the common
+           BPE merges), the verify head always covers the full vocabulary
+       Q4X_CPUMISS=N computes up to N missed experts per layer on the CPU from the mmap (Q2_0 experts) while the
+           GPU runs the hits; the other misses are copied to VRAM as before (default 0: every miss is copied)
+"""
+from std.sys import argv, get_defined_int
+from std.builtin.sort import sort
+from std.os import getenv, setenv
+from std.os.path import exists
+from std.math import sqrt, exp, cos, sin
+from std.ffi import external_call, OwnedDLHandle
+from std.memory import bitcast, alloc
+from max.algorithm import parallelize
+from std.time import perf_counter_ns
+from max.gpu.host import DeviceContext, DeviceBuffer, HostBuffer
+from layout import TileTensor, TensorLayout, row_major, Idx
+from shard_index import ShardIndex, TensorRef, ggml_row_bytes
+from q4x_cpu import cpu_experts
+from serve_proto import read_line, parse_request, default_sample_params, cancel_pending, is_cancel_line, idle_cancel_note
+from q4x_kernels import (
+    amar_q4x_gemm, amar_q4x_q4k_row, amar_q4x_q3k_row, amar_q4x_delta, amar_q4x_fmv,
+    amar_q4x_gnorm, amar_q4x_gnorm_ffn, amar_q4x_hcdown, amar_q4x_hcup, amar_q4x_swiglu, amar_q4x_hcmix, amar_q4x_bcast,
+    amar_q4x_ssm_conv, amar_q4x_qkprep, amar_q4x_attn, amar_q4x_ffn_out,
+    amar_q4x_ple_gate, amar_q4x_ple_conv, amar_q4x_router, Q4X_SEL,
+    amar_q4x_argmax_p, amar_q4x_argmax_r, amar_q4x_mtp_in, amar_q4x_mtp_tab, amar_q4x_attn_g,
+    amar_q4x_attn_sc, amar_q4x_attn_sm, amar_q4x_attn_out,
+)
+
+comptime f32 = DType.float32
+comptime bf16 = DType.bfloat16
+comptime u8 = DType.uint8
+comptime i32 = DType.int32
+comptime i64 = DType.int64
+comptime H = 2560
+comptime HC = 4
+comptime HCD = HC * H
+comptime NL = 48
+comptime EPS = Float32(1e-6)
+comptime NE = 512
+comptime TOPK = 10
+comptime FF = 640
+comptime NQ = 24
+comptime NKV = 2
+comptime HD = 256
+comptime NROT = 64
+comptime ROPE_BASE = Float32(10000000.0)
+comptime SK = 16
+comptime SV = 48
+comptime SD = 128
+comptime OD = SV * SD
+comptime CONV_CH = 10240
+comptime PLE_L = 1
+comptime PLE_HEADS = 16
+comptime PLE_DIM = 160
+comptime PLE_EOS = 248044
+comptime PLE_HIST = 9
+comptime VOCAB = 248320
+comptime YMAX = 262144
+comptime IDX_D = 128
+comptime IDX_H = 4
+comptime IDX_R = 4
+comptime IDX_W = 2048 + IDX_R - 1
+comptime IO_N = 10336 + SV * SD
+comptime ESTAGE = 32 << 20
+comptime WARM_PCT = 80
+comptime BELL_TIMEOUT_NS = 5_000_000_000
+comptime WSTAGE = 512 << 20
+comptime NATT = NL // 4
+comptime YW = 16480
+comptime Y_Z = 10240
+comptime Y_BETA = 16384
+comptime Y_ALPHA = 16432
+comptime Y_K = NQ * 2 * HD
+comptime Y_IDX = Y_K + 2 * NKV * HD
+comptime Y_SG = 12800
+comptime Y_SU = Y_SG + FF
+comptime Y_SD = Y_SU + FF
+comptime SM_GTS = 0
+comptime SMW = 16
+comptime PF_R = 4
+comptime QS = 64
+comptime SMAX = 8
+comptime MTP_L = NL
+comptime Q8_BYTES = 34
+comptime Q4_BYTES = 18
+comptime STG_TAB = 3 * NE * 8
+comptime ATT_G_MIN = 8
+comptime AM_NB = 64
+comptime COUNT_DISPATCH = get_defined_int["Q4X_COUNT_DISPATCH", 0]() != 0
+
+comptime Vec = List[Float32]
+comptime FPtr = MutPointer[Scalar[f32], MutAnyOrigin]
+comptime BPtr = MutPointer[Scalar[u8], MutAnyOrigin]
+comptime HPtr = MutPointer[Scalar[bf16], MutAnyOrigin]
+comptime IPtr = MutPointer[Scalar[i32], MutAnyOrigin]
+comptime LPtr = MutPointer[Scalar[i64], MutAnyOrigin]
+comptime WPtr = MutPointer[Scalar[DType.uint16], MutAnyOrigin]
+
+
+def zeros(n: Int) -> Vec:
+    return Vec(length=n, fill=0)
+
+
+def rms_scale(x: Vec, off: Int, n: Int) -> Float32:
+    var s = Float64(0)
+    for i in range(n):
+        s += Float64(x[off + i]) * Float64(x[off + i])
+    return 1 / sqrt(Float32(s / Float64(n)) + EPS)
+
+
+def vsum(x: Vec) -> Float64:
+    var s = Float64(0)
+    for v in x:
+        s += Float64(v)
+    return s
+
+
+struct Q4X:
+    var ix: ShardIndex
+    var ctx: DeviceContext
+    var wd: DeviceBuffer[u8]
+    var woff: Dict[String, Int]
+    var fd: DeviceBuffer[f32]
+    var foff: Dict[String, Int]
+    var yh: HostBuffer[f32]
+    var hh: HostBuffer[f32]
+    var xh: HostBuffer[bf16]
+    var eh: HostBuffer[u8]
+    var ev: HostBuffer[u8]
+    var ebase: Int
+    var zc: Bool
+    var ec: DeviceBuffer[u8]
+    var ztab: DeviceBuffer[i64]
+    var wtsb: DeviceBuffer[f32]
+    var kbias: DeviceBuffer[f32]
+    var keepon: Bool
+    var bell: Int
+    var seq: Int32
+    var slot: Int
+    var slot_of: Dict[Int, Int]
+    var slot_key: List[Int]
+    var slot_ref: List[Bool]
+    var free_slots: List[Int]
+    var hand: Int
+    var misses: Int
+    var ebytes: Int
+    var warmed: Int
+    var tr: FileHandle
+    var tron: Bool
+    var mtr: FileHandle
+    var mtron: Bool
+    var mtround: Int
+    var mstep: Int
+    var mverify: Bool
+    var pf: Bool
+    var cap: Int
+    var T: Int
+    var S: Int
+    var kv0: Int
+    var ndt: Int
+    var rb: DeviceBuffer[f32]
+    var xnb: DeviceBuffer[f32]
+    var curb: DeviceBuffer[f32]
+    var injb: DeviceBuffer[f32]
+    var smb: DeviceBuffer[f32]
+    var yb: DeviceBuffer[f32]
+    var iob: DeviceBuffer[f32]
+    var qb: DeviceBuffer[f32]
+    var gb: DeviceBuffer[f32]
+    var scd: DeviceBuffer[f32]
+    var lgd: DeviceBuffer[f32]
+    var xxn: DeviceBuffer[bf16]
+    var xlo: DeviceBuffer[bf16]
+    var xcur: DeviceBuffer[bf16]
+    var xo: DeviceBuffer[bf16]
+    var xexp: DeviceBuffer[bf16]
+    var xsh: DeviceBuffer[bf16]
+    var yeu: DeviceBuffer[f32]
+    var ydn: DeviceBuffer[f32]
+    var selb: DeviceBuffer[i32]
+    var selh: HostBuffer[i32]
+    var dtd: DeviceBuffer[i32]
+    var dth: HostBuffer[i32]
+    var t1d: DeviceBuffer[i32]
+    var idsd: DeviceBuffer[i32]
+    var idsh: HostBuffer[i32]
+    var sstd: DeviceBuffer[i32]
+    var ssth: HostBuffer[i32]
+    var seqsd: DeviceBuffer[i32]
+    var seqsh: HostBuffer[i32]
+    var convs: DeviceBuffer[f32]
+    var sds: DeviceBuffer[f32]
+    var hists: DeviceBuffer[f32]
+    var histd: DeviceBuffer[f32]
+    var convd: DeviceBuffer[f32]
+    var sd: DeviceBuffer[f32]
+    var kcd: DeviceBuffer[f32]
+    var vcd: DeviceBuffer[f32]
+    var ikrd: DeviceBuffer[f32]
+    var ikh: HostBuffer[f32]
+    var idxw: Int
+    var attsplit: Int
+    var vish: HostBuffer[u8]
+    var visd: DeviceBuffer[u8]
+    var kvmax: Int
+    var ikr: List[Vec]
+    var ipool: List[Vec]
+    var toks: List[Int]
+    var vin: Vec
+    var dump: Bool
+    var psync: Bool
+    var pending: Bool
+    var prof: List[Int]
+    var hid: FileHandle
+    var hidon: Bool
+    var hidf32: Bool
+    var hidpath: String
+    var hidn: Int
+    var rw: Int
+    var rc: Int
+    var spec: Int
+    var mtp: Bool
+    var mexp: DeviceBuffer[u8]
+    var mgs: Int
+    var mds: Int
+    var mtab: DeviceBuffer[i64]
+    var mtiles: DeviceBuffer[i32]
+    var mxmap: DeviceBuffer[i32]
+    var mymap: DeviceBuffer[i32]
+    var xeh: DeviceBuffer[bf16]
+    var ehtd: DeviceBuffer[i32]
+    var ehth: HostBuffer[i32]
+    var vtd: DeviceBuffer[i32]
+    var vids: DeviceBuffer[i32]
+    var vprob: DeviceBuffer[f32]
+    var vidh: HostBuffer[i32]
+    var vprh: HostBuffer[f32]
+    var keep: List[Int]
+    var mcap: Int
+    var stgh: HostBuffer[u8]
+    var stgd: DeviceBuffer[u8]
+    var frows: Dict[String, Int]
+    var cpumax: Int
+    var cpuy: HostBuffer[f32]
+    var cpus: HostBuffer[f32]
+    var cpun: Int
+    var fskip: Dict[String, Int]
+    var ehoff: List[Int]
+    var v4off: List[Int]
+    var amp: DeviceBuffer[f32]
+    var dvoc: Int
+    var dc: Dict[String, Int]
+    var dn: Int
+    var role: String
+    var nofuse: Bool
+    var pend_ffn: Bool
+
+    def __init__(out self, shard: String) raises:
+        self.ix = ShardIndex(shard)
+        self.keep = List[Int]()
+        var mpath = getenv("Q4X_MTP", "")
+        self.mtp = mpath != ""
+        if self.mtp:
+            self.ix.add_file(mpath, "blk." + String(MTP_L) + ".")
+            for nm in ["ffn_gate_inp.weight", "ffn_gate_inp_shexp.weight"]:
+                var key = "blk." + String(MTP_L) + "." + nm
+                var r = self.ix[key]
+                if r.gtype != 0:
+                    continue
+                var nel = r.nbytes // 4
+                var hb = alloc[UInt16](nel)
+                var src = FPtr(unsafe_from_address=r.addr)
+                for i in range(nel):
+                    hb[i] = bitcast[DType.uint16, 1](SIMD[bf16, 1](src[i].cast[bf16]()))[0]
+                self.keep.append(Int(hb))
+                self.ix.t[key] = TensorRef(Int(hb), nel * 2, 30, r.dims.copy(), r.shard, 0)
+        self.spec = Int(getenv("Q4X_SPEC", "0"))
+        if self.spec > 0 and not self.mtp:
+            raise Error("q4x: Q4X_SPEC needs the MTP head (Q4X_MTP=path)")
+        self.rw = self.spec + 2 if self.spec > 0 else 1
+        self.rc = 0
+        var g = self.ix.gguf.ints.copy()
+        if g.get("qwen4exp.embedding_length", 0) != H or g.get("qwen4exp.block_count", 0) != NL or g.get("qwen4exp.expert_count", 0) != NE or g.get("qwen4exp.expert_used_count", 0) != TOPK or g.get("qwen4exp.hyper_connection.count", 0) != HC or g.get("qwen4exp.ssm.time_step_rank", 0) != SV or g.get("qwen4exp.ssm.group_count", 0) != SK:
+            raise Error("q4x: GGUF shapes differ from the compiled qwen4exp shapes")
+        _ = setenv("MODULAR_DEVICE_CONTEXT_MEMORY_MANAGER_SIZE_PERCENT", "2", False)
+        self.ctx = DeviceContext()
+        self.slot = 0
+        for il in range(NL):
+            var q = "blk." + String(il) + "."
+            var eb = ggml_row_bytes(self.ix[q + "ffn_gate_exps.weight"].gtype, H) * FF + ggml_row_bytes(self.ix[q + "ffn_up_exps.weight"].gtype, H) * FF + ggml_row_bytes(self.ix[q + "ffn_down_exps.weight"].gtype, FF) * H
+            self.slot = max(self.slot, (eb + 255) // 256 * 256)
+        self.woff = Dict[String, Int]()
+        self.foff = Dict[String, Int]()
+        self.frows = Dict[String, Int]()
+        self.fskip = Dict[String, Int]()
+        var total = 0
+        var ftotal = 0
+        for il in range(NL):
+            var q = "blk." + String(il) + "."
+            var runs = List[List[String]]()
+            runs.append([q + "attn_qkv.weight", q + "attn_gate.weight"])
+            runs.append([q + "attn_q.weight", q + "attn_k.weight", q + "attn_v.weight"])
+            runs.append([q + "ffn_gate_shexp.weight", q + "ffn_up_shexp.weight"])
+            for run in runs:
+                var j = 0
+                while j < len(run):
+                    if run[j] not in self.ix.t:
+                        j += 1
+                        continue
+                    var head = self.ix[run[j]]
+                    var e = j + 1
+                    var n = head.dims[1]
+                    var off = total
+                    self.woff[run[j]] = off
+                    off += head.nbytes
+                    while e < len(run) and run[e] in self.ix.t and self.ix[run[e]].gtype == head.gtype and self.ix[run[e]].dims[0] == head.dims[0]:
+                        self.woff[run[e]] = off
+                        self.fskip[run[e]] = 1
+                        off += self.ix[run[e]].nbytes
+                        n += self.ix[run[e]].dims[1]
+                        e += 1
+                    self.frows[run[j]] = n
+                    total = (off + 255) // 256 * 256
+                    j = e
+        for e in self.ix.t.items():
+            if e.key in self.woff:
+                continue
+            if self.dense_gpu(e.key, e.value):
+                self.woff[e.key] = total
+                total += (e.value.nbytes + 255) // 256 * 256
+            elif e.value.gtype == 0 or self.dev_f32(e.key):
+                self.foff[e.key] = ftotal
+                ftotal += (e.value.nbytes // (4 if e.value.gtype == 0 else 2) + 63) // 64 * 64
+        print("q4x: dense on device", total, "bytes,", len(self.woff), "tensors; f32", ftotal * 4, "bytes,", len(self.foff), "tensors")
+        self.wd = self.ctx.enqueue_create_buffer[u8](total)
+        self.fd = self.ctx.enqueue_create_buffer[f32](ftotal)
+        var stage = self.ctx.enqueue_create_host_buffer[u8](WSTAGE)
+        for e in self.woff.items():
+            var r = self.ix[e.key]
+            _ = external_call["memcpy", Int](Int(stage.unsafe_ptr()), r.addr, r.nbytes)
+            self.ctx.enqueue_copy(dst_buf=self.wd.create_sub_buffer[u8](e.value, r.nbytes), src_buf=stage.create_sub_buffer[u8](0, r.nbytes))
+            self.ctx.synchronize()
+        var fstage = self.ctx.enqueue_create_host_buffer[f32](ftotal)
+        var fs = fstage.unsafe_ptr()
+        for e in self.foff.items():
+            var r = self.ix[e.key]
+            if r.gtype == 0:
+                _ = external_call["memcpy", Int](Int(fs) + 4 * e.value, r.addr, r.nbytes)
+            else:
+                var src = WPtr(unsafe_from_address=r.addr)
+                for i in range(r.nbytes // 2):
+                    if r.gtype == 30:
+                        fs[e.value + i] = bitcast[f32, 1](SIMD[DType.uint32, 1](UInt32(src[i]) << 16))[0]
+                    else:
+                        fs[e.value + i] = bitcast[DType.float16, 1](SIMD[DType.uint16, 1](src[i])).cast[f32]()[0]
+        self.ctx.enqueue_copy(dst_buf=self.fd, src_buf=fstage)
+        self.ctx.synchronize()
+        self.kvmax = Int(getenv("Q4X_TMAX", "8192"))
+        self.pf = getenv("Q4X_PREFILL", "") != ""
+        self.cap = min(self.kvmax, Int(getenv("Q4X_CHUNK", String(self.kvmax)))) if self.pf else self.spec + 1
+        var cap = self.cap
+        var sm = SMAX if self.pf else 1
+        self.T = 0
+        self.S = 1
+        self.kv0 = 0
+        self.ndt = 0
+        self.yh = self.ctx.enqueue_create_host_buffer[f32](YMAX)
+        self.hh = self.ctx.enqueue_create_host_buffer[f32](cap * H)
+        self.xh = self.ctx.enqueue_create_host_buffer[bf16](cap * H)
+        self.eh = self.ctx.enqueue_create_host_buffer[u8](ESTAGE)
+        self.rb = self.ctx.enqueue_create_buffer[f32](cap * HCD)
+        self.xnb = self.ctx.enqueue_create_buffer[f32](cap * HCD)
+        self.curb = self.ctx.enqueue_create_buffer[f32](cap * H)
+        self.injb = self.ctx.enqueue_create_buffer[f32](cap * HC)
+        self.smb = self.ctx.enqueue_create_buffer[f32](cap * SMW)
+        self.yb = self.ctx.enqueue_create_buffer[f32](cap * YW)
+        self.iob = self.ctx.enqueue_create_buffer[f32](cap * IO_N)
+        self.qb = self.ctx.enqueue_create_buffer[f32](QS * NQ * HD)
+        self.gb = self.ctx.enqueue_create_buffer[f32](QS * NQ * HD)
+        self.scd = self.ctx.enqueue_create_buffer[f32](QS * NQ * self.kvmax)
+        self.mcap = self.spec + 1
+        self.lgd = self.ctx.enqueue_create_buffer[f32](self.mcap * VOCAB)
+        self.xxn = self.ctx.enqueue_create_buffer[bf16](cap * HCD)
+        self.xlo = self.ctx.enqueue_create_buffer[bf16](cap * H)
+        self.xcur = self.ctx.enqueue_create_buffer[bf16](cap * H)
+        self.xo = self.ctx.enqueue_create_buffer[bf16](cap * OD)
+        self.xexp = self.ctx.enqueue_create_buffer[bf16](cap * TOPK * FF)
+        self.xsh = self.ctx.enqueue_create_buffer[bf16](cap * FF)
+        self.yeu = self.ctx.enqueue_create_buffer[f32](cap * TOPK * 2 * FF)
+        self.ydn = self.ctx.enqueue_create_buffer[f32](cap * TOPK * H)
+        self.selb = self.ctx.enqueue_create_buffer[i32](cap * Q4X_SEL)
+        self.selh = self.ctx.enqueue_create_host_buffer[i32](cap * Q4X_SEL)
+        self.wtsb = self.ctx.enqueue_create_buffer[f32](cap * TOPK)
+        self.dtd = self.ctx.enqueue_create_buffer[i32](4 * cap)
+        self.dth = self.ctx.enqueue_create_host_buffer[i32](4 * cap)
+        self.t1d = self.ctx.enqueue_create_buffer[i32](4)
+        self.idsd = self.ctx.enqueue_create_buffer[i32](cap)
+        self.idsh = self.ctx.enqueue_create_host_buffer[i32](cap)
+        self.sstd = self.ctx.enqueue_create_buffer[i32](cap)
+        self.ssth = self.ctx.enqueue_create_host_buffer[i32](cap)
+        self.seqsd = self.ctx.enqueue_create_buffer[i32](2 * sm)
+        self.seqsh = self.ctx.enqueue_create_host_buffer[i32](2 * sm)
+        self.convs = self.ctx.enqueue_create_buffer[f32](sm * 3 * CONV_CH)
+        self.sds = self.ctx.enqueue_create_buffer[f32](sm * SV * SD * SD)
+        self.hists = self.ctx.enqueue_create_buffer[f32](sm * PLE_HIST * HCD)
+        var elo = 0
+        var ehi = 0
+        for e in self.ix.t.items():
+            if e.key.endswith("_exps.weight") and not e.key.startswith("blk." + String(MTP_L) + "."):
+                if elo == 0 or e.value.addr < elo:
+                    elo = e.value.addr
+                ehi = max(ehi, e.value.addr + e.value.nbytes)
+        elo = elo // 4096 * 4096
+        ehi = (ehi + 4095) // 4096 * 4096
+        self.ebase = elo
+        self.zc = False
+        _ = external_call["madvise", Int32](elo, ehi - elo, Int32(22))
+        if getenv("Q4X_ZC", "1") != "0":
+            var lib = OwnedDLHandle("/opt/rocm/lib/libamdhip64.so")
+            var rc = lib.get_function[Int32]("hipHostRegister")(elo, ehi - elo, UInt32(0x0A))
+            self.zc = rc == 0
+            if rc != 0:
+                print("q4x: hipHostRegister of the expert region rc", rc, ": misses go through the staging memcpy")
+        if self.zc:
+            self.ev = HostBuffer[u8](self.ctx, MutPointer[Scalar[u8], MutUntrackedOrigin](unsafe_from_address=elo), ehi - elo, owning=False)
+        else:
+            _ = external_call["madvise", Int32](elo, ehi - elo, Int32(3))
+            self.ev = HostBuffer[u8](self.ctx, MutPointer[Scalar[u8], MutUntrackedOrigin](unsafe_from_address=Int(self.eh.unsafe_ptr())), 1, owning=False)
+        print("q4x: expert source", "registered mmap" if self.zc else "page cache + staging memcpy (madvise WILLNEED)", (ehi - elo) >> 20, "MB")
+        self.cpumax = Int(getenv("Q4X_CPUMISS", "0"))
+        self.cpun = 0
+        self.cpuy = self.ctx.enqueue_create_host_buffer[f32](max(cap * TOPK * H, 1) if self.cpumax > 0 else 1)
+        self.cpus = self.ctx.enqueue_create_host_buffer[f32](max(cap * TOPK * (H + 2 * FF), 1) if self.cpumax > 0 else 1)
+        var stg = STG_TAB + 8 * cap * TOPK + 16 * (cap * TOPK + NE)
+        self.stgh = self.ctx.enqueue_create_host_buffer[u8](stg)
+        self.stgd = self.ctx.enqueue_create_buffer[u8](stg)
+        self.ztab = self.ctx.enqueue_create_buffer[i64](1)
+        self.ztab.enqueue_fill(0)
+        self.bell = Self.hip_coherent(4096)
+        self.seq = 0
+        self.misses = 0
+        self.ebytes = 0
+        self.warmed = 0
+        self.tron = getenv("Q4X_EXPERTS", "") != ""
+        self.tr = open(getenv("Q4X_EXPERTS", "/dev/null"), "w")
+        self.mtron = getenv("Q4X_MTP_TRACE", "") != ""
+        self.mtr = open(getenv("Q4X_MTP_TRACE", "/dev/null"), "w")
+        self.mtround = 0
+        self.mstep = 0
+        self.mverify = False
+        self.hidpath = getenv("Q4X_HIDDEN", "")
+        self.hidon = self.hidpath != ""
+        self.hidf32 = getenv("Q4X_HIDDEN_F32", "") != ""
+        self.hid = open(self.hidpath if self.hidon else "/dev/null", "w")
+        self.hidn = 0
+        self.keepon = getenv("Q4X_KEEP", "") != ""
+        self.kbias = self.ctx.enqueue_create_buffer[f32](NL * NE)
+        self.kbias.enqueue_fill(0)
+        if self.keepon:
+            var kpath = getenv("Q4X_KEEP", "")
+            var kh = self.ctx.enqueue_create_host_buffer[f32](NL * NE)
+            self.ctx.synchronize()
+            var kp = kh.unsafe_ptr()
+            for i in range(NL * NE):
+                kp[i] = Float32.MIN_FINITE
+            var kcnt = List[Int](length=NL, fill=0)
+            with open(kpath, "r") as f:
+                for line in f.read().split("\n"):
+                    var parts = String(line).split(" ")
+                    if len(parts) < 2 or line.startswith("#"):
+                        continue
+                    var kl = atol(String(parts[0]))
+                    var ke = atol(String(parts[1]))
+                    if kl < 0 or kl >= NL or ke < 0 or ke >= NE:
+                        raise Error("q4x: Q4X_KEEP line out of range: " + String(line))
+                    if kp[kl * NE + ke] != 0:
+                        kp[kl * NE + ke] = 0
+                        kcnt[kl] += 1
+            var ktot = 0
+            for il in range(NL):
+                if kcnt[il] < TOPK:
+                    raise Error("q4x: Q4X_KEEP keeps " + String(kcnt[il]) + " experts in layer " + String(il) + ", need at least " + String(TOPK))
+                ktot += kcnt[il]
+            self.ctx.enqueue_copy(dst_buf=self.kbias, src_buf=kh)
+            self.ctx.synchronize()
+            _ = kh.unsafe_ptr()
+            print("q4x: keep", ktot, "of", NL * NE, "routed experts from", kpath)
+        self.histd = self.ctx.enqueue_create_buffer[f32](self.rw * PLE_HIST * HCD)
+        self.histd.enqueue_fill(0)
+        self.convd = self.ctx.enqueue_create_buffer[f32](NL * self.rw * 3 * CONV_CH)
+        self.convd.enqueue_fill(0)
+        self.sd = self.ctx.enqueue_create_buffer[f32](NL * self.rw * SV * SD * SD)
+        self.sd.enqueue_fill(0)
+        var natt = NATT + (1 if self.mtp else 0)
+        self.kcd = self.ctx.enqueue_create_buffer[f32](natt * self.kvmax * NKV * HD)
+        self.vcd = self.ctx.enqueue_create_buffer[f32](natt * self.kvmax * NKV * HD)
+        self.ikrd = self.ctx.enqueue_create_buffer[f32](NATT * self.kvmax * IDX_D)
+        self.mgs = FF * (H // 32) * Q4_BYTES
+        self.mds = H * (FF // 32) * Q4_BYTES
+        self.mexp = self.ctx.enqueue_create_buffer[u8](3 * NE * self.mgs if self.mtp else 256)
+        self.ehth = self.ctx.enqueue_create_host_buffer[i32](4)
+        self.mtab = self.ctx.enqueue_create_buffer[i64](3 * NE)
+        var mc = self.mcap
+        self.mtiles = self.ctx.enqueue_create_buffer[i32](4 * mc * TOPK)
+        self.mxmap = self.ctx.enqueue_create_buffer[i32](mc * TOPK)
+        self.mymap = self.ctx.enqueue_create_buffer[i32](mc * TOPK)
+        self.xeh = self.ctx.enqueue_create_buffer[bf16](mc * HC * 2 * H)
+        self.ehtd = self.ctx.enqueue_create_buffer[i32](4 * mc * mc * HC)
+        self.ehth = self.ctx.enqueue_create_host_buffer[i32](4 * mc * mc * HC)
+        self.ehoff = List[Int]()
+        self.vtd = self.ctx.enqueue_create_buffer[i32](4 * mc + 4 * mc * mc)
+        self.amp = self.ctx.enqueue_create_buffer[f32](mc * AM_NB * 3)
+        self.dvoc = min(Int(getenv("Q4X_DRAFT_VOCAB", "65536")), VOCAB)
+        self.v4off = List[Int]()
+        self.vids = self.ctx.enqueue_create_buffer[i32](2 * mc)
+        self.vprob = self.ctx.enqueue_create_buffer[f32](2 * mc)
+        self.vidh = self.ctx.enqueue_create_host_buffer[i32](2 * mc)
+        self.vprh = self.ctx.enqueue_create_host_buffer[f32](2 * mc)
+        var vh = self.ctx.enqueue_create_host_buffer[i32](4 * mc + 4 * mc * mc)
+        for i in range(mc):
+            vh.unsafe_ptr()[4 * i] = 0
+            vh.unsafe_ptr()[4 * i + 1] = Int32(i)
+            vh.unsafe_ptr()[4 * i + 2] = 1
+            vh.unsafe_ptr()[4 * i + 3] = 0
+        var vo = 4 * mc
+        for n in range(1, mc + 1):
+            self.v4off.append(vo)
+            for i in range((n + PF_R - 1) // PF_R):
+                vh.unsafe_ptr()[vo] = 0
+                vh.unsafe_ptr()[vo + 1] = Int32(i * PF_R)
+                vh.unsafe_ptr()[vo + 2] = Int32(min(PF_R, n - i * PF_R))
+                vh.unsafe_ptr()[vo + 3] = 0
+                vo += 4
+        self.ctx.enqueue_copy(dst_buf=self.vtd, src_buf=vh)
+        var eo = 0
+        var eth = self.ehth.unsafe_ptr()
+        for n in range(1, mc + 1):
+            self.ehoff.append(eo)
+            var rows = n * HC
+            for i in range((rows + PF_R - 1) // PF_R):
+                eth[eo] = 0
+                eth[eo + 1] = Int32(i * PF_R)
+                eth[eo + 2] = Int32(min(PF_R, rows - i * PF_R))
+                eth[eo + 3] = 0
+                eo += 4
+        self.ctx.enqueue_copy(dst_buf=self.ehtd, src_buf=self.ehth)
+        self.ctx.synchronize()
+        if self.mtp:
+            var p = "blk." + String(MTP_L) + "."
+            var addrs = List[Int]()
+            for nm in ["ffn_gate_exps.weight", "ffn_up_exps.weight", "ffn_down_exps.weight"]:
+                var r = self.ix[p + nm]
+                if r.gtype != 8:
+                    raise Error("q4x: MTP expert tensor " + p + nm + " is ggml type " + String(r.gtype) + ", expected Q8_0")
+                addrs.append(r.addr)
+            Self.load_mtp(self.ctx, addrs, self.mexp, self.mgs, self.mcap, self.mtiles, self.mxmap, self.mymap)
+            print("q4x: MTP head output type", self.ix["output.weight"].gtype, "embd", self.ix["token_embd.weight"].gtype)
+        self.ikh = self.ctx.enqueue_create_host_buffer[f32](self.kvmax * IDX_D)
+        self.idxw = Int(getenv("Q4X_IDXW", String(IDX_W)))
+        self.attsplit = Int(getenv("Q4X_ATTSPLIT", "512"))
+        print("q4x: attsplit", self.attsplit)
+        self.vish = self.ctx.enqueue_create_host_buffer[u8](self.kvmax)
+        self.visd = self.ctx.enqueue_create_buffer[u8](self.kvmax)
+        self.ctx.synchronize()
+        var cache_bytes = Int(getenv("Q4X_ECACHE_GB", "0")) * (1 << 30)
+        if cache_bytes == 0:
+            cache_bytes = Self.vram_free() - Int(getenv("Q4X_ECACHE_MARGIN_MB", "2048")) * (1 << 20)
+        var nslots = cache_bytes // self.slot
+        if nslots < TOPK:
+            raise Error("q4x: " + String(cache_bytes) + " bytes left for the expert cache, need " + String(TOPK * self.slot))
+        print("q4x: expert cache", nslots, "slots of", self.slot, "bytes (", nslots * self.slot >> 20, "MB ); kv", self.kvmax, "; batch cap", cap)
+        self.ec = self.ctx.enqueue_create_buffer[u8](nslots * self.slot)
+        self.slot_of = Dict[Int, Int]()
+        self.slot_key = List[Int](length=nslots, fill=-1)
+        self.slot_ref = List[Bool](length=nslots, fill=False)
+        self.free_slots = List[Int]()
+        for c in range(nslots):
+            self.free_slots.append(nslots - 1 - c)
+        self.hand = 0
+        self.ikr = List[Vec]()
+        self.ipool = List[Vec]()
+        for _ in range(NATT):
+            self.ikr.append(Vec())
+            self.ipool.append(Vec())
+        self.toks = List[Int]()
+        self.vin = Vec()
+        self.dump = getenv("Q4X_DUMP", "") != ""
+        self.psync = getenv("Q4X_PROF", "") != ""
+        self.pending = False
+        self.dc = Dict[String, Int]()
+        self.dn = 0
+        self.role = String()
+        self.nofuse = getenv("Q4X_UNFUSED", "") != ""
+        self.pend_ffn = False
+        self.prof = List[Int](length=8, fill=0)
+        self.ctx.synchronize()
+        var warm = getenv("Q4X_WARM", "")
+        if warm == "" and exists(shard + ".warm"):
+            warm = shard + ".warm"
+        if warm != "" and warm != "0":
+            var keep = len(self.slot_key) - len(self.slot_key) * WARM_PCT // 100
+            with open(warm, "r") as f:
+                for line in f.read().split("\n"):
+                    if len(self.free_slots) <= keep:
+                        break
+                    var parts = String(line).split(" ")
+                    if len(parts) < 2 or line.startswith("#"):
+                        continue
+                    _ = self.fetch(atol(String(parts[0])), atol(String(parts[1])))
+                    self.warmed += 1
+                    if self.warmed % TOPK == 0:
+                        self.ctx.synchronize()
+            self.ctx.synchronize()
+            self.misses = 0
+            self.ebytes = 0
+            print("q4x: warmed", self.warmed, "experts from", warm, "(", len(self.free_slots), "slots left free )")
+
+    @staticmethod
+    def q8_to_q4(src: Int, dst: Int, nblk: Int):
+        var s = BPtr(unsafe_from_address=src)
+        var d = BPtr(unsafe_from_address=dst)
+        for b in range(nblk):
+            var so = b * Q8_BYTES
+            var do = b * Q4_BYTES
+            var d8 = bitcast[DType.float16, 1](SIMD[DType.uint16, 1](UInt16(s[so]) | (UInt16(s[so + 1]) << 8))).cast[f32]()[0]
+            var amax = Float32(0)
+            var mx = Float32(0)
+            for j in range(32):
+                var v = d8 * Float32(bitcast[DType.int8, 1](SIMD[u8, 1](s[so + 2 + j]))[0])
+                if abs(v) > amax:
+                    amax = abs(v)
+                    mx = v
+            var dd = mx / -8
+            var idd = Float32(1) / dd if dd != 0 else Float32(0)
+            var h = bitcast[DType.uint16, 1](SIMD[DType.float16, 1](dd.cast[DType.float16]()))[0]
+            d[do] = (h & 0xFF).cast[u8]()
+            d[do + 1] = (h >> 8).cast[u8]()
+            for j in range(16):
+                var x0 = d8 * Float32(bitcast[DType.int8, 1](SIMD[u8, 1](s[so + 2 + j]))[0]) * idd
+                var x1 = d8 * Float32(bitcast[DType.int8, 1](SIMD[u8, 1](s[so + 2 + j + 16]))[0]) * idd
+                var q0 = min(15, Int(x0 + 8.5))
+                var q1 = min(15, Int(x1 + 8.5))
+                d[do + 2 + j] = UInt8(q0 | (q1 << 4))
+
+    @staticmethod
+    def load_mtp(ctx: DeviceContext, addrs: List[Int], mexp: DeviceBuffer[u8], mgs: Int, mcap: Int, mtiles: DeviceBuffer[i32], mxmap: DeviceBuffer[i32], mymap: DeviceBuffer[i32]) raises:
+        var t0 = perf_counter_ns()
+        var nb = mgs // Q4_BYTES
+        var hst = ctx.enqueue_create_host_buffer[u8](3 * NE * mgs)
+        var hp = Int(hst.unsafe_ptr())
+        for k in range(3):
+            var src = addrs[k]
+            var dst = hp + k * NE * mgs
+            def part(e: Int) {imm src, imm dst, imm nb}:
+                Q4X.q8_to_q4(src + e * nb * Q8_BYTES, dst + e * nb * Q4_BYTES, nb)
+            parallelize(part, NE, 16)
+        ctx.enqueue_copy(dst_buf=mexp, src_buf=hst)
+        var th = ctx.enqueue_create_host_buffer[i32](4 * mcap * TOPK)
+        var xh = ctx.enqueue_create_host_buffer[i32](mcap * TOPK)
+        var yh = ctx.enqueue_create_host_buffer[i32](mcap * TOPK)
+        for g in range(mcap * TOPK):
+            th.unsafe_ptr()[4 * g] = Int32(g)
+            th.unsafe_ptr()[4 * g + 1] = Int32(g)
+            th.unsafe_ptr()[4 * g + 2] = 1
+            th.unsafe_ptr()[4 * g + 3] = 0
+            xh.unsafe_ptr()[g] = Int32(g // TOPK)
+            yh.unsafe_ptr()[g] = Int32(g)
+        ctx.enqueue_copy(dst_buf=mtiles, src_buf=th)
+        ctx.enqueue_copy(dst_buf=mxmap, src_buf=xh)
+        ctx.enqueue_copy(dst_buf=mymap, src_buf=yh)
+        ctx.synchronize()
+        print("q4x: MTP experts Q8_0 -> Q4_0", 3 * NE * mgs >> 20, "MB resident, s", Float64(perf_counter_ns() - t0) / 1e9)
+
+    @staticmethod
+    def hip_coherent(nbytes: Int) raises -> Int:
+        var lib = OwnedDLHandle("/opt/rocm/lib/libamdhip64.so")
+        var addr = Int(0)
+        var rc = lib.get_function[Int32]("hipHostMalloc")(MutPointer(to=addr), nbytes, UInt32(0x40000002))
+        if rc != 0 or addr == 0:
+            raise Error("q4x: hipHostMalloc(coherent) rc " + String(rc))
+        var z = BPtr(unsafe_from_address=addr)
+        for i in range(nbytes):
+            z[unsafe_offset=i] = 0
+        return addr
+
+    @staticmethod
+    def vram_free() raises -> Int:
+        var best = 0
+        var free = 0
+        for card in range(4):
+            var d = "/sys/class/drm/card" + String(card) + "/device/"
+            try:
+                var total = atol(String(open(d + "mem_info_vram_total", "r").read()).strip())
+                var used = atol(String(open(d + "mem_info_vram_used", "r").read()).strip())
+                if total > best:
+                    best = total
+                    free = total - used
+            except:
+                pass
+        if best == 0:
+            raise Error("q4x: no amdgpu VRAM counters under /sys/class/drm; set Q4X_ECACHE_GB")
+        return free
+
+    def victim(mut self) raises -> Int:
+        if len(self.free_slots) > 0:
+            return self.free_slots.pop()
+        var n = len(self.slot_key)
+        while self.slot_ref[self.hand]:
+            self.slot_ref[self.hand] = False
+            self.hand = (self.hand + 1) % n
+        var sl = self.hand
+        self.hand = (self.hand + 1) % n
+        _ = self.slot_of.pop(self.slot_key[sl])
+        return sl
+
+    @staticmethod
+    def dev_f32(name: String) -> Bool:
+        return name.endswith("ple_conv1d.weight")
+
+    @staticmethod
+    def dense_gpu(name: String, r: TensorRef) -> Bool:
+        if r.gtype == 0 or r.gtype == 1 or name.endswith("_exps.weight") or name == "per_layer_token_embd.weight":
+            return False
+        return r.gtype != 30 or not Q4X.dev_f32(name)
+
+    @staticmethod
+    def recr(il: Int) -> Bool:
+        return (il + 1) % 4 != 0
+
+    def d(self, name: String, il: Int, x: Vec):
+        if self.dump:
+            print("D", name, il, vsum(x))
+
+    def dd(self, name: String, il: Int, buf: DeviceBuffer[f32], off: Int, n: Int, st: Int) raises:
+        if self.dump:
+            for t in range(self.T):
+                var y = self.dl(buf, off + t * st, n)
+                var s = Float64(0)
+                for i in range(n):
+                    s += Float64(y[i])
+                print("D", name, il, t, s)
+
+    def dl(self, buf: DeviceBuffer[f32], off: Int, n: Int) raises -> FPtr:
+        self.ctx.enqueue_copy(dst_buf=self.yh.create_sub_buffer[f32](0, n), src_buf=buf.create_sub_buffer[f32](off, n))
+        self.ctx.synchronize()
+        return FPtr(unsafe_from_address=Int(self.yh.unsafe_ptr()))
+
+    def fp(self, name: String) raises -> FPtr:
+        if name in self.foff:
+            return FPtr(unsafe_from_address=Int(self.fd.unsafe_ptr()) + 4 * self.foff[name])
+        raise Error("q4x: " + name + " is not on the device as f32")
+
+    def f32p(self, name: String) raises -> FPtr:
+        var r = self.ix[name]
+        if r.gtype == 0:
+            return FPtr(unsafe_from_address=r.addr)
+        raise Error("q4x: " + name + " is not F32")
+
+    @staticmethod
+    def da(buf: DeviceBuffer[f32], off: Int) -> FPtr:
+        return FPtr(unsafe_from_address=Int(buf.unsafe_ptr()) + 4 * off)
+
+    @staticmethod
+    def ia(buf: DeviceBuffer[i32]) -> IPtr:
+        return IPtr(unsafe_from_address=Int(buf.unsafe_ptr()))
+
+    @staticmethod
+    def ha(buf: DeviceBuffer[bf16]) -> HPtr:
+        return HPtr(unsafe_from_address=Int(buf.unsafe_ptr()))
+
+    @always_inline
+    def cnt(mut self, kind: String):
+        comptime if COUNT_DISPATCH:
+            if self.T == 1:
+                self.dc[kind] = self.dc.get(kind, 0) + 1
+
+    @always_inline
+    def rl(mut self, role: String):
+        comptime if COUNT_DISPATCH:
+            self.role = role
+
+    def tc(self) -> Int:
+        return (self.T + PF_R - 1) // PF_R if self.T > 1 else 1
+
+    def go[GT: Int, R: Int, KQ2: Bool, XL: TensorLayout](mut self, X: TileTensor[bf16, XL, MutAnyOrigin], wa: Int, tab: Int, tiles: Int, nt: Int, xmap: Int, ymap: Int, ya: Int, yst: Int, k: Int, n: Int, nsub: Int, rowb: Int, L: Int, act: Int, xq: Int, xqst: Int, scale: Float32) raises:
+        comptime K = amar_q4x_gemm[GT, R, KQ2, XL]
+        var pw = 2 if KQ2 else 32 // L
+        var flags = (1 if xmap != 0 else 0) | (2 if ymap != 0 else 0)
+        self.cnt("gemm " + self.role)
+        self.ctx.enqueue_function[K](X, BPtr(unsafe_from_address=wa), LPtr(unsafe_from_address=tab), IPtr(unsafe_from_address=tiles), IPtr(unsafe_from_address=xmap if xmap != 0 else tiles), IPtr(unsafe_from_address=ymap if ymap != 0 else tiles), FPtr(unsafe_from_address=ya), HPtr(unsafe_from_address=xq if xq != 0 else ya), Int32(k), Int32(n), Int32(nsub), Int32(rowb), Int32(L), Int32(yst), Int32(xqst), Int32(act), scale, Int32(flags), grid_dim=((n + 8 * pw - 1) // (8 * pw), nt), block_dim=256)
+
+    @staticmethod
+    def q2_lanes(k: Int) -> Int:
+        var nb = k // 64
+        var L = 32
+        while L > 1 and nb % L != 0:
+            L //= 2
+        return L
+
+    def launch[R: Int, XL: TensorLayout](mut self, X: TileTensor[bf16, XL, MutAnyOrigin], gt: Int, wa: Int, tab: Int, tiles: Int, nt: Int, xmap: Int, ymap: Int, ya: Int, yst: Int, k: Int, n: Int, nsub: Int, rowb: Int, act: Int = 0, xq: Int = 0, xqst: Int = 0, scale: Float32 = 0) raises:
+        var dense = tab == Int(self.ztab.unsafe_ptr())
+        var L = Self.q2_lanes(k) if gt == 42 else 32
+        if gt == 11 and dense:
+            self.go[11, R, True](X, wa, tab, tiles, nt, xmap, ymap, ya, yst, k, n, nsub, rowb, L, act, xq, xqst, scale)
+        elif gt == 11:
+            self.go[11, R, False](X, wa, tab, tiles, nt, xmap, ymap, ya, yst, k, n, nsub, rowb, L, act, xq, xqst, scale)
+        elif gt == 23 and dense:
+            self.go[23, R, True](X, wa, tab, tiles, nt, xmap, ymap, ya, yst, k, n, nsub, rowb, L, act, xq, xqst, scale)
+        elif gt == 23:
+            self.go[23, R, False](X, wa, tab, tiles, nt, xmap, ymap, ya, yst, k, n, nsub, rowb, L, act, xq, xqst, scale)
+        elif gt == 12 and dense:
+            self.go[12, R, True](X, wa, tab, tiles, nt, xmap, ymap, ya, yst, k, n, nsub, rowb, L, act, xq, xqst, scale)
+        elif gt == 14 and dense:
+            self.go[14, R, True](X, wa, tab, tiles, nt, xmap, ymap, ya, yst, k, n, nsub, rowb, L, act, xq, xqst, scale)
+        elif gt == 13:
+            self.go[13, R, False](X, wa, tab, tiles, nt, xmap, ymap, ya, yst, k, n, nsub, rowb, L, act, xq, xqst, scale)
+        elif gt == 42:
+            self.go[42, R, False](X, wa, tab, tiles, nt, xmap, ymap, ya, yst, k, n, nsub, rowb, L, act, xq, xqst, scale)
+        elif gt == 30:
+            self.go[30, R, False](X, wa, tab, tiles, nt, xmap, ymap, ya, yst, k, n, nsub, rowb, L, act, xq, xqst, scale)
+        elif gt == 20:
+            self.go[20, R, False](X, wa, tab, tiles, nt, xmap, ymap, ya, yst, k, n, nsub, rowb, L, act, xq, xqst, scale)
+        elif gt == 8:
+            self.go[8, R, False](X, wa, tab, tiles, nt, xmap, ymap, ya, yst, k, n, nsub, rowb, L, act, xq, xqst, scale)
+        elif gt == 2:
+            self.go[2, R, False](X, wa, tab, tiles, nt, xmap, ymap, ya, yst, k, n, nsub, rowb, L, act, xq, xqst, scale)
+        elif gt == 6:
+            self.go[6, R, False](X, wa, tab, tiles, nt, xmap, ymap, ya, yst, k, n, nsub, rowb, L, act, xq, xqst, scale)
+        elif gt == 16:
+            self.go[16, R, False](X, wa, tab, tiles, nt, xmap, ymap, ya, yst, k, n, nsub, rowb, L, act, xq, xqst, scale)
+        elif gt == 29:
+            self.go[29, R, False](X, wa, tab, tiles, nt, xmap, ymap, ya, yst, k, n, nsub, rowb, L, act, xq, xqst, scale)
+        else:
+            comptime if R == 1:
+                if gt == 12:
+                    self.go[12, 1, False](X, wa, tab, tiles, nt, xmap, ymap, ya, yst, k, n, nsub, rowb, L, act, xq, xqst, scale)
+                    return
+                elif gt == 14:
+                    self.go[14, 1, False](X, wa, tab, tiles, nt, xmap, ymap, ya, yst, k, n, nsub, rowb, L, act, xq, xqst, scale)
+                    return
+            raise Error("q4x: no GEMM for ggml type " + String(gt) + " at R " + String(R))
+
+    def gemm[XL: TensorLayout](mut self, X: TileTensor[bf16, XL, MutAnyOrigin], gt: Int, wa: Int, tab: Int, tiles: Int, nt: Int, xmap: Int, ymap: Int, ya: Int, yst: Int, k: Int, n: Int, nsub: Int, rowb: Int, act: Int = 0, xq: Int = 0, xqst: Int = 0, scale: Float32 = 0) raises:
+        if self.T == 1:
+            self.launch[1](X, gt, wa, tab, tiles, nt, xmap, ymap, ya, yst, k, n, nsub, rowb, act, xq, xqst, scale)
+        else:
+            self.launch[PF_R](X, gt, wa, tab, tiles, nt, xmap, ymap, ya, yst, k, n, nsub, rowb, act, xq, xqst, scale)
+
+    def gemv[XL: TensorLayout](mut self, name: String, X: TileTensor[bf16, XL, MutAnyOrigin], y: FPtr, yst: Int, act: Int = 0, xq: Int = 0, xqst: Int = 0, scale: Float32 = 0) raises -> Int:
+        var r = self.ix[name]
+        var k = r.dims[0]
+        var n = r.dims[1]
+        if name in self.fskip:
+            return n
+        comptime if COUNT_DISPATCH:
+            self.role = String(name[byte=(name.find(".", 4) + 1 if name.startswith("blk.") else 0):])
+        n = self.frows.get(name, n)
+        self.gemm(X, r.gtype, Int(self.wd.unsafe_ptr()) + self.woff[name], Int(self.ztab.unsafe_ptr()), Int(self.dtd.unsafe_ptr()), self.ndt, 0, 0, Int(y), yst, k, n, n, ggml_row_bytes(r.gtype, k), act, xq, xqst, scale)
+        return n
+
+    def fmv(mut self, name: String, x: FPtr, xst: Int, y: FPtr, yst: Int, name2: String = "") raises:
+        var r = self.ix[name]
+        if r.gtype != 30:
+            raise Error("q4x: " + name + " is not BF16")
+        var k = r.dims[0]
+        var n = r.dims[1] if len(r.dims) > 1 else 1
+        var w = WPtr(unsafe_from_address=Int(self.wd.unsafe_ptr()) + self.woff[name])
+        var w2 = w
+        var n1 = n
+        if name2 != "":
+            w2 = WPtr(unsafe_from_address=Int(self.wd.unsafe_ptr()) + self.woff[name2])
+            var r2 = self.ix[name2]
+            n += r2.dims[1] if len(r2.dims) > 1 else 1
+        self.cnt("fmv n" + String(n))
+        if self.T == 1:
+            self.ctx.enqueue_function[amar_q4x_fmv[1]](w, w2, Int32(n1), x, Int32(xst), y, Int32(yst), Int32(k), Int32(n), Int32(self.T), grid_dim=((n + 7) // 8, 1), block_dim=256)
+        else:
+            self.ctx.enqueue_function[amar_q4x_fmv[PF_R]](w, w2, Int32(n1), x, Int32(xst), y, Int32(yst), Int32(k), Int32(n), Int32(self.T), grid_dim=((n + 7) // 8, self.tc()), block_dim=256)
+
+    def embed_rows(mut self, idp: IPtr) raises:
+        var r = self.ix["token_embd.weight"]
+        var rb = ggml_row_bytes(r.gtype, H)
+        var ew = BPtr(unsafe_from_address=Int(self.wd.unsafe_ptr()) + self.woff["token_embd.weight"])
+        var ey = Self.da(self.yb, 0)
+        if r.gtype == 11:
+            self.cnt("q3k_row")
+            self.ctx.enqueue_function[amar_q4x_q3k_row](ew, ey, Int32(YW), idp, Int32(rb), Int32(H), grid_dim=((H // 256 * 8 + 63) // 64, self.T), block_dim=64)
+        elif r.gtype == 12:
+            self.cnt("q4k_row")
+            self.ctx.enqueue_function[amar_q4x_q4k_row](ew, ey, Int32(YW), idp, Int32(rb), Int32(H), grid_dim=(H // 256, self.T), block_dim=256)
+        else:
+            raise Error("q4x: token_embd type " + String(r.gtype))
+
+    def embed(mut self) raises:
+        var ey = Self.da(self.yb, 0)
+        if len(self.vin) == H:
+            var hp = self.hh.unsafe_ptr()
+            for i in range(H):
+                hp[i] = self.vin[i]
+            self.ctx.enqueue_copy(dst_buf=self.yb.create_sub_buffer[f32](0, H), src_buf=self.hh.create_sub_buffer[f32](0, H))
+        else:
+            self.embed_rows(Self.ia(self.idsd))
+        self.dd("model.input_embed", -1, self.yb, 0, H, YW)
+        self.cnt("bcast")
+        self.ctx.enqueue_function[amar_q4x_bcast](ey, Int32(YW), Self.da(self.rb, 0), Int32(HCD), grid_dim=(HCD // 256, self.T), block_dim=256)
+
+    def gnorm(mut self, x: FPtr, xst: Int, wname: String, o: FPtr, add: Int) raises:
+        self.cnt("gnorm")
+        self.ctx.enqueue_function[amar_q4x_gnorm](x, Int32(xst), self.fp(wname), o, Int32(HCD), Self.ha(self.xxn), Int32(HCD), Self.da(self.curb, 0), Int32(H), Self.da(self.injb, 0), Int32(HC), Int32(add), grid_dim=(HC, self.T), block_dim=256)
+
+    def gnorm_res(mut self, wname: String, o: FPtr) raises:
+        if self.pend_ffn:
+            self.cnt("gnorm")
+            self.ctx.enqueue_function[amar_q4x_gnorm_ffn](Self.da(self.rb, 0), Int32(HCD), self.fp(wname), o, Int32(HCD), Self.ha(self.xxn), Int32(HCD), Self.da(self.ydn, 0), Self.da(self.wtsb, 0), Self.da(self.yb, Y_SD), Int32(YW), Self.da(self.yb, NE), Int32(YW), Int32(TOPK), Self.da(self.injb, 0), Int32(HC), grid_dim=(HC, self.T), block_dim=256)
+        else:
+            self.gnorm(Self.da(self.rb, 0), HCD, wname, o, 1 if self.pending else 0)
+        self.pending = False
+        self.pend_ffn = False
+
+    def ffn_sum(mut self) raises:
+        self.cnt("ffn_out")
+        self.ctx.enqueue_function[amar_q4x_ffn_out](Self.da(self.ydn, 0), Self.da(self.wtsb, 0), Self.da(self.yb, Y_SD), Int32(YW), Self.da(self.yb, NE), Int32(YW), Self.da(self.curb, 0), Int32(TOPK), grid_dim=(H // 256, self.T), block_dim=256)
+
+    def hc_down[XL: TensorLayout](mut self, X: TileTensor[bf16, XL, MutAnyOrigin], dn: String, inj: String) raises:
+        var r = self.ix[dn]
+        var ni = self.ix[inj].dims[1]
+        self.cnt("hcdown")
+        self.ctx.enqueue_function[amar_q4x_hcdown[XL]](X, BPtr(unsafe_from_address=Int(self.wd.unsafe_ptr()) + self.woff[dn]), Int32(ggml_row_bytes(30, r.dims[0])), Int32(r.dims[0]), Int32(r.dims[1]), Self.da(self.yb, 0), Self.ha(self.xlo), Float32(1.0 / HC), WPtr(unsafe_from_address=Int(self.wd.unsafe_ptr()) + self.woff[inj]), Self.da(self.xnb, 0), Self.da(self.injb, 0), Int32(ni), grid_dim=(r.dims[1] // 8 + (ni + 7) // 8, 1), block_dim=256)
+
+    def hc_up[XL: TensorLayout](mut self, X: TileTensor[bf16, XL, MutAnyOrigin], up: String) raises:
+        var r = self.ix[up]
+        self.cnt("hcup")
+        self.ctx.enqueue_function[amar_q4x_hcup[XL]](X, BPtr(unsafe_from_address=Int(self.wd.unsafe_ptr()) + self.woff[up]), Int32(ggml_row_bytes(30, r.dims[0])), Int32(r.dims[0]), Self.da(self.xnb, 0), Self.da(self.curb, 0), Self.ha(self.xcur), grid_dim=(H // 8, 1), block_dim=256)
+
+    def hc_mix(mut self, pre: String, il: Int) raises:
+        var y = Self.da(self.yb, 0)
+        self.gnorm_res(pre + "norm.weight", Self.da(self.xnb, 0))
+        var fuse = self.T == 1 and not self.nofuse and self.ix[pre + "down.weight"].gtype == 30 and self.ix[pre + "up.weight"].gtype == 30
+        var Xn = TileTensor(self.xxn, row_major(self.cap, Idx[HCD]))
+        var inj = pre + "inject.weight"
+        if fuse and inj in self.ix.t and self.ix[inj].gtype == 30 and self.ix[pre + "down.weight"].dims[1] % 8 == 0:
+            self.hc_down(Xn, pre + "down.weight", inj)
+        else:
+            _ = self.gemv(pre + "down.weight", Xn, y, YW, 1, Int(self.xlo.unsafe_ptr()), H, Float32(1.0 / HC))
+            if inj in self.ix.t:
+                if self.ix[inj].gtype == 30:
+                    self.fmv(inj, Self.da(self.xnb, 0), HCD, Self.da(self.injb, 0), HC)
+                else:
+                    _ = self.gemv(inj, Xn, Self.da(self.injb, 0), HC)
+        var Xl = TileTensor(self.xlo, row_major(self.cap, Idx[H]))
+        if fuse:
+            self.hc_up(Xl, pre + "up.weight")
+        else:
+            _ = self.gemv(pre + "up.weight", Xl, y, YW)
+            self.cnt("hcmix")
+            self.ctx.enqueue_function[amar_q4x_hcmix](Self.da(self.xnb, 0), Int32(HCD), y, Int32(YW), Self.da(self.curb, 0), Int32(H), Self.ha(self.xcur), Int32(H), grid_dim=(H // 256, self.T), block_dim=256)
+        self.dd("hc_mixed", il, self.curb, 0, H, H)
+
+    def combine(mut self):
+        self.pending = True
+
+    def ssm_layer(mut self, il: Int) raises:
+        var p = "blk." + String(il) + "."
+        var y = Self.da(self.yb, 0)
+        var cur = Self.da(self.curb, 0)
+        var Xc = TileTensor(self.xcur, row_major(self.cap, Idx[H]))
+        _ = self.gemv(p + "attn_qkv.weight", Xc, y, YW)
+        _ = self.gemv(p + "attn_gate.weight", Xc, Self.da(self.yb, Y_Z), YW)
+        self.fmv(p + "ssm_beta.weight", cur, H, Self.da(self.yb, Y_BETA), YW, p + "ssm_alpha.weight")
+        var cst = Self.da(self.convd, il * self.rw * 3 * CONV_CH) if self.S == 1 else Self.da(self.convs, 0)
+        var sst = Self.da(self.sd, il * self.rw * SV * SD * SD) if self.S == 1 else Self.da(self.sds, 0)
+        var rc = Int32(self.rc) if self.S == 1 else Int32(0)
+        var rw = Int32(self.rw) if self.S == 1 else Int32(1)
+        if self.S > 1:
+            self.convs.enqueue_fill(0)
+            self.sds.enqueue_fill(0)
+        var seqs = Self.ia(self.seqsd)
+        self.cnt("ssm_conv")
+        self.ctx.enqueue_function[amar_q4x_ssm_conv](y, Int32(YW), cst, self.fp(p + "ssm_conv1d.weight"), Self.da(self.iob, 0), Int32(IO_N), Self.da(self.yb, Y_ALPHA), Self.da(self.yb, Y_BETA), self.fp(p + "ssm_dt.bias"), self.fp(p + "ssm_a"), seqs, rc, rw, grid_dim=(CONV_CH // SD + 1, self.S), block_dim=SD)
+        self.cnt("delta")
+        self.ctx.enqueue_function[amar_q4x_delta](sst, Self.da(self.iob, 0), Int32(IO_N), 1 / sqrt(Float32(SD)), Self.da(self.yb, Y_Z), Int32(YW), self.fp(p + "ssm_norm.weight"), Self.ha(self.xo), Int32(OD), seqs, rc, rw, grid_dim=(SV, self.S), block_dim=4 * SD)
+        self.dd("final_output", il, self.iob, 10336, SV * SD, IO_N)
+        _ = self.gemv(p + "ssm_out.weight", TileTensor(self.xo, row_major(self.cap, Idx[OD])), cur, H)
+        self.dd("linear_attn_out", il, self.curb, 0, H, H)
+
+    @staticmethod
+    def rope(mut x: Vec, off: Int, pos: Int):
+        var ts = Float32(ROPE_BASE) ** (Float32(-2.0) / NROT)
+        var theta = Float32(pos)
+        for i in range(NROT // 2):
+            var c = cos(theta)
+            var s = sin(theta)
+            var x0 = x[off + i]
+            var x1 = x[off + i + NROT // 2]
+            x[off + i] = x0 * c - x1 * s
+            x[off + i + NROT // 2] = x0 * s + x1 * c
+            theta *= ts
+
+    def indexer_vis(mut self, il: Int, ai: Int, pos: Int) raises -> Int:
+        var p = "blk." + String(il) + "."
+        var T = pos + 1
+        if getenv("Q4X_SPARSE", "") == "" or getenv("Q4X_DENSE", "") != "":
+            return 0
+        self.fmv(p + "indexer.k_proj.weight", Self.da(self.curb, 0), H, Self.da(self.ikrd, (ai * self.kvmax + pos) * IDX_D), IDX_D)
+        if T <= self.idxw:
+            return 0
+        var have = len(self.ikr[ai]) // IDX_D
+        self.ctx.enqueue_copy(dst_buf=self.ikh.create_sub_buffer[f32](0, (T - have) * IDX_D), src_buf=self.ikrd.create_sub_buffer[f32]((ai * self.kvmax + have) * IDX_D, (T - have) * IDX_D))
+        self.ctx.synchronize()
+        var kr = self.ikh.unsafe_ptr()
+        for i in range((T - have) * IDX_D):
+            self.ikr[ai].append(kr[i])
+        var kn = self.f32p(p + "indexer.k_norm.weight")
+        while len(self.ipool[ai]) // IDX_D < T // IDX_R:
+            var b = len(self.ipool[ai]) // IDX_D
+            var pl = zeros(IDX_D)
+            for i in range(IDX_D):
+                var acc = self.ikr[ai][(b * IDX_R) * IDX_D + i]
+                for m in range(1, IDX_R):
+                    acc = acc + self.ikr[ai][(b * IDX_R + m) * IDX_D + i]
+                pl[i] = acc * (1.0 / IDX_R)
+            var rs = rms_scale(pl, 0, IDX_D)
+            for i in range(IDX_D):
+                pl[i] = pl[i] * rs * kn[i]
+            Self.rope(pl, 0, b * IDX_R)
+            for v in pl:
+                self.ipool[ai].append(v)
+        self.fmv(p + "indexer.q_proj.weight", Self.da(self.curb, 0), H, Self.da(self.yb, Y_IDX), YW)
+        var qy = self.dl(self.yb, Y_IDX, IDX_H * IDX_D)
+        var q = zeros(IDX_H * IDX_D)
+        for i in range(IDX_H * IDX_D):
+            q[i] = qy[i]
+        var qraw = q.copy()
+        var qn = self.f32p(p + "indexer.q_norm.weight")
+        for h in range(IDX_H):
+            var rs = rms_scale(q, h * IDX_D, IDX_D)
+            for i in range(IDX_D):
+                q[h * IDX_D + i] = q[h * IDX_D + i] * rs * qn[i]
+            Self.rope(q, h * IDX_D, T - 1)
+        var nb = T // IDX_R
+        var sc = zeros(nb)
+        for b in range(nb):
+            var tot = Float32(0)
+            for h in range(IDX_H):
+                var d = Float32(0)
+                for i in range(IDX_D):
+                    d += self.ipool[ai][b * IDX_D + i] * q[h * IDX_D + i]
+                tot = tot + max(d, Float32(0)) if h > 0 else max(d, Float32(0))
+            sc[b] = tot
+        var vis = self.vish.unsafe_ptr()
+        for t in range(T):
+            vis[t] = 1 if t >= nb * IDX_R else 0
+        var budget = self.idxw - (T - nb * IDX_R)
+        if getenv("Q4X_IDXDBG", "") != "":
+            var hw = WPtr(unsafe_from_address=self.ix[p + "indexer.k_proj.weight"].addr)
+            var cy = self.dl(self.curb, 0, H)
+            var cur = zeros(H)
+            for i in range(H):
+                cur[i] = cy[i]
+            var kd = Float32(0)
+            for j in range(IDX_D):
+                var acc = Float32(0)
+                for i in range(H):
+                    acc += bitcast[f32, 1](SIMD[DType.uint32, 1](UInt32(hw[j * H + i]) << 16))[0] * cur[i]
+                kd = max(kd, abs(acc - self.ikr[ai][pos * IDX_D + j]))
+            var qw = WPtr(unsafe_from_address=self.ix[p + "indexer.q_proj.weight"].addr)
+            var qdiff = Float32(0)
+            for j in range(IDX_H * IDX_D):
+                var acc = Float32(0)
+                for i in range(H):
+                    acc += bitcast[f32, 1](SIMD[DType.uint32, 1](UInt32(qw[j * H + i]) << 16))[0] * cur[i]
+                qdiff = max(qdiff, abs(acc - qraw[j]))
+            var nvis = 0
+            for t in range(T):
+                nvis += Int(vis[t])
+            var ssum = Float64(0)
+            for b in range(nb):
+                ssum += Float64(sc[b])
+            print("IDXCHK", il, "T", T, "kproj_maxdiff", kd, "qproj_maxdiff", qdiff, "nvis", nvis, "score_sum", ssum, "ikr_rows", len(self.ikr[ai]) // IDX_D, "pool_blocks", len(self.ipool[ai]) // IDX_D)
+            var srt = sc.copy()
+            sort(srt)
+            var cut = srt[nb - (budget + IDX_R - 1) // IDX_R]
+            var zeros = 0
+            var tied = 0
+            for b in range(nb):
+                zeros += 1 if sc[b] == 0 else 0
+                tied += 1 if sc[b] == cut else 0
+            print("IDX", il, "T", T, "blocks", nb, "budget_blocks", (budget + IDX_R - 1) // IDX_R, "zero_score", zeros, "cut", cut, "tied_at_cut", tied, "max", srt[nb - 1])
+        var taken = List[Bool](length=nb, fill=False)
+        while budget > 0:
+            var best = -1
+            for b in range(nb):
+                if not taken[b] and (best < 0 or sc[b] > sc[best]):
+                    best = b
+            taken[best] = True
+            for m in range(IDX_R):
+                if budget > 0:
+                    vis[best * IDX_R + m] = 1
+                    budget -= 1
+        if getenv("Q4X_IDXDBG", "") != "":
+            var nsel = 0
+            var sidx = 0
+            var ssum = Float64(0)
+            for b in range(nb):
+                if taken[b]:
+                    nsel += 1
+                    sidx += b
+                    ssum += Float64(sc[b])
+            var nvis = 0
+            for t in range(T):
+                nvis += Int(vis[t])
+            var qs = Float64(0)
+            for v in q:
+                qs += Float64(v)
+            print("SEL", il, "T", T, "nsel", nsel, "sum_idx", sidx, "sel_score", ssum, "nvis", nvis, "qsum", qs, "pool_sum", vsum(self.ipool[ai]))
+        self.ctx.enqueue_copy(dst_buf=self.visd.create_sub_buffer[u8](0, T), src_buf=self.vish.create_sub_buffer[u8](0, T))
+        return 1
+
+    def attn_layer(mut self, il: Int) raises:
+        var p = "blk." + String(il) + "."
+        var ai = (il + 1) // 4 - 1 if il < NL else NATT
+        var y = Self.da(self.yb, 0)
+        var cur = Self.da(self.curb, 0)
+        var Xc = TileTensor(self.xcur, row_major(self.cap, Idx[H]))
+        _ = self.gemv(p + "attn_q.weight", Xc, y, YW)
+        _ = self.gemv(p + "attn_k.weight", Xc, Self.da(self.yb, Y_K), YW)
+        _ = self.gemv(p + "attn_v.weight", Xc, Self.da(self.yb, Y_K + NKV * HD), YW)
+        var kc = Self.da(self.kcd, ai * self.kvmax * NKV * HD)
+        var vc = Self.da(self.vcd, ai * self.kvmax * NKV * HD)
+        var ts = Float32(ROPE_BASE) ** (Float32(-2.0) / NROT)
+        var masked = self.indexer_vis(il, ai, self.kv0) if self.T == 1 and il < NL else 0
+        for q0 in range(0, self.T, QS):
+            var Q = min(QS, self.T - q0)
+            var sst = IPtr(unsafe_from_address=Int(self.sstd.unsafe_ptr()) + 4 * q0)
+            self.cnt("qkprep")
+            self.ctx.enqueue_function[amar_q4x_qkprep](Self.da(self.yb, q0 * YW), Int32(YW), self.fp(p + "attn_q_norm.weight"), self.fp(p + "attn_k_norm.weight"), Self.da(self.qb, 0), Self.da(self.gb, 0), Int32(NQ * HD), kc, vc, Int32(self.kv0 + q0), sst, ts, Int32(NQ), Int32(NKV), grid_dim=(NQ + NKV, Q), block_dim=HD)
+            if self.T > ATT_G_MIN:
+                self.cnt("attn_g")
+                self.ctx.enqueue_function[amar_q4x_attn_g[NQ // NKV]](Self.da(self.qb, 0), Self.da(self.gb, 0), Int32(NQ * HD), kc, vc, Self.da(self.scd, 0), Int32(self.kvmax), HPtr(unsafe_from_address=Int(self.xo.unsafe_ptr()) + 2 * q0 * OD), Int32(OD), Int32(self.kv0 + q0), sst, Int32(NKV), 1 / sqrt(Float32(HD)), grid_dim=(NKV, Q), block_dim=HD)
+            elif self.T == 1 and masked == 0 and self.attsplit > 0 and self.kv0 + 1 >= self.attsplit:
+                self.cnt("attn_sc")
+                self.ctx.enqueue_function[amar_q4x_attn_sc[NQ // NKV]](Self.da(self.qb, 0), Int32(NQ * HD), kc, Self.da(self.scd, 0), Int32(self.kvmax), Int32(self.kv0), sst, Int32(NKV), 1 / sqrt(Float32(HD)), grid_dim=(NKV, (self.kv0 + 256) // 256), block_dim=256)
+                self.cnt("attn_sm")
+                self.ctx.enqueue_function[amar_q4x_attn_sm](Self.da(self.scd, 0), Int32(self.kvmax), Int32(self.kv0), sst, grid_dim=NQ, block_dim=256)
+                self.cnt("attn_out")
+                self.ctx.enqueue_function[amar_q4x_attn_out](Self.da(self.scd, 0), Int32(self.kvmax), vc, Self.da(self.gb, 0), HPtr(unsafe_from_address=Int(self.xo.unsafe_ptr())), Int32(self.kv0), sst, Int32(NQ), Int32(NKV), grid_dim=(NQ, 4), block_dim=64)
+            else:
+                self.cnt("attn")
+                self.ctx.enqueue_function[amar_q4x_attn](Self.da(self.qb, 0), Self.da(self.gb, 0), Int32(NQ * HD), kc, vc, Self.da(self.scd, 0), Int32(self.kvmax), self.visd.unsafe_ptr(), HPtr(unsafe_from_address=Int(self.xo.unsafe_ptr()) + 2 * q0 * OD), Int32(OD), Int32(self.kv0 + q0), sst, Int32(masked), Int32(NQ), Int32(NKV), 1 / sqrt(Float32(HD)), grid_dim=(NQ, Q), block_dim=HD)
+        _ = self.gemv(p + "attn_output.weight", TileTensor(self.xo, row_major(self.cap, Idx[OD])), cur, H)
+        self.dd("attn_output", il, self.curb, 0, H, H)
+
+    def fetch(mut self, il: Int, id: Int) raises -> Int:
+        var p = "blk." + String(il) + "."
+        var rg = self.ix[p + "ffn_gate_exps.weight"]
+        var ru = self.ix[p + "ffn_up_exps.weight"]
+        var rd = self.ix[p + "ffn_down_exps.weight"]
+        var gs = ggml_row_bytes(rg.gtype, H) * FF
+        var us = ggml_row_bytes(ru.gtype, H) * FF
+        var ds = ggml_row_bytes(rd.gtype, FF) * H
+        var slot = self.slot
+        var sl = self.victim()
+        self.slot_key[sl] = il * NE + id
+        self.slot_of[il * NE + id] = sl
+        self.misses += 1
+        self.ebytes += gs + us + ds
+        if self.mtron and self.mverify:
+            self.mtr.write("M " + String(self.mtround) + " " + String(il) + " " + String(id) + " " + String(gs + us + ds) + "\n")
+        if self.zc:
+            self.ctx.enqueue_copy(dst_buf=self.ec.create_sub_buffer[u8](sl * slot, gs), src_buf=self.ev.create_sub_buffer[u8](rg.addr + id * gs - self.ebase, gs))
+            self.ctx.enqueue_copy(dst_buf=self.ec.create_sub_buffer[u8](sl * slot + gs, us), src_buf=self.ev.create_sub_buffer[u8](ru.addr + id * us - self.ebase, us))
+            self.ctx.enqueue_copy(dst_buf=self.ec.create_sub_buffer[u8](sl * slot + gs + us, ds), src_buf=self.ev.create_sub_buffer[u8](rd.addr + id * ds - self.ebase, ds))
+        else:
+            var st = Int(self.eh.unsafe_ptr()) + (self.misses % TOPK) * slot
+            _ = external_call["memcpy", Int](st, rg.addr + id * gs, gs)
+            _ = external_call["memcpy", Int](st + gs, ru.addr + id * us, us)
+            _ = external_call["memcpy", Int](st + gs + us, rd.addr + id * ds, ds)
+            self.ctx.enqueue_copy(dst_buf=self.ec.create_sub_buffer[u8](sl * slot, gs + us + ds), src_buf=self.eh.create_sub_buffer[u8]((self.misses % TOPK) * slot, gs + us + ds))
+        return sl
+
+    def ffn(mut self, il: Int) raises:
+        var p = "blk." + String(il) + "."
+        var T = self.T
+        var R = 1 if T == 1 else PF_R
+        self.fmv(p + "ffn_gate_inp.weight", Self.da(self.curb, 0), H, Self.da(self.yb, 0), YW, p + "ffn_gate_inp_shexp.weight")
+        self.seq += 1
+        var bell = IPtr(unsafe_from_address=self.bell)
+        var cpu = self.cpumax > 0
+        var sel = bell if T == 1 and not cpu else Self.ia(self.selb)
+        self.cnt("router")
+        self.ctx.enqueue_function[amar_q4x_router](Self.da(self.yb, 0), Int32(YW), sel, Self.da(self.wtsb, 0), self.seq, Int32(TOPK), Self.da(self.kbias, il * NE), Int32(1 if self.keepon else 0), grid_dim=T, block_dim=NE)
+        var f0 = self.tick_prof()
+        var sp = bell
+        if cpu:
+            self.ctx.enqueue_copy(dst_buf=self.hh.create_sub_buffer[f32](0, T * H), src_buf=self.curb.create_sub_buffer[f32](0, T * H))
+        if T == 1 and not cpu:
+            var t0 = perf_counter_ns()
+            while bell.unsafe_load[volatile=True]() < self.seq:
+                if perf_counter_ns() - t0 > BELL_TIMEOUT_NS:
+                    var b0 = bell.unsafe_load[volatile=True]()
+                    var ts = perf_counter_ns()
+                    self.ctx.synchronize()
+                    var b1 = bell.unsafe_load[volatile=True]()
+                    print("q4x: DOORBELL layer", il, "seq", self.seq, "bell", b0, "-> after synchronize", b1, "sync s", Float64(perf_counter_ns() - ts) / 1e9, "token", len(self.toks))
+                    if b1 < self.seq:
+                        raise Error("q4x: router doorbell of layer " + String(il) + " did not ring within 5 s (seq " + String(self.seq) + ")")
+        else:
+            self.ctx.enqueue_copy(dst_buf=self.selh.create_sub_buffer[i32](0, T * Q4X_SEL), src_buf=self.selb.create_sub_buffer[i32](0, T * Q4X_SEL))
+            self.ctx.synchronize()
+            sp = IPtr(unsafe_from_address=Int(self.selh.unsafe_ptr()))
+        var rg = self.ix[p + "ffn_gate_exps.weight"]
+        var ru = self.ix[p + "ffn_up_exps.weight"]
+        var rd = self.ix[p + "ffn_down_exps.weight"]
+        var gb = ggml_row_bytes(rg.gtype, H)
+        var ub = ggml_row_bytes(ru.gtype, H)
+        var db = ggml_row_bytes(rd.gtype, FF)
+        if rg.gtype != ru.gtype or gb != ub:
+            raise Error("q4x: gate and up experts of layer " + String(il) + " differ in type")
+        var gs = gb * FF
+        var us = ub * FF
+        var cnt = List[Int](length=NE + 1, fill=0)
+        for t in range(T):
+            if self.mtron and self.mverify:
+                var mtline = "V " + String(self.mtround) + " " + String(il) + " " + String(t)
+                for j in range(TOPK):
+                    mtline += " " + String(Int(sp[unsafe_offset=t * Q4X_SEL + 1 + j]))
+                self.mtr.write(mtline + "\n")
+            if self.tron:
+                var line = String(il)
+                for j in range(TOPK):
+                    line += " " + String(Int(sp[unsafe_offset=t * Q4X_SEL + 1 + j]))
+                self.tr.write(line + "\n")
+            for j in range(TOPK):
+                cnt[Int(sp[unsafe_offset=t * Q4X_SEL + 1 + j]) + 1] += 1
+        var nu = 0
+        var gi = List[Int](length=NE, fill=-1)
+        for e in range(NE):
+            if cnt[e + 1] > 0:
+                gi[e] = nu
+                nu += 1
+            cnt[e + 1] += cnt[e]
+        if nu + TOPK > len(self.slot_key):
+            raise Error("q4x: layer " + String(il) + " routes to " + String(nu) + " experts, the cache has " + String(len(self.slot_key)) + " slots; raise Q4X_ECACHE_GB")
+        var fillp = cnt.copy()
+        var G = T * TOPK
+        var sb = Int(self.stgh.unsafe_ptr())
+        var xm = IPtr(unsafe_from_address=sb + STG_TAB)
+        var ym = IPtr(unsafe_from_address=sb + STG_TAB + 4 * G)
+        for t in range(T):
+            for j in range(TOPK):
+                var e = Int(sp[unsafe_offset=t * Q4X_SEL + 1 + j])
+                xm[fillp[e]] = Int32(t)
+                ym[fillp[e]] = Int32(t * TOPK + j)
+                fillp[e] += 1
+        var f1 = self.tick_prof()
+        var tl = IPtr(unsafe_from_address=sb + STG_TAB + 8 * G)
+        var tb = LPtr(unsafe_from_address=sb)
+        var nt = 0
+        var cg = List[Int]()
+        var cu = List[Int]()
+        var cd = List[Int]()
+        var cx = List[Int]()
+        var cy = List[Int]()
+        var crow = List[Int]()
+        var ncpu = 0
+        for e in range(NE):
+            if gi[e] < 0:
+                continue
+            if ncpu < self.cpumax and il * NE + e not in self.slot_of:
+                ncpu += 1
+                for q in range(cnt[e], cnt[e + 1]):
+                    cg.append(rg.addr + e * gs)
+                    cu.append(ru.addr + e * us)
+                    cd.append(rd.addr + e * ggml_row_bytes(rd.gtype, FF) * H)
+                    cx.append(Int(self.hh.unsafe_ptr()) + 4 * Int(xm[q]) * H)
+                    cy.append(Int(self.cpuy.unsafe_ptr()) + 4 * len(crow) * H)
+                    crow.append(Int(ym[q]))
+                continue
+            for r0 in range(cnt[e], cnt[e + 1], R):
+                tl[nt * 4] = Int32(gi[e])
+                tl[nt * 4 + 1] = Int32(r0)
+                tl[nt * 4 + 2] = Int32(min(R, cnt[e + 1] - r0))
+                nt += 1
+            var key = il * NE + e
+            var sl: Int
+            if key in self.slot_of:
+                sl = self.slot_of[key]
+            else:
+                sl = self.fetch(il, e)
+            self.slot_ref[sl] = True
+            tb[2 * gi[e]] = Int64(sl * self.slot)
+            tb[2 * gi[e] + 1] = Int64(sl * self.slot + gs)
+            tb[2 * NE + gi[e]] = Int64(sl * self.slot + gs + us)
+        var ec = Int(self.ec.unsafe_ptr())
+        var used = STG_TAB + 8 * G + 16 * nt
+        self.cnt("copy ffn_staging")
+        self.ctx.enqueue_copy(dst_buf=self.stgd.create_sub_buffer[u8](0, used), src_buf=self.stgh.create_sub_buffer[u8](0, used))
+        var f2 = self.tick_prof()
+        var dbs = Int(self.stgd.unsafe_ptr())
+        var td = dbs
+        var tiles = dbs + STG_TAB + 8 * G
+        var xmd = dbs + STG_TAB
+        var ymd = dbs + STG_TAB + 4 * G
+        var Xc = TileTensor(self.xcur, row_major(self.cap, Idx[H]))
+        var cur = Self.da(self.curb, 0)
+        self.rl("experts_gateup")
+        self.gemm(Xc, rg.gtype, ec, td, tiles, nt, xmd, 0, Int(self.yeu.unsafe_ptr()), 2 * FF, H, 2 * FF, FF, gb)
+        _ = self.gemv(p + "ffn_gate_shexp.weight", Xc, Self.da(self.yb, Y_SG), YW)
+        _ = self.gemv(p + "ffn_up_shexp.weight", Xc, Self.da(self.yb, Y_SU), YW)
+        self.cnt("swiglu")
+        self.ctx.enqueue_function[amar_q4x_swiglu](Self.da(self.yeu, 0), Self.ha(self.xexp), Int32(FF), Int32(G * FF), Self.da(self.yb, Y_SG), Self.da(self.yb, Y_SU), Int32(YW), Self.ha(self.xsh), Int32(FF), Int32(T * FF), Int32(FF), grid_dim=(G * FF + T * FF + 255) // 256, block_dim=256)
+        self.rl("experts_down")
+        self.gemm(TileTensor(self.xexp, row_major(self.cap * TOPK, Idx[FF])), rd.gtype, ec, td + 8 * 2 * NE, tiles, nt, 0, ymd, Int(self.ydn.unsafe_ptr()), H, FF, H, H, db)
+        _ = self.gemv(p + "ffn_down_shexp.weight", TileTensor(self.xsh, row_major(self.cap, Idx[FF])), Self.da(self.yb, Y_SD), YW)
+        if len(crow) > 0:
+            if rg.gtype != 42 or rd.gtype != 42:
+                raise Error("q4x: Q4X_CPUMISS computes Q2_0 experts only, layer " + String(il) + " has types " + String(rg.gtype) + "/" + String(rd.gtype))
+            cpu_experts(len(crow), cg, cu, cd, cx, cy, FPtr(unsafe_from_address=Int(self.cpus.unsafe_ptr())), H, FF)
+            self.cpun += len(crow)
+            for i in range(len(crow)):
+                self.ctx.enqueue_copy(dst_buf=self.ydn.create_sub_buffer[f32](crow[i] * H, H), src_buf=self.cpuy.create_sub_buffer[f32](i * H, H))
+        if self.nofuse or self.dump:
+            self.ffn_sum()
+        else:
+            self.pend_ffn = True
+        var f3 = self.tick_prof()
+        self.prof[4] += f1 - f0
+        self.prof[5] += f2 - f1
+        self.prof[6] += f3 - f2
+        self.dd("ffn_out", il, self.curb, 0, H, H)
+
+    def ple_rows(self, end: Int, start: Int, mut emb: Vec, off: Int) raises:
+        var g = self.ix.gguf.int_arrays.copy()
+        var mult = g["qwen4exp.ple.layer_multipliers"].copy()
+        var offs = g["qwen4exp.ple.head_offsets"].copy()
+        var voc = g["qwen4exp.ple.head_vocab_sizes"].copy()
+        var ctxt = List[UInt64]()
+        ctxt.append(UInt64(self.toks[end - 1]))
+        var cut = False
+        for s in range(1, 3):
+            var t = -1 if cut or end - 1 - s < start else self.toks[end - 1 - s]
+            cut = cut or t < 0 or t == PLE_EOS
+            ctxt.append(UInt64(PLE_EOS) if cut else UInt64(t))
+        var r = self.ix["per_layer_token_embd.weight"]
+        var rb = ggml_row_bytes(r.gtype, PLE_DIM)
+        var kv = SIMD[DType.int8, 16](-127, -104, -83, -65, -49, -35, -22, -10, 1, 13, 25, 38, 53, 69, 89, 113)
+        for ng in range(2, 4):
+            var mixed = ctxt[0] * UInt64(mult[0])
+            for j in range(1, ng):
+                mixed ^= ctxt[j] * UInt64(mult[j])
+            for gi in range(8):
+                var hi = (ng - 2) * 8 + gi
+                var row = Int(mixed % UInt64(voc[hi])) + offs[hi]
+                var bp = BPtr(unsafe_from_address=r.addr + row * rb)
+                for b in range(PLE_DIM // 32):
+                    var dh = bitcast[DType.float16, 1](SIMD[DType.uint16, 1](UInt16(bp[b * 18]) | (UInt16(bp[b * 18 + 1]) << 8))).cast[f32]()[0]
+                    for j in range(16):
+                        var q = Int(bp[b * 18 + 2 + j])
+                        emb[off + hi * PLE_DIM + b * 32 + j] = dh * Float32(kv[q & 15])
+                        emb[off + hi * PLE_DIM + b * 32 + j + 16] = dh * Float32(kv[q >> 4])
+
+    def ple(mut self) raises:
+        var p = "blk." + String(PLE_L) + "."
+        var T = self.T
+        var emb = zeros(T * H)
+        var n0 = len(self.toks) - T
+        var sst = self.ssth.unsafe_ptr()
+        for t in range(T):
+            self.ple_rows(n0 + t + 1, Int(sst[t]) if self.S > 1 else 0, emb, t * H)
+        self.d("ple_embd", -1, emb)
+        var xp = self.xh.unsafe_ptr()
+        for i in range(T * H):
+            xp[i] = emb[i].cast[bf16]()
+        self.cnt("copy ple_emb")
+        self.ctx.enqueue_copy(dst_buf=self.xcur.create_sub_buffer[bf16](0, T * H), src_buf=self.xh.create_sub_buffer[bf16](0, T * H))
+        var y = Self.da(self.yb, 0)
+        var Xc = TileTensor(self.xcur, row_major(self.cap, Idx[H]))
+        var nk = self.gemv(p + "ple_key.weight", Xc, y, YW)
+        _ = self.gemv(p + "ple_value.weight", Xc, Self.da(self.yb, nk), YW)
+        var pled = Self.da(self.ydn, 0)
+        self.gnorm(y, YW, p + "ple_norm_key.weight", pled, 0)
+        self.gnorm_res(p + "ple_norm_query.weight", Self.da(self.xnb, 0))
+        self.cnt("ple_gate")
+        self.ctx.enqueue_function[amar_q4x_ple_gate](pled, Self.da(self.xnb, 0), Self.da(self.yb, nk), Int32(YW), pled, Self.da(self.smb, SM_GTS), Int32(SMW), grid_dim=(HC, T), block_dim=256)
+        self.dd("ple_gate", PLE_L, self.smb, SM_GTS, HC, SMW)
+        self.gnorm(pled, HCD, p + "ple_norm_conv.weight", Self.da(self.xnb, 0), 0)
+        var hist = Self.da(self.histd, 0) if self.S == 1 else Self.da(self.hists, 0)
+        if self.S > 1:
+            self.hists.enqueue_fill(0)
+        self.cnt("ple_conv")
+        self.ctx.enqueue_function[amar_q4x_ple_conv](Self.da(self.xnb, 0), pled, self.fp(p + "ple_conv1d.weight"), hist, Self.da(self.rb, 0), Self.ia(self.seqsd), Int32(self.rc) if self.S == 1 else Int32(0), Int32(self.rw) if self.S == 1 else Int32(1), grid_dim=(HCD // 256, self.S), block_dim=256)
+
+    def tick_prof(mut self) raises -> Int:
+        if self.psync:
+            self.ctx.synchronize()
+        return Int(perf_counter_ns())
+
+    def set_rows(mut self, T: Int, seqlen: Int) raises:
+        var sh = self.ssth.unsafe_ptr()
+        var qh = self.seqsh.unsafe_ptr()
+        for t in range(T):
+            sh[t] = Int32(t // seqlen * seqlen)
+        for s in range(self.S):
+            qh[2 * s] = Int32(s * seqlen)
+            qh[2 * s + 1] = Int32(min((s + 1) * seqlen, T))
+        self.cnt("copy set_rows")
+        self.cnt("copy set_rows")
+        self.cnt("copy set_rows")
+        self.ctx.enqueue_copy(dst_buf=self.sstd.create_sub_buffer[i32](0, T), src_buf=self.ssth.create_sub_buffer[i32](0, T))
+        self.ctx.enqueue_copy(dst_buf=self.seqsd.create_sub_buffer[i32](0, 2 * self.S), src_buf=self.seqsh.create_sub_buffer[i32](0, 2 * self.S))
+        var R = 1 if T == 1 else PF_R
+        var dt = self.dth.unsafe_ptr()
+        self.ndt = (T + R - 1) // R
+        for i in range(self.ndt):
+            dt[i * 4] = 0
+            dt[i * 4 + 1] = Int32(i * R)
+            dt[i * 4 + 2] = Int32(min(R, T - i * R))
+        self.ctx.enqueue_copy(dst_buf=self.dtd.create_sub_buffer[i32](0, 4 * self.ndt), src_buf=self.dth.create_sub_buffer[i32](0, 4 * self.ndt))
+
+    def forward(mut self, ids: List[Int], seqlen: Int) raises:
+        var T = len(ids)
+        if T > self.cap:
+            raise Error("q4x: batch of " + String(T) + " tokens exceeds the batch cap " + String(self.cap) + " (Q4X_PREFILL=1 sizes it to Q4X_TMAX)")
+        self.T = T
+        self.S = (T + seqlen - 1) // seqlen
+        if self.S > SMAX:
+            raise Error("q4x: " + String(self.S) + " sequences in one batch, cap " + String(SMAX))
+        var ih = self.idsh.unsafe_ptr()
+        for t in range(T):
+            ih[t] = Int32(ids[t])
+        self.cnt("copy ids")
+        self.ctx.enqueue_copy(dst_buf=self.idsd.create_sub_buffer[i32](0, T), src_buf=self.idsh.create_sub_buffer[i32](0, T))
+        self.set_rows(T, seqlen)
+        self.embed()
+        for il in range(NL):
+            if il == PLE_L:
+                if self.pend_ffn:
+                    self.ffn_sum()
+                    self.pend_ffn = False
+                self.ple()
+            var pre = "blk." + String(il) + "."
+            var t0 = self.tick_prof()
+            self.hc_mix(pre + "hc_attn_", il)
+            var t1 = self.tick_prof()
+            if self.recr(il):
+                self.ssm_layer(il)
+            else:
+                self.attn_layer(il)
+            var t2 = self.tick_prof()
+            self.combine()
+            self.hc_mix(pre + "hc_ffn_", il)
+            var t3 = self.tick_prof()
+            self.ffn(il)
+            self.combine()
+            var t4 = self.tick_prof()
+            self.prof[0] += (t1 - t0) + (t3 - t2)
+            self.prof[1 if self.recr(il) else 2] += t2 - t1
+            self.prof[3] += t4 - t3
+            self.dd("l_last", il, self.rb, 0, HCD, HCD)
+        self.hc_mix("output_hc_", -1)
+        self.dd("result_norm", -1, self.curb, 0, H, H)
+        if self.hidon:
+            self.ctx.enqueue_copy(dst_buf=self.hh.create_sub_buffer[f32](0, T * H), src_buf=self.curb.create_sub_buffer[f32](0, T * H))
+            self.ctx.synchronize()
+            var src = self.hh.unsafe_ptr()
+            if self.hidf32:
+                self.hid.write_bytes(Span[UInt8](unsafe_ptr=BPtr(unsafe_from_address=Int(src)), length=T * H * 4))
+            else:
+                var xp = self.xh.unsafe_ptr()
+                for i in range(T * H):
+                    xp[i] = src[i].cast[bf16]()
+                self.hid.write_bytes(Span[UInt8](unsafe_ptr=BPtr(unsafe_from_address=Int(xp)), length=T * H * 2))
+            self.hidn += T
+            with open(self.hidpath + ".n", "w") as f:
+                f.write(String(self.hidn) + "\n")
+
+    def logits(mut self) raises -> Vec:
+        var t1 = self.dth.unsafe_ptr()
+        t1[0] = 0
+        t1[1] = Int32(self.T - 1)
+        t1[2] = 1
+        self.cnt("copy logits_row")
+        self.ctx.enqueue_copy(dst_buf=self.t1d, src_buf=self.dth.create_sub_buffer[i32](0, 4))
+        var r = self.ix["output.weight"]
+        self.rl("output")
+        self.launch[1](TileTensor(self.xcur, row_major(self.cap, Idx[H])), r.gtype, Int(self.wd.unsafe_ptr()) + self.woff["output.weight"], Int(self.ztab.unsafe_ptr()), Int(self.t1d.unsafe_ptr()), 1, 0, 0, Int(self.lgd.unsafe_ptr()), 0, r.dims[0], r.dims[1], r.dims[1], ggml_row_bytes(r.gtype, r.dims[0]))
+        var y = self.dl(self.lgd, 0, VOCAB)
+        var lg = zeros(VOCAB)
+        for i in range(VOCAB):
+            lg[i] = y[i]
+        self.d("result_output", -1, lg)
+        if self.dump:
+            print("L", lg[0], lg[1], lg[2], lg[VOCAB - 3], lg[VOCAB - 2], lg[VOCAB - 1])
+        return lg^
+
+    def step(mut self, tok: Int) raises -> Vec:
+        var pos = len(self.toks)
+        if pos >= self.kvmax:
+            raise Error("q4x: position " + String(pos) + " exceeds Q4X_TMAX " + String(self.kvmax))
+        self.toks.append(tok)
+        self.kv0 = pos
+        var one = List[Int]()
+        one.append(tok)
+        self.forward(one, 1)
+        self.dn += 1
+        self.rc = (self.rc + 1) % self.rw
+        return self.logits()
+
+    def step_vec(mut self, tok: Int, v: Vec) raises -> Vec:
+        if len(v) != H:
+            raise Error("q4x: input vector of " + String(len(v)) + " values, need " + String(H))
+        self.vin = v.copy()
+        var lg = self.step(tok)
+        self.vin = Vec()
+        return lg^
+
+    def soft_vec(mut self, lg: Vec, k: Int, norm: Float32) raises -> Vec:
+        var cb = min(self.cap, YMAX // H)
+        if cb < 1:
+            raise Error("q4x: soft step needs a batch cap >= 1")
+        var mx = lg[0]
+        for i in range(VOCAB):
+            mx = max(mx, lg[i])
+        var cand = List[Int]()
+        var cut = mx - 30.0
+        while len(cand) < k:
+            cand = List[Int]()
+            for i in range(VOCAB):
+                if lg[i] > cut:
+                    cand.append(i)
+            cut -= 30.0
+        var top = List[Int]()
+        for _ in range(k):
+            var b = 0
+            for j in range(1, len(cand)):
+                if lg[cand[j]] > lg[cand[b]]:
+                    b = j
+            top.append(cand[b])
+            cand[b] = cand[len(cand) - 1]
+            _ = cand.pop()
+        var w = List[Float64]()
+        var z = 0.0
+        for j in range(k):
+            w.append(exp(Float64(lg[top[j]] - lg[top[0]])))
+            z += w[j]
+        var acc = List[Float64](length=H, fill=0.0)
+        var ih = self.idsh.unsafe_ptr()
+        var t0 = self.T
+        var j0 = 0
+        while j0 < k:
+            var n = min(cb, k - j0)
+            for j in range(n):
+                ih[j] = Int32(top[j0 + j])
+            self.ctx.enqueue_copy(dst_buf=self.idsd.create_sub_buffer[i32](0, n), src_buf=self.idsh.create_sub_buffer[i32](0, n))
+            self.T = n
+            self.embed_rows(Self.ia(self.idsd))
+            for j in range(n):
+                self.ctx.enqueue_copy(dst_buf=self.yh.create_sub_buffer[f32](j * H, H), src_buf=self.yb.create_sub_buffer[f32](j * YW, H))
+            self.ctx.synchronize()
+            var y = FPtr(unsafe_from_address=Int(self.yh.unsafe_ptr()))
+            for j in range(n):
+                var wj = w[j0 + j] / z
+                for i in range(H):
+                    acc[i] += wj * Float64(y[j * H + i])
+            j0 += n
+        self.T = t0
+        var v = zeros(H)
+        var ss = 0.0
+        for i in range(H):
+            v[i] = Float32(acc[i])
+            ss += acc[i] * acc[i]
+        var sc = Float32(Float64(norm) / sqrt(ss)) if norm > 0 else 1.0
+        for i in range(H):
+            v[i] *= sc
+        return v^
+
+    def prefill(mut self, ids: List[Int], seqlen: Int) raises -> Vec:
+        if len(self.toks) != 0:
+            raise Error("q4x: prefill needs a fresh engine")
+        if len(ids) > self.kvmax:
+            raise Error("q4x: prompt of " + String(len(ids)) + " tokens exceeds Q4X_TMAX " + String(self.kvmax))
+        if seqlen < len(ids):
+            self.toks = ids.copy()
+            self.kv0 = 0
+            self.forward(ids, seqlen)
+            return Vec()
+        var c0 = 0
+        while c0 < len(ids):
+            var n = min(self.cap, len(ids) - c0)
+            var part = List[Int](capacity=n)
+            for i in range(c0, c0 + n):
+                part.append(ids[i])
+            self.toks.extend(part.copy())
+            self.kv0 = c0
+            self.forward(part, n)
+            self.rc = (self.rc + n) % self.rw
+            c0 += n
+        return self.logits()
+
+    def reset(mut self) raises:
+        self.toks = List[Int]()
+        self.kv0 = 0
+        self.rc = 0
+        self.vin = Vec()
+        self.misses = 0
+        self.ebytes = 0
+        self.cpun = 0
+        self.dc = Dict[String, Int]()
+        self.dn = 0
+        for i in range(len(self.prof)):
+            self.prof[i] = 0
+        self.histd.enqueue_fill(0)
+        self.convd.enqueue_fill(0)
+        self.sd.enqueue_fill(0)
+        for ai in range(NATT):
+            self.ikr[ai] = Vec()
+            self.ipool[ai] = Vec()
+
+    def head(mut self, r0: Int, n: Int, ids: IPtr, prob: FPtr, nv: Int = VOCAB) raises:
+        var r = self.ix["output.weight"]
+        var X = TileTensor(self.xcur, row_major(self.cap, Idx[H]))
+        var wa = Int(self.wd.unsafe_ptr()) + self.woff["output.weight"]
+        var rowb = ggml_row_bytes(r.gtype, r.dims[0])
+        if n > 1:
+            if r0 != 0:
+                raise Error("q4x: multi-row head starts at row 0")
+            self.launch[PF_R](X, r.gtype, wa, Int(self.ztab.unsafe_ptr()), Int(self.vtd.unsafe_ptr()) + 4 * self.v4off[n - 1], (n + PF_R - 1) // PF_R, 0, 0, Int(self.lgd.unsafe_ptr()), VOCAB, r.dims[0], nv, nv, rowb)
+        else:
+            self.launch[1](X, r.gtype, wa, Int(self.ztab.unsafe_ptr()), Int(self.vtd.unsafe_ptr()) + 16 * r0, 1, 0, 0, Int(self.lgd.unsafe_ptr()), VOCAB, r.dims[0], nv, nv, rowb)
+        self.ctx.enqueue_function[amar_q4x_argmax_p](Self.da(self.lgd, r0 * VOCAB), Int32(VOCAB), Int32(nv), Int32(AM_NB), Self.da(self.amp, 0), grid_dim=(AM_NB, n), block_dim=256)
+        self.ctx.enqueue_function[amar_q4x_argmax_r](Self.da(self.amp, 0), Int32(AM_NB), Int32(nv), ids, prob, grid_dim=n, block_dim=256)
+
+    def verify(mut self, win: List[Int]) raises -> List[Int]:
+        var pos = len(self.toks)
+        if pos + len(win) > self.kvmax:
+            raise Error("q4x: verify window past Q4X_TMAX " + String(self.kvmax))
+        for t in win:
+            self.toks.append(t)
+        self.kv0 = pos
+        self.mverify = self.mtron
+        self.forward(win, len(win))
+        self.mverify = False
+        self.head(0, len(win), Self.ia(self.vids), Self.da(self.vprob, 0))
+        self.ctx.enqueue_copy(dst_buf=self.vidh.create_sub_buffer[i32](0, len(win)), src_buf=self.vids.create_sub_buffer[i32](0, len(win)))
+        self.ctx.synchronize()
+        var a = List[Int]()
+        for i in range(len(win)):
+            a.append(Int(self.vidh.unsafe_ptr()[i]))
+        return a^
+
+    def accept(mut self, n: Int):
+        var keep = len(self.toks) - self.T + n
+        while len(self.toks) > keep:
+            _ = self.toks.pop()
+        self.rc = (self.rc + n) % self.rw
+
+    def mtp_ffn(mut self) raises:
+        var p = "blk." + String(MTP_L) + "."
+        var T = self.T
+        var G = T * TOPK
+        var cur = Self.da(self.curb, 0)
+        self.fmv(p + "ffn_gate_inp.weight", cur, H, Self.da(self.yb, 0), YW, p + "ffn_gate_inp_shexp.weight")
+        self.seq += 1
+        self.ctx.enqueue_function[amar_q4x_router](Self.da(self.yb, 0), Int32(YW), Self.ia(self.selb), Self.da(self.wtsb, 0), self.seq, Int32(TOPK), Self.da(self.kbias, 0), Int32(0), grid_dim=T, block_dim=NE)
+        if self.mtron:
+            self.ctx.enqueue_copy(dst_buf=self.selh.create_sub_buffer[i32](0, T * Q4X_SEL), src_buf=self.selb.create_sub_buffer[i32](0, T * Q4X_SEL))
+            self.ctx.synchronize()
+            var sp = IPtr(unsafe_from_address=Int(self.selh.unsafe_ptr()) + (T - 1) * Q4X_SEL * 4 + 4)
+            var line = "D " + String(self.mtround) + " " + String(self.mstep)
+            for j in range(TOPK):
+                line += " " + String(Int(sp[unsafe_offset=j]))
+            self.mtr.write(line + "\n")
+            self.mstep += 1
+        self.ctx.enqueue_function[amar_q4x_mtp_tab](Self.ia(self.selb), LPtr(unsafe_from_address=Int(self.mtab.unsafe_ptr())), Int32(T), Int32(TOPK), Int32(NE), Int64(self.mgs), Int64(self.mgs), Int64(self.mds), Int64(NE * self.mgs), Int64(2 * NE * self.mgs), grid_dim=(G + 63) // 64, block_dim=64)
+        var ec = Int(self.mexp.unsafe_ptr())
+        var td = Int(self.mtab.unsafe_ptr())
+        var tiles = Int(self.mtiles.unsafe_ptr())
+        var Xc = TileTensor(self.xcur, row_major(self.cap, Idx[H]))
+        self.gemm(Xc, 2, ec, td, tiles, G, Int(self.mxmap.unsafe_ptr()), 0, Int(self.yeu.unsafe_ptr()), 2 * FF, H, 2 * FF, FF, (H // 32) * Q4_BYTES)
+        _ = self.gemv(p + "ffn_gate_shexp.weight", Xc, Self.da(self.yb, Y_SG), YW)
+        _ = self.gemv(p + "ffn_up_shexp.weight", Xc, Self.da(self.yb, Y_SU), YW)
+        self.ctx.enqueue_function[amar_q4x_swiglu](Self.da(self.yeu, 0), Self.ha(self.xexp), Int32(FF), Int32(G * FF), Self.da(self.yb, Y_SG), Self.da(self.yb, Y_SU), Int32(YW), Self.ha(self.xsh), Int32(FF), Int32(T * FF), Int32(FF), grid_dim=(G * FF + T * FF + 255) // 256, block_dim=256)
+        self.gemm(TileTensor(self.xexp, row_major(self.cap * TOPK, Idx[FF])), 2, ec, td + 8 * 2 * NE, tiles, G, 0, Int(self.mymap.unsafe_ptr()), Int(self.ydn.unsafe_ptr()), H, FF, H, H, (FF // 32) * Q4_BYTES)
+        _ = self.gemv(p + "ffn_down_shexp.weight", TileTensor(self.xsh, row_major(self.cap, Idx[FF])), Self.da(self.yb, Y_SD), YW)
+        self.ctx.enqueue_function[amar_q4x_ffn_out](Self.da(self.ydn, 0), Self.da(self.wtsb, 0), Self.da(self.yb, Y_SD), Int32(YW), Self.da(self.yb, NE), Int32(YW), cur, Int32(TOPK), grid_dim=(H // 256, T), block_dim=256)
+
+    def mtp_pass(mut self, n: Int, idp: IPtr, pos0: Int) raises:
+        var p = "blk." + String(MTP_L) + "."
+        if n > self.mcap:
+            raise Error("q4x: MTP pass of " + String(n) + " rows, tables hold Q4X_SPEC + 1 = " + String(self.mcap))
+        if pos0 + n > self.kvmax:
+            raise Error("q4x: MTP position past Q4X_TMAX " + String(self.kvmax))
+        self.T = n
+        self.S = 1
+        self.set_rows(n, n)
+        self.embed_rows(idp)
+        self.ctx.enqueue_function[amar_q4x_mtp_in](Self.da(self.yb, 0), Int32(YW), self.fp(p + "nextn.enorm.weight"), Self.da(self.rb, 0), self.fp(p + "nextn.hnorm.weight"), Self.ha(self.xeh), grid_dim=(HC, n), block_dim=256)
+        var nt = (n * HC + PF_R - 1) // PF_R
+        var r = self.ix[p + "nextn.eh_proj.weight"]
+        self.launch[PF_R](TileTensor(self.xeh, row_major(self.mcap * HC, Idx[2 * H])), r.gtype, Int(self.wd.unsafe_ptr()) + self.woff[p + "nextn.eh_proj.weight"], Int(self.ztab.unsafe_ptr()), Int(self.ehtd.unsafe_ptr()) + 4 * self.ehoff[n - 1], nt, 0, 0, Int(self.rb.unsafe_ptr()), H, 2 * H, H, H, ggml_row_bytes(r.gtype, 2 * H))
+        self.pending = False
+        var kv = self.kv0
+        self.kv0 = pos0
+        self.hc_mix(p + "hc_attn_", MTP_L)
+        self.attn_layer(MTP_L)
+        self.combine()
+        self.hc_mix(p + "hc_ffn_", MTP_L)
+        self.mtp_ffn()
+        self.combine()
+        self.hc_mix(p + "nextn.hc_head_", -1)
+        self.kv0 = kv
+
+    def draft(mut self, ids: List[Int], pos0: Int, k: Int) raises -> Int:
+        var n = len(ids)
+        if self.mtron:
+            self.mtround += 1
+            self.mstep = 0
+        var ih = self.idsh.unsafe_ptr()
+        for t in range(n):
+            ih[t] = Int32(ids[t])
+        self.ctx.enqueue_copy(dst_buf=self.idsd.create_sub_buffer[i32](0, n), src_buf=self.idsh.create_sub_buffer[i32](0, n))
+        var dp = IPtr(unsafe_from_address=Int(self.vids.unsafe_ptr()) + 4 * self.mcap)
+        var pp = FPtr(unsafe_from_address=Int(self.vprob.unsafe_ptr()) + 4 * self.mcap)
+        self.mtp_pass(n, Self.ia(self.idsd), pos0)
+        self.head(n - 1, 1, dp, pp, self.dvoc)
+        if n > 1:
+            self.ctx.enqueue_copy(dst_buf=self.rb.create_sub_buffer[f32](0, HCD), src_buf=self.rb.create_sub_buffer[f32]((n - 1) * HCD, HCD))
+            if k > 1:
+                self.ctx.synchronize()
+        for i in range(1, k):
+            self.mtp_pass(1, IPtr(unsafe_from_address=Int(dp) + 4 * (i - 1)), pos0 + n - 1 + i)
+            self.head(0, 1, IPtr(unsafe_from_address=Int(dp) + 4 * i), FPtr(unsafe_from_address=Int(pp) + 4 * i), self.dvoc)
+        self.ctx.enqueue_copy(dst_buf=self.vidh.create_sub_buffer[i32](0, k), src_buf=self.vids.create_sub_buffer[i32](self.mcap, k))
+        self.ctx.enqueue_copy(dst_buf=self.vprh.create_sub_buffer[f32](0, k), src_buf=self.vprob.create_sub_buffer[f32](self.mcap, k))
+        self.ctx.synchronize()
+        return k
+
+
+def argmax(x: Vec) -> Int:
+    var b = 0
+    for i in range(len(x)):
+        if x[i] > x[b]:
+            b = i
+    return b
+
+
+def main() raises:
+    var a = argv()
+    var serve = getenv("BARO_SERVE", "") == "1"
+    var pack = getenv("BARO_PACK", "") if serve else String(a[1])
+    var eng = Q4X(pack)
+    var force = List[Int]()
+    var fs = getenv("Q4X_FORCE", "")
+    if fs != "":
+        for t in fs.split(","):
+            force.append(Int(t))
+    var nostop = List[List[Int]]()
+    var nostr = List[String]()
+    if serve:
+        if eng.spec > 0:
+            raise Error("q4x: BARO_SERVE runs without Q4X_SPEC")
+        print("{\"ready\":true,\"tmax\":" + String(eng.kvmax) + ",\"mrows\":" + String(eng.cap if eng.pf else 1) + ",\"kmax\":0,\"spec_k\":0,\"pack\":\"" + pack + "\"}")
+        var pending = List[String]()
+        while True:
+            var line = Optional[String](pending.pop(0)) if len(pending) > 0 else read_line(0)
+            if not line:
+                break
+            var idle_cancel = is_cancel_line(line.value())
+            if idle_cancel[0]:
+                print(idle_cancel_note(idle_cancel[1]))
+                continue
+            var rid = 0
+            var prompt = List[Int]()
+            var n = 0
+            var spec = False
+            var has_spec = False
+            var stop = List[List[Int]]()
+            var ckpt = List[Int]()
+            var sample = default_sample_params()
+            var save = String()
+            var load = String()
+            var prefix = False
+            var sm = String()
+            var sv = String()
+            var sp = 0
+            var sn = Int64(0)
+            var err = parse_request(line.value(), rid, prompt, n, spec, has_spec, stop, ckpt, sample, save, load, prefix, sm, sv, sp, sn)
+            if err == "" and len(prompt) < 1:
+                err = "empty prompt"
+            if err == "" and n < 1:
+                err = "n must be >= 1"
+            if err == "" and len(prompt) + n > eng.kvmax:
+                err = "prompt+n exceeds tmax " + String(eng.kvmax)
+            if err == "" and (sample.temperature > 0 or sample.presence_penalty != 0 or sample.frequency_penalty != 0 or sample.top_logprobs > 0 or sample.embed == 1 or sample.hidden == 1 or sample.logits_topk > 0 or save != "" or load != ""):
+                err = "q4x serves greedy tokens only: sampling, penalties, logprobs, hidden, embed and state_save/state_load are not wired"
+            if err != "":
+                print("{\"id\":" + String(rid) + ",\"error\":\"" + err + "\"}")
+                continue
+            eng.reset()
+            run(eng, prompt, n, force, "", rid, stop, pending)
+        return
+    if getenv("Q4X_STDIN", "") == "":
+        var prompt = List[Int]()
+        for i in range(3, len(a)):
+            prompt.append(Int(a[i]))
+        run(eng, prompt, Int(a[2]), force, "", -1, nostop, nostr)
+        return
+    if eng.spec > 0:
+        raise Error("q4x: Q4X_STDIN runs without Q4X_SPEC")
+    while True:
+        var line = read_line(0)
+        if not line:
+            break
+        var f = line.value().split(" ")
+        if len(f) < 3:
+            raise Error("q4x: stdin request needs TAG N_GEN TOK..., got: " + line.value())
+        var prompt = List[Int]()
+        for i in range(2, len(f)):
+            prompt.append(Int(f[i]))
+        eng.reset()
+        run(eng, prompt, Int(f[1]), force, String(f[0]), -1, nostop, nostr)
+
+
+def stopped(gen: List[Int], stop: List[List[Int]]) -> Bool:
+    for s in stop:
+        if len(s) > 0 and len(s) <= len(gen):
+            var hit = True
+            for k in range(len(s)):
+                if gen[len(gen) - len(s) + k] != s[k]:
+                    hit = False
+                    break
+            if hit:
+                return True
+    return False
+
+
+def run(mut eng: Q4X, prompt: List[Int], ngen: Int, force: List[Int], tag: String, rid: Int, stop: List[List[Int]], mut pending: List[String]) raises:
+    var lg = Vec()
+    var t0 = perf_counter_ns()
+    if eng.pf:
+        if eng.spec > 0:
+            raise Error("q4x: Q4X_SPEC runs the prompt with step(); unset Q4X_PREFILL")
+        lg = eng.prefill(prompt, Int(getenv("Q4X_SEQ", String(len(prompt)))))
+    else:
+        for i in range(len(prompt)):
+            if eng.spec > 0 and i > 0:
+                eng.idsh.unsafe_ptr()[0] = Int32(prompt[i])
+                eng.ctx.enqueue_copy(dst_buf=eng.idsd.create_sub_buffer[i32](0, 1), src_buf=eng.idsh.create_sub_buffer[i32](0, 1))
+                eng.mtp_pass(1, Q4X.ia(eng.idsd), i)
+            lg = eng.step(prompt[i])
+    var nsoft = Int(getenv("Q4X_SOFT", "0"))
+    if nsoft > 0:
+        if eng.spec > 0:
+            raise Error("q4x: Q4X_SOFT steps run without Q4X_SPEC")
+        var sk = Int(getenv("Q4X_SOFT_K", "1024"))
+        var snorm = Float32(atof(getenv("Q4X_SOFT_NORM", "0")))
+        var sout = getenv("Q4X_SOFT_OUT", "")
+        var rows = List[Float32]()
+        var sids = String()
+        for k in range(nsoft):
+            var g = argmax(lg)
+            var v = eng.soft_vec(lg, sk, snorm)
+            if k == 0:
+                print("soft k", sk, "norm", snorm, "first", v[0], v[1], v[2], v[3])
+            rows.extend(v.copy())
+            sids += ("," if k > 0 else "") + String(g)
+            lg = eng.step_vec(g, v)
+        print("soft ids", sids)
+        if sout != "":
+            with open(sout, "w") as f:
+                f.write_bytes(Span[UInt8](unsafe_ptr=rows.unsafe_ptr().bitcast[UInt8](), length=len(rows) * 4))
+            with open(sout + ".ids", "w") as f:
+                f.write(sids + "\n")
+    var vpath = getenv("Q4X_VEC", "")
+    if vpath != "":
+        if eng.spec > 0:
+            raise Error("q4x: Q4X_VEC steps run without Q4X_SPEC")
+        var vids = getenv("Q4X_VEC_IDS", "").split(",")
+        var raw: List[UInt8]
+        with open(vpath, "r") as f:
+            raw = f.read_bytes()
+        var nr = len(raw) // (4 * H)
+        if nr * 4 * H != len(raw) or nr != len(vids):
+            raise Error("q4x: Q4X_VEC holds " + String(len(raw)) + " bytes, Q4X_VEC_IDS " + String(len(vids)) + " ids; need one f32 row of " + String(H) + " per id")
+        var fp = raw.unsafe_ptr().bitcast[Float32]()
+        for k in range(nr):
+            var v = zeros(H)
+            for i in range(H):
+                v[i] = fp[k * H + i]
+            lg = eng.step_vec(Int(vids[k]), v)
+        _ = len(raw)
+    eng.ctx.synchronize()
+    var t1 = perf_counter_ns()
+    var out = String("ids")
+    var gen = List[Int]()
+    var finish = "length"
+    var dt = 0.0
+    if eng.spec > 0 and len(lg) > 0:
+        var pmin = Float32(atof(getenv("Q4X_SPEC_P", "0.5")))
+        var got = 0
+        var rounds = 0
+        var drafted = 0
+        var accepted = 0
+        var tdraft = 0
+        var tver = 0
+        var mver = 0
+        var a0 = argmax(lg)
+        out += " " + String(a0)
+        got = 1
+        var g = force[0] if len(force) > 0 else a0
+        var hist = List[Int]()
+        hist.append(g)
+        var pos = len(eng.toks)
+        while got < ngen:
+            var k = min(eng.spec, ngen - got - 1)
+            var win = List[Int]()
+            win.append(g)
+            var td0 = perf_counter_ns()
+            if k > 0:
+                _ = eng.draft(hist, pos - len(hist) + 1, k)
+                for j in range(k):
+                    if eng.vprh.unsafe_ptr()[j] < pmin:
+                        break
+                    win.append(Int(eng.vidh.unsafe_ptr()[j]))
+            drafted += len(win) - 1
+            var td1 = perf_counter_ns()
+            var m0 = eng.misses
+            var a = eng.verify(win)
+            tdraft += Int(td1 - td0)
+            tver += Int(perf_counter_ns() - td1)
+            mver += eng.misses - m0
+            rounds += 1
+            var n = 1
+            while n < len(win):
+                var want = force[got + n - 1] if got + n - 1 < len(force) else a[n - 1]
+                if win[n] != want:
+                    break
+                n += 1
+            eng.accept(n)
+            accepted += n - 1
+            hist = List[Int]()
+            for j in range(1, n):
+                hist.append(win[j])
+            for j in range(n):
+                if got < ngen:
+                    out += " " + String(a[j])
+                    got += 1
+            g = force[got - 1] if got - 1 < len(force) else a[n - 1]
+            hist.append(g)
+            pos += n
+        var t2 = perf_counter_ns()
+        print("spec rounds", rounds, "drafted", drafted, "accepted", accepted, "tokens/round", Float64(got - 1) / Float64(max(rounds, 1)), "draft ms/round", Float64(tdraft) / 1e6 / Float64(max(rounds, 1)), "verify ms/round", Float64(tver) / 1e6 / Float64(max(rounds, 1)), "verify misses/round", Float64(mver) / Float64(max(rounds, 1)), "gen ms/token", Float64(t2 - t1) / 1e6 / Float64(max(got - 1, 1)))
+    else:
+        for i in range(ngen):
+            if len(lg) == 0:
+                break
+            var nxt = argmax(lg)
+            out += " " + String(nxt)
+            if rid >= 0:
+                print("{\"id\":" + String(rid) + ",\"tok\":" + String(nxt) + "}")
+                gen.append(nxt)
+                if stopped(gen, stop):
+                    finish = "stop"
+                    break
+                if cancel_pending(0, rid, pending):
+                    finish = "cancelled"
+                    break
+            if i + 1 < ngen:
+                lg = eng.step(force[i] if i < len(force) else nxt)
+        dt = Float64(perf_counter_ns() - t1) / 1e9
+        print("gen ms/token", dt * 1e3 / Float64(max(ngen - 1, 1)))
+    print(out if tag == "" else "out " + tag + " " + out)
+    print("prompt", "prefill" if eng.pf else "decode", "tokens", len(prompt), "sequences", eng.S, "R", 1 if len(prompt) == 1 or not eng.pf else PF_R, "ms/token", Float64(t1 - t0) / 1e6 / Float64(max(len(prompt), 1)), "ms", Float64(t1 - t0) / 1e6)
+    print("expert misses", eng.misses, "of", len(eng.toks) * NL * TOPK, "MB/token", Float64(eng.ebytes) / 1048576.0 / Float64(max(len(eng.toks), 1)), "cpu expert-rows", eng.cpun)
+    var nt = Float64(max(len(eng.toks), 1))
+    print("prof ms/token hc", Float64(eng.prof[0]) / 1e6 / nt, "ssm", Float64(eng.prof[1]) / 1e6 / nt, "attn", Float64(eng.prof[2]) / 1e6 / nt, "ffn", Float64(eng.prof[3]) / 1e6 / nt, "tokens", len(eng.toks), "total ms", Float64(eng.prof[0] + eng.prof[1] + eng.prof[2] + eng.prof[3]) / 1e6)
+    comptime if COUNT_DISPATCH:
+        var tot = 0
+        var keys = List[String]()
+        for e in eng.dc.items():
+            keys.append(e.key)
+            tot += e.value
+        sort(keys)
+        print("dispatch/token total", Float64(tot) / Float64(max(eng.dn, 1)), "forwards", eng.dn)
+        for k in keys:
+            print("dispatch", k, Float64(eng.dc[k]) / Float64(max(eng.dn, 1)))
+    print("prof ffn ms/token router+group", Float64(eng.prof[4]) / 1e6 / nt, "fetch+upload", Float64(eng.prof[5]) / 1e6 / nt, "gemms", Float64(eng.prof[6]) / 1e6 / nt)
+    if rid >= 0:
+        print("{\"id\":" + String(rid) + ",\"done\":true,\"n\":" + String(len(gen)) + ",\"prefill_s\":" + String(Float64(t1 - t0) / 1e9) + ",\"decode_s\":" + String(dt) + ",\"tok_s\":" + String(Float64(len(gen) - 1) / dt if len(gen) > 1 else 0.0) + ",\"finish\":\"" + finish + "\"}")

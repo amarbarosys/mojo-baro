@@ -1,0 +1,11 @@
+cap192-g96 run1 tok/s_gen: 105.77506733477087 0 fail-lines; tokens: PASS: 64 tokens match
+cap192-g96 run2 tok/s_gen: 105.57833648369873 0 fail-lines; tokens: PASS: 64 tokens match
+cap192-g96 run3 tok/s_gen: 105.78840981073853 0 fail-lines; tokens: PASS: 64 tokens match
+cap192-g192 run1 tok/s_gen: 61.5580598208093 0 fail-lines; tokens: FAIL: mismatch at position 25: expected 11751, got 0
+cap192-g192 run2 tok/s_gen: 68.09668847749553 0 fail-lines; tokens: FAIL: mismatch at position 14: expected 314, got 0
+cap192-g192 run3 tok/s_gen: 62.137066211339395 0 fail-lines; tokens: FAIL: mismatch at position 24: expected 369, got 0
+##### P0 A/B HEAD vs cap192-g96
+head median 119.14 tok/s_gen spread 3.2%  |  cap192-g96 median 105.00 spread 8.5%  |  ratio 0.881  |  identity fails: none
+clock-probe: busy 121/174 samples (skipped 11 in first 3.5s)  sclk min/med/max 646/3041/3315 MHz  power 61-357 W (cap 290 W, 48 busy samples above it: rocm-smi package power is instantaneous, the cap is a moving average)  junction max 71 C  -- .work/clock-probe-20260906-045548.log
+NOT-RESIDENT lines in the A/B: 0
+exit 0

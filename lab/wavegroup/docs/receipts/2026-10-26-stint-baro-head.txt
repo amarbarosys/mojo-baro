@@ -1,0 +1,21 @@
+three-arm same stint + per-kernel decode tail (rocprofv3, p01), 2026-10-26
+engine=.work/decode sha=b7dab526f5a1a3fb server=~/Projects/imports/llama.cpp/build/bin/llama-server sha=5d954eb24804be38 model=~/Models/llama-3.2-1b-instruct-q4_K_M/Llama-3.2-1B-Instruct-Q4_K_M.gguf load=2.25 1.82 1.46
+alt: mojo-baro HEAD 7849c66 serve/spark.mojo + gen-profile, engine-pack --dense (Q4_K/Q6_K raw, 1.72 GiB) pack_sha b24a7549, spark sha a4b69ae94206551a
+ours median 569.8 tok/s, llama.cpp median 418.3, ratio median 1.360 (min 1.350, max 1.392), faster 21/21, drift 1.0134
+alt median 538.5 tok/s, ours/alt ratio median 1.055, alt/llama.cpp 1.291
+ids equal to llama.cpp: 13/21 prompts all 64; matching prefix per prompt [64, 3, 64, 64, 64, 64, 64, 64, 6, 64, 64, 45, 49, 64, 64, 64, 29, 27, 42, 28, 64]
+alt ids equal to llama.cpp: 9/21 all 64
+per layer GEMV, decode tail mean (us):           wavegroup        mojo-baro HEAD
+  qkv  (3072 rows)                              7.75 split-K      11.06
+  gate+up (2x8192)                             23.99 fused       27.66 (2 x 13.83)
+  attn_output + ffn_down (2048 rows)           23.52             24.02
+  sum                                          55.26             62.74   -> 7.5 us/layer, ~120 us/token
+
+lever 1 ported (mojo-baro 'perf(spark): fused FFN gate+up'): same-job A/B, 21 prompts x 64, base vs fused
+  ids identical 21/21; tok/s 534.95 -> 557.95 median, ratio median 1.0417 (min 1.0338, max 1.0522)
+
+lever 2 ported (mojo-baro a931225 split-K QKV): A/B 557.77 -> 569.42 (1.0250), ids identical 21/21
+three-arm stint after both levers (.work/stint-l2):
+ours median 568.5 tok/s, llama.cpp median 412.4, ratio median 1.380 (min 1.322, max 1.408), faster 21/21, drift 0.9999
+alt median 569.6 tok/s, ours/alt ratio median 0.998, alt/llama.cpp 1.378
+ids equal to llama.cpp: 13/21 prompts all 64; matching prefix per prompt [64, 3, 64, 64, 64, 64, 64, 64, 6, 64, 64, 45, 49, 64, 64, 64, 29, 27, 42, 28, 64]

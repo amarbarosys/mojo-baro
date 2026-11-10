@@ -1,0 +1,219 @@
+{
+ "user": {
+  "messages": [
+   {
+    "role": "user",
+    "content": "What is the capital of Anhui?"
+   }
+  ]
+ },
+ "system_user": {
+  "messages": [
+   {
+    "role": "system",
+    "content": "Be brief."
+   },
+   {
+    "role": "user",
+    "content": "Hi"
+   }
+  ]
+ },
+ "three_turn": {
+  "messages": [
+   {
+    "role": "user",
+    "content": "2+2?"
+   },
+   {
+    "role": "assistant",
+    "content": "4"
+   },
+   {
+    "role": "user",
+    "content": "and 3+3?"
+   }
+  ]
+ },
+ "reasoning": {
+  "messages": [
+   {
+    "role": "user",
+    "content": "Think."
+   },
+   {
+    "role": "assistant",
+    "content": "Done.",
+    "reasoning_content": "step 1, step 2"
+   },
+   {
+    "role": "user",
+    "content": "ok"
+   }
+  ]
+ },
+ "tool_call": {
+  "messages": [
+   {
+    "role": "user",
+    "content": "weather in Hefei"
+   },
+   {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [
+     {
+      "type": "function",
+      "function": {
+       "name": "get_weather",
+       "arguments": {
+        "city": "Hefei",
+        "unit": "c"
+       }
+      }
+     }
+    ]
+   },
+   {
+    "role": "tool",
+    "content": "{\"temp\": 31}"
+   }
+  ],
+  "tools": [
+   {
+    "type": "function",
+    "function": {
+     "name": "get_weather",
+     "description": "Weather",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "city": {
+        "type": "string"
+       }
+      }
+     }
+    }
+   }
+  ]
+ },
+ "two_tools": {
+  "messages": [
+   {
+    "role": "user",
+    "content": "x"
+   },
+   {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [
+     {
+      "type": "function",
+      "function": {
+       "name": "a",
+       "arguments": {
+        "k": 1
+       }
+      }
+     },
+     {
+      "type": "function",
+      "function": {
+       "name": "b",
+       "arguments": {
+        "k": [
+         1,
+         2
+        ]
+       }
+      }
+     }
+    ]
+   },
+   {
+    "role": "tool",
+    "content": "r1"
+   },
+   {
+    "role": "tool",
+    "content": "r2"
+   },
+   {
+    "role": "user",
+    "content": "thanks"
+   }
+  ]
+ },
+ "no_gen": {
+  "messages": [
+   {
+    "role": "user",
+    "content": "Hi"
+   }
+  ],
+  "add_generation_prompt": false
+ },
+ "think_off": {
+  "messages": [
+   {
+    "role": "user",
+    "content": "Hi"
+   }
+  ],
+  "enable_thinking": false
+ },
+ "think_on": {
+  "messages": [
+   {
+    "role": "user",
+    "content": "Hi"
+   }
+  ],
+  "enable_thinking": true
+ },
+ "blocks": {
+  "messages": [
+   {
+    "role": "user",
+    "content": [
+     {
+      "type": "text",
+      "text": "part one "
+     },
+     {
+      "type": "text",
+      "text": "part two"
+     }
+    ]
+   }
+  ]
+ },
+ "unicode": {
+  "messages": [
+   {
+    "role": "system",
+    "content": "你是助手。"
+   },
+   {
+    "role": "user",
+    "content": "Ünïcödé 😀 \"quotes\" \\ back"
+   }
+  ]
+ },
+ "empty_assistant": {
+  "messages": [
+   {
+    "role": "user",
+    "content": "Hi"
+   },
+   {
+    "role": "assistant",
+    "content": ""
+   },
+   {
+    "role": "user",
+    "content": "again"
+   }
+  ]
+ }
+}

@@ -1,0 +1,9 @@
+# Kernel amar_attn_decode_swa_gated
+
+Source kernels/spark_kernels.mojo. Registry roles: serve/spark.mojo, kernels/test_spark_attn.mojo. Default path: in registry.
+Callers: . Tests naming it: 0.
+ISA: not in any receipt, unknown.
+Recent commits on the file:
+2cf86ed feat(spark): fused decode rope behind BARO_ROPE_FUSE (default off), byte test, prereg frozen
+36950cc feat(spark): split decode attention behind BARO_ATT_SPLIT (default off), prereg frozen
+04e5131 fix(spark): apply rope_freqs (Llama 3 rope scaling), Llama 1B ids now match llama.cpp 13/21

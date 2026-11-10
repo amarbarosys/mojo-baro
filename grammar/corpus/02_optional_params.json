@@ -1,0 +1,1 @@
+{"type": "object", "properties": {"query": {"type": "string"}, "limit": {"type": "integer"}, "offset": {"type": "integer"}}, "required": ["query"]}

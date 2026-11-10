@@ -1,0 +1,1 @@
+{"messages":[{"role":"system","content":"S"},{"role":"user","content":"hi"}],"tools":[{"type":"function","function":{"name":"get_weather","description":"Weather","parameters":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"]}}}],"reasoning_effort":"medium","enable_thinking":false,"add_generation_prompt":true}

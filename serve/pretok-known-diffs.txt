@@ -1,0 +1,13 @@
+# Pre-tokenizer regexes that differ from llama.cpp's on purpose. name: reason. tools/pretok-check.py
+# reports these as KNOWN-DIFF instead of failing; delete a line to make the check enforce parity again.
+gpt-2: ours keeps the original GPT-2 trailing `|\s+` alternative that llama.cpp dropped; unreachable after `\s+(?!\S)` except on whitespace runs before end of text, where both produce the same pieces (61/61 tokenizer gate)
+granite-docling: same regex as gpt-2 above
+default: llama.cpp's switch fallback is a 4-regex sequence (punctuation group, gpt2 core, digit runs, 3-digit groups) for files with no tokenizer.ggml.pre; ours maps default to the gpt-2 regex, and no served model has an unset pre
+exaone4: same regex as gpt-2 above
+
+gpt-4o: ours is the HF o200k regex verbatim (cdc249d); llama.cpp's lookahead rewrite lacks \p{M}, so a decomposed letter splits in two: 332/400 corpus lines vs HF tokenizers, ours 22215/22215 (gpt-oss-20b, Phi-4-mini, MiniMax-M2.7)
+kanana2: same regex as gpt-4o above
+llama4: same regex as gpt-4o above
+minimax-m2: same regex as gpt-4o above
+talkie: same regex as gpt-4o above
+deepseek-coder: ours is the HF split chain verbatim (9e45d26: explicit letter and ASCII/fullwidth punctuation ranges plus \s+$); llama.cpp's \s?\p{L}+ / \s?\p{P}+ approximation matched HF on 182/400 corpus lines for deepseek-coder-7b-instruct-v1.5, ours 22215/22215

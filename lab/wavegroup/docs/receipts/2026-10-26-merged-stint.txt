@@ -1,0 +1,7 @@
+lab/wavegroup after the merge into mojo-baro, 2026-10-26: built from the lab, kernels from this repo
+engine=.work/decode sha=b42a5bddd1fb71bc server=~/Projects/imports/llama.cpp/build/bin/llama-server sha=5d954eb24804be38 model=~/Models/llama-3.2-1b-instruct-q4_K_M/Llama-3.2-1B-Instruct-Q4_K_M.gguf load=1.39 1.98 2.26
+tok 9 / 9 load_ms 79.011154
+ref_story 64/64 equal
+ours median 571.1 tok/s, llama.cpp median 412.5, ratio median 1.387 (min 1.363, max 1.405), faster 21/21, drift 0.9940
+alt median 561.4 tok/s, ours/alt ratio median 1.021, alt/llama.cpp 1.359
+ids equal to llama.cpp: 13/21 prompts all 64; matching prefix per prompt [64, 3, 64, 64, 64, 64, 64, 64, 6, 64, 64, 45, 49, 64, 64, 64, 29, 27, 42, 28, 64]

@@ -1,0 +1,509 @@
+#!/usr/bin/env bash
+# baro: run or verify a self-describing BARO gguf (B1, docs/NEXT-PLAN.md).
+#
+#   tools/baro run     MODEL.gguf [--port N] [--chat-template-file PATH] [--pack DIR] [--work DIR] [--no-serve]
+#   tools/baro verify  MODEL.gguf [--append] [--work DIR]
+#   tools/baro receipts MODEL.gguf
+#   tools/baro serve   MODEL.gguf [--port N] [--chat-template-file PATH] [--rebuild]
+#   tools/baro eval    MODEL-KEY [--quick N] [--dry-run]
+#   tools/baro eval-all [MODEL-KEY ...]
+#   tools/baro multi-serve MODEL.gguf [--devices 0,1] [--port N]
+#
+# THREE MODES.
+#
+# serve mode is run mode plus a persistent cache (item 4, briefs/2026-09-16-
+# baro-serve-cache-lane.md): the engine binary and weight pack are built once
+# per structural id (tools/model-id.py hashes exactly what serve/engine.mojo
+# or serve/spark.mojo compiles in for this checkpoint's shape, read from the
+# GGUF header only) and reused by every later `baro serve` of a same-shape
+# checkpoint, at $BARO_CACHE (default ~/.cache/baro)/<id>/{engine,manifest.json,
+# packs/<gguf-sha256>/}. Packs are keyed by id + the GGUF's own sha256 (never
+# just id) because weights differ per checkpoint even at one shape. Eviction
+# is manual, not automatic: `rm -rf ~/.cache/baro/<id>` drops an engine and
+# every pack built under it; `rm -rf ~/.cache/baro/<id>/packs/<sha>` drops one
+# pack and keeps the compiled engine.
+#
+# run/verify: TWO MODES, and the difference between them is the whole point.
+#
+# run mode extracts the sources the file carries, builds the engine with the
+# harness the file carries (baro.run.src.engine.mojo), builds the weight pack
+# from the file itself, and serves it. It needs no reference tokens and no
+# checkout of this repo beyond this script. Every number it prints is labelled
+# "self-reported": the file supplied the stopwatch, so the file cannot be timed
+# by it (exchange/scorer-integrity-report.md P-A).
+#
+# verify mode does the opposite. It takes serve/engine.mojo from git at the
+# file's own baro.kernel.commit, refuses to continue if the harness the file
+# carries differs from it by one byte, then runs tools/gguf-verify.sh (rebuild
+# from the embedded kernel sources, gate the tokens, print the hardware
+# receipt). Only verify mode may append to the receipt ledger, and every
+# receipt it writes carries mode=verified and the commit it was checked
+# against. It needs the checkout, by design.
+#
+# The ledger lives in tools/gguf-receipt.py: a sidecar JSONL next to the model
+# by default, or inside the file's baro.hw.receipts key with --in-file (which
+# rewrites the whole gguf, so it is opt-in).
+set -uo pipefail
+export MODULAR_DEVICE_CONTEXT_MEMORY_MANAGER_SIZE_PERCENT="${MODULAR_DEVICE_CONTEXT_MEMORY_MANAGER_SIZE_PERCENT:-2}"
+here=$(cd "$(dirname "$0")/.." && pwd)
+. "$here/tools/baro-lib.sh"
+
+die() { echo "baro: $*" >&2; exit 1; }
+kvget() { jq -r --arg k "$1" '.[$k] // empty' "$meta"; }
+
+cmd=${1:-}; shift || true
+[ -n "$cmd" ] || die "usage: baro {serve|run|verify|receipts|eval|multi-serve|chat|swarm} [MODEL.gguf] [options]"
+
+case $cmd in
+eval)
+  key=${1:-}; shift || true
+  [ -n "$key" ] || die "usage: baro eval MODEL-KEY [--quick N] [--dry-run]"
+  quick=0; dry=0
+  while [ $# -gt 0 ]; do
+    case $1 in
+      --quick) quick=$2; shift 2;;
+      --dry-run) dry=1; shift;;
+      *) die "unknown eval option $1";;
+    esac
+  done
+  jq -e --arg key "$key" '.[$key] and ($key | startswith("_") | not)' "$here/bench/quality-models.json" >/dev/null \
+    || die "unknown quality model key $key"
+  if [ "$dry" = 1 ]; then
+    echo "baro eval: bench/quality-run.sh $key QUICK=$quick"
+    exit 0
+  fi
+  exec env QUICK="$quick" "$here/bench/quality-run.sh" "$key"
+  ;;
+eval-all)
+  exec "$here/bench/quality-sweep.sh" "$@"
+  ;;
+multi-serve)
+  exec "$here/tools/baro-multi-serve" "$@"
+  ;;
+chat)
+  echo "$here/.venv/bin/mojo build $here/tools/baro-chat.mojo -I $here -o $here/.work/baro-chat" | "$here/tools/build-many.sh" baro-chat > "$here/.work/baro-chat.build.log" 2>&1 \
+    || { echo "FAIL build baro-chat: see $here/.work/baro-chat.build.log" >&2; exit 1; }
+  exec "$here/.work/baro-chat" "$@"
+  ;;
+swarm)
+  exec "$here/.venv/bin/mojo" "$here/tools/gpu_512_persona_swarm.mojo" "$@"
+  ;;
+esac
+
+model=${1:-}; shift || true
+[ -n "$model" ] && [ -f "$model" ] || die "no such model file: ${model:-<none>}"
+model=$(readlink -f "$model")
+
+port=8080; pack=""; work=""; append=0; serve=1; rebuild=0; chat_template_file=""; profile=""; port_set=0
+while [ $# -gt 0 ]; do
+  case $1 in
+    --port) port=$2; port_set=1; shift 2;;
+    --pack) pack=$(readlink -f "$2"); shift 2;;
+    --work) work=$2; shift 2;;
+    --append) append=1; shift;;
+    --no-serve) serve=0; shift;;
+    --rebuild) rebuild=1; shift;;
+    --chat-template-file) chat_template_file=$(readlink -f "$2"); shift 2;;
+    --profile) profile=$2; shift 2;;
+    *) die "unknown option $1";;
+  esac
+done
+work=${work:-$here/.work/baro-$(basename "${model%.gguf}")}
+mkdir -p "$work"
+meta=$work/meta.json
+
+# The metadata read is the same for every mode. gguf-extract.py is this repo's
+# reader; ~/iTools/bin/gguf-kv is the one-line alternative but does not emit
+# the source KVs as JSON.
+py=$here/.venv/bin/python3
+[ -x "$py" ] || py=python3
+"$py" "$here/tools/gguf-extract.py" "$model" --meta > "$meta" || die "cannot read $model"
+# A profile (profiles/NAME.toml, checked against docs/settings-template.toml)
+# supplies env, -D flags, an engine source (the file's harness or this
+# checkout), and optionally a pack and a port. Explicit --pack/--port win.
+penv=""; pflags=""; psource=file; pwarm=""
+if [ -n "$profile" ]; then
+  prof=$here/.work/profile
+  if [ ! -x "$prof" ] || [ "$here/tools/profile.mojo" -nt "$prof" ]; then
+    "$here/.venv/bin/mojo" build "$here/tools/profile.mojo" -I "$here" -o "$prof" > "$work/profile-build.log" 2>&1 \
+      || die "profile tool build FAILED, see $work/profile-build.log"
+  fi
+  "$prof" env "$profile" >/dev/null || die "profile $profile is invalid (tools/profile.py check)"
+  penv=$("$prof" env "$profile")
+  pflags=$("$prof" build "$profile")
+  psource=$("$prof" get "$profile" source)
+  ppack=$("$prof" get "$profile" pack)
+  pport=$("$prof" get "$profile" port)
+  pwarm=$("$prof" get "$profile" warm)
+  if [ -z "$pack" ] && [ -n "$ppack" ]; then
+    case $ppack in /*) pack=$ppack;; *) pack=$here/$ppack;; esac
+    [ -d "$pack" ] || die "profile $profile: pack $pack does not exist"
+  fi
+  [ "$port_set" = 1 ] || [ -z "$pport" ] || port=$pport
+  echo "profile: $profile (engine source: $psource${pflags:+, $pflags}${penv:+, env: $penv})"
+fi
+commit=$(kvget baro.kernel.commit)
+kmodel=$(kvget baro.kernel.model)
+# MoE shape -D flags from the GGUF's own metadata (tools/model-id.py fields), so a
+# qwen35moe-family checkpoint of another size compiles its own engine.
+shape_dflags() { "$py" "$here/tools/model-id.py" "$model" --json | jq -r '.fields | to_entries[] | select(.key != "BARO_MODEL" and (.key | startswith("BARO_"))) | "-D \(.key)=\(.value)"' | tr '\n' ' '; kvget baro.run.build.flags; }
+[ -n "$commit" ] || die "not a BARO file: no baro.kernel.commit"
+tok_state=none
+ensure_tokenizer() {
+  local packdir=$1
+  [ -s "$packdir/tokenizer.json" ] && [ -s "$packdir/tokenizer-meta.json" ] && tok_state=present
+  # Text endpoints need tokenizer.json + tokenizer-meta.json in the pack. Built
+  # from the GGUF by tools/gguf-tokenizer-json.mojo (byte-level BPE); for any
+  # other tokenizer (SPM, spark2_5) the meta is still written and a shipped
+  # hf/tokenizer.json next to the model is copied in.
+  if [ ! -s "$packdir/tokenizer.json" ] || [ ! -s "$packdir/tokenizer-meta.json" ]; then
+    tj=$here/.work/gguf-tokenizer-json
+    # rebuilt when older than its source or the toolchain: a 09-30 binary outlived the 10-09 Mojo upgrade, lost
+    # libKGENCompilerRTShared.so, and every pack built after that had no tokenizer (chat 503, 2026-10-12)
+    { [ -x "$tj" ] && [ "$tj" -nt "$here/tools/gguf-tokenizer-json.mojo" ] && [ "$tj" -nt "$(readlink -f "$here/.venv/bin/mojo")" ]; } || "$here/.venv/bin/mojo" build "$here/tools/gguf-tokenizer-json.mojo" -I "$here" -I "$here/serve" -o "$tj" > "$work/tokjson-build.log" 2>&1 \
+      || die "tokenizer tool build FAILED, see $work/tokjson-build.log"
+    if "$tj" "$model" "$packdir" > "$work/tokjson.log" 2>&1; then
+      tok_state=built
+    else
+      shipped=$(dirname "$model")/hf/tokenizer.json
+      if [ -s "$shipped" ]; then
+        cp "$shipped" "$packdir/tokenizer.json"
+        tok_state=copied
+        echo "tokenizer: $(head -1 "$work/tokjson.log"); copied $shipped"
+      else
+        echo "tokenizer: none ($(head -1 "$work/tokjson.log")); text endpoints will return 503, token-id requests work"
+      fi
+    fi
+  fi
+  [ -s "$packdir/tokenizer.json" ] && echo "tokenizer: $packdir/tokenizer.json"
+}
+
+# The file's own pack builder into DIR (baro.run.pack.tool + baro.run.src.<tool>, gguf-extract.py for a Python
+# tool, baro.run.pack.deps for a Mojo tool's import closure), falling back to the checkout per file; prints its path.
+# A file with no baro.run.pack.tool predates the KV and was packed by engine-pack.py.
+fetch_pack_tool() {
+  local dir=$1 packtool dep f; mkdir -p "$dir"
+  packtool=$(kvget baro.run.pack.tool); packtool=${packtool:-engine-pack.py}
+  jq -er --arg k "baro.run.src.$packtool" '.[$k]' "$meta" > "$dir/$packtool" 2>/dev/null \
+    || { echo "pack tool: file carries no baro.run.src.$packtool, using the checkout's tools/$packtool" >&2; cp "$here/tools/$packtool" "$dir/$packtool"; }
+  jq -er '.["baro.run.src.gguf-extract.py"]' "$meta" > "$dir/gguf-extract.py" 2>/dev/null \
+    || cp "$here/tools/gguf-extract.py" "$dir/gguf-extract.py"
+  for dep in $(kvget baro.run.pack.deps | tr ',' ' '); do
+    jq -er --arg k "baro.run.src.$dep" '.[$k]' "$meta" > "$dir/$dep" 2>/dev/null \
+      || { f=$(ls "$here"/serve/"$dep" "$here"/tools/"$dep" 2>/dev/null | head -1); [ -n "$f" ] || die "pack tool dep $dep: not embedded, not in the checkout"; cp "$f" "$dir/$dep"; }
+  done
+  echo "$dir/$packtool"
+}
+
+case $cmd in
+
+receipts)
+  exec "$py" "$here/tools/gguf-receipt.py" "$model" --list
+  ;;
+
+verify)
+  # 1. the harness check. A file whose embedded harness differs from git at its
+  #    own commit has either been tampered with or was baked from a dirty tree;
+  #    either way its numbers describe an engine nobody can review.
+  esha=$(kvget baro.run.harness.sha)
+  if [ -n "$esha" ]; then
+    hpath=$(kvget baro.run.harness.path); hpath=${hpath:-serve/engine.mojo}
+    git -C "$here" cat-file -e "$commit:$hpath" 2>/dev/null \
+      || die "commit $commit is not in this checkout, so the harness ($hpath) cannot be checked"
+    gsha=$(git -C "$here" show "$commit:$hpath" | sha256sum | cut -d' ' -f1)
+    if [ "$esha" != "$gsha" ]; then
+      echo "HARNESS MISMATCH" >&2
+      echo "  embedded baro.run.harness.sha: $esha" >&2
+      echo "  git $commit:$hpath:  $gsha" >&2
+      die "the file carries a harness that is not the one at its own commit; its numbers are not verifiable"
+    fi
+    echo "harness: embedded copy is byte-identical to $hpath at $commit ($gsha)"
+  else
+    echo "harness: file carries no baro.run.src.engine.mojo (pre-B1 bake); verify uses git only"
+  fi
+
+  # 2. the real check: rebuild from the file's kernel sources and gate tokens.
+  out=$work/verify
+  "$here/tools/gguf-verify.sh" "$model" "$out" 2>&1 | tee "$work/verify.log"
+  rc=${PIPESTATUS[0]}
+  echo "verify exit: $rc"
+  [ $rc = 0 ] || die "verification FAILED (exit $rc); no receipt written"
+
+  if [ $append = 1 ]; then
+    tps=$(grep -oE 'tok/s_gen: [0-9.]+' "$out/run.log" 2>/dev/null | tail -1 | cut -d' ' -f2)
+    card=$(rocminfo 2>/dev/null | grep -m1 -oE 'gfx[0-9a-f]+')
+    # product_name is empty on this driver, so the GPU's marketing name comes
+    # from rocminfo (the second one: the first is the CPU agent).
+    name=$(cat /sys/class/drm/card*/device/product_name 2>/dev/null | grep -v '^$' | head -1)
+    [ -n "$name" ] || name=$(rocminfo 2>/dev/null | awk '/Marketing Name/ {sub(/^ *Marketing Name: */, ""); sub(/ *$/, ""); print}' | sed -n 2p)
+    cap=$(cat /sys/class/drm/card1/device/hwmon/hwmon*/power1_cap 2>/dev/null | head -1)
+    "$py" "$here/tools/gguf-receipt.py" "$model" --append "$(jq -nc \
+      --arg mode verified --arg commit "$commit" --arg gfx "${card:-unknown}" \
+      --arg card "${name:-unknown}" --arg rocm "$(cat /opt/rocm/.info/version 2>/dev/null)" \
+      --arg driver "$(cat /sys/module/amdgpu/version 2>/dev/null || uname -r)" \
+      --arg cap_w "$(( ${cap:-0} / 1000000 ))" --arg tok_s_gen "${tps:-}" \
+      --arg date "$(date -Is)" --arg host "$(hostname)" \
+      --argjson harness_checked "$([ -n "$esha" ] && echo true || echo false)" \
+      '{mode:$mode, harness_checked:$harness_checked, checked_against_commit:$commit, gfx:$gfx, card:$card, rocm:$rocm,
+        driver:$driver, power_cap_w:($cap_w|tonumber), tok_s_gen_one_prompt:$tok_s_gen,
+        date:$date, host:$host}')"
+  fi
+  ;;
+
+serve)
+  export BARO_NEURONS=${BARO_NEURONS:-1}
+  t0=$(date +%s)
+  idjson=$("$py" "$here/tools/model-id.py" "$model" --json 2>"$work/model-id.err") || die "$(cat "$work/model-id.err")"
+  echo "$idjson" > "$work/model-id.json"
+  id=$(jq -r .id <<<"$idjson")
+  cache=${BARO_CACHE:-$HOME/.cache/baro}/$id
+  mkdir -p "$cache"
+  echo "id: $id"
+
+  hpath=$(kvget baro.run.harness.path); hpath=${hpath:-serve/engine.mojo}
+  hname=$(basename "$hpath")
+
+  # Engines built with profile flags or from the checkout get their own slot,
+  # keyed by source, checkout commit and flags. The default engine is keyed by the bake's own kernel commit:
+  # one shape id spans every bake of that checkpoint, and a bare "engine" slot served the f32 engine built from
+  # an e340ee1 bake to an f3220ad bake whose embedded sources default to int8 KV (2026-10-12).
+  ename=engine-k${commit:-none}
+  if [ "$psource" = checkout ] || [ -n "$pflags" ]; then
+    ckey="$psource $pflags"
+    [ "$psource" = checkout ] && ckey="$ckey $(git -C "$here" rev-parse HEAD)$(git -C "$here" diff --quiet HEAD -- serve kernels latentos uregex minja || echo -dirty)"
+    ename=engine-$(printf '%s' "$ckey" | sha256sum | cut -c1-12)
+  fi
+  built=0
+  if [ "$rebuild" = 1 ] || [ ! -x "$cache/$ename" ]; then
+    built=1
+    ebuild0=$(date +%s)
+    src=$cache/src
+    rm -rf "$src"; mkdir -p "$src"
+    jq -r '.["baro.kernel.files"]' "$meta" | tr ',' '\n' > "$src/FILES"
+    while read -r fname; do
+      [ -n "$fname" ] || continue
+      mkdir -p "$src/$(dirname "$fname")"
+      jq -r --arg k "baro.kernel.src.$fname" '.[$k]' "$meta" > "$src/$fname"
+    done < "$src/FILES"
+    # The harness itself, named from baro.run.harness.path -- engine.mojo for
+    # qwen35/qwen35moe, spark.mojo for llama/qwen2/granite/spark2_5 (item 3).
+    # `tools/baro run` hardcodes baro.run.src.engine.mojo and so cannot build
+    # a spark-harness bake self-contained; this reads the file's own name
+    # instead, since it is written right alongside the source (tools/gguf-
+    # embed.py --run-harness).
+    harness=$(jq -r --arg k "baro.run.src.$hname" '.[$k] // empty' "$meta")
+    [ -n "$harness" ] || die "this file carries no baro.run.src.$hname (harness path $hpath); re-bake with --run-harness=$hpath or use: baro verify $model"
+    printf '%s' "$harness" > "$src/$hname"
+    for k in $(jq -r 'keys[] | select(startswith("baro.run.src.")) | select(endswith(".mojo"))' "$meta"); do
+      n=${k#baro.run.src.}
+      [ "$n" = "$hname" ] && continue
+      jq -r --arg k "$k" '.[$k]' "$meta" > "$src/$n"
+    done
+
+    mojo=$here/.venv/bin/mojo
+    [ -x "$mojo" ] || die "no $mojo; run 'uv sync' in the checkout first (the pinned toolchain is max[all]==26.5.0)"
+    accel=(--target-accelerator "${BARO_TARGET_ACCELERATOR:-gfx1100}")
+    dflag=""
+    [ "$hname" = "engine.mojo" ] && dflag="${kmodel:+-D BARO_MODEL=$kmodel }$(shape_dflags)"
+    # spark.mojo batched prefill: WMMA GEMM with B as stored [N, K] and f32 C
+    [ "$hname" = "spark.mojo" ] && dflag="-D WMMA_TB=1 -D WMMA_C_F16=0"
+    echo "building engine ($hpath${dflag:+, $dflag}) ..."
+    # shellcheck disable=SC2086
+    if [ "$psource" = checkout ]; then
+      [ "$hname" = engine.mojo ] || die "profile source=checkout supports engine.mojo models only"
+      # shellcheck disable=SC2086
+      "$mojo" build "${accel[@]}" "$here/serve/engine.mojo" -I "$here" -I "$here/kernels" -I "$here/serve" $dflag $pflags -o "$cache/$ename.new" > "$cache/build.log" 2>&1
+    else
+      # shellcheck disable=SC2086
+      "$mojo" build "${accel[@]}" "$src/$hname" -I "$src" $dflag $pflags -o "$cache/$ename.new" > "$cache/build.log" 2>&1
+    fi
+    [ -x "$cache/$ename.new" ] || { grep -m3 error "$cache/build.log"; die "engine build FAILED, see $cache/build.log"; }
+    mv -f "$cache/$ename.new" "$cache/$ename"
+    ebuild_s=$(( $(date +%s) - ebuild0 ))
+    echo "engine: built in ${ebuild_s}s -> $cache/$ename"
+    "$py" - "$work/model-id.json" "$model" "$commit" "$hpath" "${dflag:-none}" "$ebuild_s" <<'PYEOF' > "$cache/manifest.json"
+import json, sys, time
+idjson_path, model, commit, harness, flags, secs = sys.argv[1:7]
+idjson = json.load(open(idjson_path))
+json.dump({
+    "id": idjson["id"], "arch": idjson["arch"], "engine_family": idjson["engine"],
+    "id_fields": idjson["fields"], "harness": harness, "build_flags": flags,
+    "mojo_baro_commit": commit, "built_from": model,
+    "built_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    "build_seconds": int(secs),
+}, sys.stdout, indent=1)
+PYEOF
+  fi
+  echo "engine: $([ $built = 1 ] && echo miss || echo hit) $cache/$ename"
+
+  # GGUF sha (item 2: packs keyed by id + the checkpoint's own weights, never
+  # just id), cached by (path, size, mtime) so a warm `baro serve` never
+  # re-hashes a multi-GB file it already hashed this box.
+  gsha=$(model_sha "$model")
+  packdir=${pack:-$cache/packs/$gsha}
+  pbuilt=0
+  # A bake whose run env sets BARO_TIER serves the expert tier: the pack is split into trunk pack.bin + experts.bin
+  # (tools/pack-split-experts.py, copy_file_range) under $cache/tier-<sha8>. The resident 20 GB MoE pack ran out of
+  # VRAM next to the desktop and took the machine down on 2026-10-12.
+  tierdir=""
+  [ -z "$pack" ] && grep -qE '(^| )BARO_TIER=' <<< "$(kvget baro.run.env)" && tierdir=$cache/tier-${gsha:0:8}
+  if [ -n "$tierdir" ] && [ "$rebuild" != 1 ] && [ -s "$tierdir/experts.bin" ] && [ -s "$tierdir/index.txt" ]; then
+    packdir=$tierdir
+  elif [ "$rebuild" = 1 ] || [ ! -s "$packdir/index.txt" ] || [ -n "$tierdir" ]; then
+    pbuilt=1
+    pbuild0=$(date +%s)
+    if [ "$rebuild" = 1 ] || [ ! -s "$packdir/index.txt" ]; then
+      packflags=$(kvget baro.run.pack.flags)
+      packer=$(fetch_pack_tool "$cache/pack-src")
+      rm -rf "$packdir.new"; mkdir -p "$packdir.new"
+      echo "building pack ($(basename "$packer") ${packflags:-<no flags>}) ..."
+      # shellcheck disable=SC2086
+      "$here/tools/pack-run.sh" "$packer" "$model" "$packdir.new" $packflags > "$cache/pack.log" 2>&1 \
+        || { tail -5 "$cache/pack.log"; die "pack build FAILED, see $cache/pack.log"; }
+      rm -rf "$packdir"; mv "$packdir.new" "$packdir"
+    fi
+    if [ -n "$tierdir" ]; then
+      echo "splitting the pack for the expert tier -> $tierdir ..."
+      rm -rf "$tierdir.new"
+      "$py" "$here/tools/pack-split-experts.py" "$packdir" "$tierdir.new" --verify > "$cache/split.log" 2>&1 \
+        || { tail -5 "$cache/split.log"; die "tier split FAILED, see $cache/split.log"; }
+      [ -f "$packdir/identity.json" ] && cp "$packdir/identity.json" "$tierdir.new/"
+      rm -rf "$tierdir"; mv "$tierdir.new" "$tierdir"
+      packdir=$tierdir
+    fi
+    pbuild_s=$(( $(date +%s) - pbuild0 ))
+    echo "pack: built in ${pbuild_s}s -> $packdir ($(wc -l < "$packdir/index.txt") tensors)"
+  fi
+  echo "pack: $([ $pbuilt = 1 ] && echo miss || echo hit) $packdir ($(wc -l < "$packdir/index.txt") tensors)"
+
+  # Prefill tile table (bench/tile-tune-protocol.md): the file's baro.tune.pf KV
+  # becomes the pack's tune.txt, read by serve/tune.mojo at boot. No KV, no table.
+  tunekv=$(kvget baro.tune.pf)
+  if [ -n "$tunekv" ]; then
+    printf '%s\n' "$tunekv" > "$packdir/tune.txt"
+    echo "tune: $(grep -c . "$packdir/tune.txt") rows from baro.tune.pf"
+  fi
+
+  ensure_tokenizer "$packdir"
+
+  total_s=$(( $(date +%s) - t0 ))
+  # engine= and pack= stay hit|miss; the paths and the two states a user had to dig for ride on the same line
+  # (tools/baro-multi-serve reads engine_path= and pack_path=, nothing scrapes the prose lines).
+  tune_rows=0; [ -s "$packdir/tune.txt" ] && tune_rows=$(grep -c . "$packdir/tune.txt")
+  echo "receipt: id=$id engine=$([ $built = 1 ] && echo miss || echo hit) pack=$([ $pbuilt = 1 ] && echo miss || echo hit) elapsed_s=$total_s engine_path=$cache/$ename pack_path=$packdir tokenizer=$tok_state tune_rows=$tune_rows"
+
+  [ $serve = 1 ] || { echo "--no-serve: stopping after build"; exit 0; }
+  bs=$here/serve/target/release/baro-serve
+  if [ ! -x "$bs" ]; then
+    echo "baro-serve is not built; building it (needs cargo) ..."
+    cargo build --release --manifest-path "$here/serve/Cargo.toml" > "$work/cargo.log" 2>&1 \
+      || die "cargo build FAILED, see $work/cargo.log"
+  fi
+  renv=$(kvget baro.run.env)
+  [ -z "$renv" ] || echo "env from the file: $renv"
+  echo "self-reported: every tok/s this server prints came from the harness the"
+  echo "self-reported: model file carries, not from a harness a verifier chose."
+  server_args=(--engine "$cache/$ename" --pack "$packdir" --port "$port")
+  [ "${pwarm:-}" != 1 ] || server_args+=(--warm)
+  [ -z "$chat_template_file" ] || server_args+=(--chat-template-file "$chat_template_file")
+  # shellcheck disable=SC2086
+  exec env $renv $penv "$bs" "${server_args[@]}"
+  ;;
+
+run)
+  export BARO_NEURONS=${BARO_NEURONS:-1}
+  # Run mode needs the harness FROM THE FILE. Without it there is nothing to
+  # build a runnable engine from, and taking it from git would make this mode
+  # need the checkout, which is exactly what it exists to avoid.
+  # The work dir is named by basename: two files with one name in different directories would share it and the
+  # second would serve the first one's engine and pack. model.sha says whose build the dir holds.
+  gsha=$(model_sha "$model")
+  work_identity_check "$work" "$gsha" || die "refusing to reuse $work"
+  printf '%s\n' "$gsha" > "$work/model.sha"
+  src=$work/src
+  rm -rf "$src"; mkdir -p "$src"
+  hpath=$(kvget baro.run.harness.path); hpath=${hpath:-serve/engine.mojo}
+  hname=$(basename "$hpath")
+  harness=$(jq -r --arg k "baro.run.src.$hname" '.[$k] // empty' "$meta")
+  [ -n "$harness" ] || die "this file carries no baro.run.src.$hname, so it cannot run itself; use: baro verify $model"
+  printf '%s' "$harness" > "$src/$hname"
+  jq -r '.["baro.kernel.files"]' "$meta" | tr ',' '\n' > "$src/FILES"
+  while read -r f; do
+    [ -n "$f" ] || continue
+    mkdir -p "$src/$(dirname "$f")"
+    jq -r --arg k "baro.kernel.src.$f" '.[$k]' "$meta" > "$src/$f"
+  done < "$src/FILES"
+  # The harness's own serve-module closure (prefix, harness, moe_pack, latent,
+  # ...) rides in baro.run.src.*.mojo beside it. tools/gguf-closure.sh gets
+  # these from git at the gguf's commit; run mode has no checkout to get them
+  # from, and without them the build stops at "unable to locate module".
+  extra=0
+  for k in $(jq -r 'keys[] | select(startswith("baro.run.src.")) | select(endswith(".mojo"))' "$meta"); do
+    n=${k#baro.run.src.}
+    [ "$n" = "$hname" ] && continue
+    jq -r --arg k "$k" '.[$k]' "$meta" > "$src/$n"
+    extra=$((extra + 1))
+  done
+  echo "sources: $(wc -l < "$src/FILES") kernel files, $extra serve modules, plus the run harness, all from $model"
+
+  mojo=$here/.venv/bin/mojo
+  [ -x "$mojo" ] || die "no $mojo; run 'uv sync' in the checkout first (the pinned toolchain is max[all]==26.5.0)"
+  accel=(--target-accelerator "${BARO_TARGET_ACCELERATOR:-gfx1100}")
+  dflag=""
+  [ "$hname" = "engine.mojo" ] && dflag="${kmodel:+-D BARO_MODEL=$kmodel }$(shape_dflags)"
+  [ "$hname" = "spark.mojo" ] && dflag="-D WMMA_TB=1 -D WMMA_C_F16=0"
+  # An engine already built from THIS file's harness is reused. Compiling is
+  # minutes of CPU, and the GPU rule (docs/NEXT-PLAN.md) says a gate holds the
+  # card for minutes, not for a build: `baro run --no-serve` does the CPU half
+  # outside any GPU reservation, then the serving call reuses what it made.
+  esha=$(kvget baro.run.harness.sha)
+  if [ -x "$work/engine" ] && [ -n "$esha" ] && [ "$(cat "$work/engine.harness.sha" 2>/dev/null)" = "$esha" ]; then
+    echo "engine: reusing $work/engine (built from this file's harness ${esha:0:16})"
+  else
+    echo "building engine (model ${kmodel:-qwen35}) ..."
+    # shellcheck disable=SC2086
+    "$mojo" build "${accel[@]}" "$src/$hname" -I "$src" $dflag -o "$work/engine" > "$work/build.log" 2>&1
+    [ -x "$work/engine" ] || { grep -m3 error "$work/build.log"; die "engine build FAILED, see $work/build.log"; }
+    printf '%s' "$esha" > "$work/engine.harness.sha"
+  fi
+  echo "engine: $work/engine  sha256 $(sha256sum "$work/engine" | cut -c1-16)"
+
+  if [ -z "$pack" ]; then
+    pack=$work/pack
+    if [ ! -s "$pack/index.txt" ]; then
+      flags=$(kvget baro.run.pack.flags)
+      packer=$(fetch_pack_tool "$work/pack-src")
+      echo "building pack from $model with $(basename "$packer") and flags '${flags:-none}' (CPU) ..."
+      # shellcheck disable=SC2086
+      "$here/tools/pack-run.sh" "$packer" "$model" "$pack" $flags > "$work/pack.log" 2>&1 \
+        || { tail -5 "$work/pack.log"; die "pack build FAILED, see $work/pack.log"; }
+    fi
+  fi
+  ensure_tokenizer "$pack"
+  echo "pack: $pack ($(wc -l < "$pack/index.txt") tensors)"
+
+  [ $serve = 1 ] || { echo "--no-serve: stopping after build"; exit 0; }
+  bs=$here/serve/target/release/baro-serve
+  if [ ! -x "$bs" ]; then
+    echo "baro-serve is not built; building it (needs cargo) ..."
+    cargo build --release --manifest-path "$here/serve/Cargo.toml" > "$work/cargo.log" 2>&1 \
+      || die "cargo build FAILED, see $work/cargo.log"
+  fi
+  # The env the file says this model needs (baro.run.env). Without it the MoE
+  # profile dies on the engine's own BARO_MEGA=1 default before its ready line.
+  renv=$(kvget baro.run.env)
+  [ -z "$renv" ] || echo "env from the file: $renv"
+  echo "self-reported: every tok/s this server prints came from the harness the"
+  echo "self-reported: model file carries, not from a harness a verifier chose."
+  echo "self-reported: to produce a citable number run: tools/baro verify $model --append"
+  server_args=(--engine "$work/engine" --pack "$pack" --port "$port")
+  [ "${pwarm:-}" != 1 ] || server_args+=(--warm)
+  [ -z "$chat_template_file" ] || server_args+=(--chat-template-file "$chat_template_file")
+  # shellcheck disable=SC2086
+  exec env $renv $penv "$bs" "${server_args[@]}"
+  ;;
+
+*)
+  die "unknown command $cmd (serve, run, verify, receipts, eval, eval-all, multi-serve)"
+  ;;
+esac

@@ -1,0 +1,4 @@
+<｜start▁of▁sentence｜><|System|>
+you are a helpful assistant.
+
+你是助手。<｜end▁of▁sentence｜><｜start▁of▁sentence｜><|User|>Ünïcödé 😀 "quotes" \ back<｜end▁of▁sentence｜><｜start▁of▁sentence｜><|Bot|><think>

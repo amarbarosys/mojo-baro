@@ -1,0 +1,48 @@
+name: Kernel or speed proposal
+description: An idea for a faster kernel or path, before any code
+title: "[perf] <one line>"
+labels: ["perf-proposal"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Speed work here is preregistered: the prediction is written down before the run. This form
+        is that prediction. Check `docs/BASELINE.md` and the "Rejected" notes first; several
+        obvious levers (int8 WMMA, launch fusion for decode, chunk kernels where identity is the
+        gate) are measured dead ends.
+  - type: input
+    id: question
+    attributes:
+      label: Question
+      description: What number moves, at which shape or prompt length, in which mode.
+    validations:
+      required: true
+  - type: textarea
+    id: mechanism
+    attributes:
+      label: Mechanism and predicted range
+      description: Why it should be faster (bytes, launches, occupancy) and a numeric band.
+    validations:
+      required: true
+  - type: input
+    id: falsifier
+    attributes:
+      label: Falsifier
+      description: The result that would make you drop the idea.
+    validations:
+      required: true
+  - type: dropdown
+    id: identity
+    attributes:
+      label: Does it keep the summation order of the kernel it replaces?
+      options:
+        - "yes: bit-exact, a byte test will hold it"
+        - "no: it needs its own agreement gate with a control arm"
+        - not sure
+    validations:
+      required: true
+  - type: textarea
+    id: instrument
+    attributes:
+      label: Instrument
+      description: Which bench or gate measures it, and what card you can run it on (or none).

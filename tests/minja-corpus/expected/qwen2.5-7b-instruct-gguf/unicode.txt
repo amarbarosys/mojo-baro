@@ -1,0 +1,5 @@
+<|im_start|>system
+你是助手。<|im_end|>
+<|im_start|>user
+Ünïcödé 😀 "quotes" \ back<|im_end|>
+<|im_start|>assistant

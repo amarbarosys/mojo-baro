@@ -1,0 +1,11 @@
+lab gate, ALT = spark 964c86a (split attention + fused rope default), TMAX 16384
+tok 9 / 9 load_ms 87.200116
+plan PASS
+rope PASS
+weights PASS
+ref_story 64/64 equal
+engine=.work/decode sha=3f6afec43186ad24 server=~/Projects/imports/llama.cpp/build/bin/llama-server sha=5d954eb24804be38 model=~/Models/llama-3.2-1b-instruct-q4_K_M/Llama-3.2-1B-Instruct-Q4_K_M.gguf load=3.53 9.00 13.39
+ours median 572.0 tok/s, llama.cpp median 414.3, ratio median 1.384 (min 1.356, max 1.406), faster 21/21, drift 1.0057
+alt median 572.1 tok/s, ours/alt ratio median 0.998, alt/llama.cpp 1.380
+ids equal to llama.cpp: 13/21 prompts all 64; matching prefix per prompt [64, 3, 64, 64, 64, 64, 64, 64, 6, 64, 64, 45, 49, 64, 64, 64, 29, 27, 42, 28, 64]
+alt ids equal to llama.cpp: 13/21 all 64; alt ids equal to ours: 21/21 all 64, prefix [64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64]

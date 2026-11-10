@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# wavewait pinned for this repo: builds commit below once into ~/.cache/baro/wavewait/<commit>, then runs it.
+set -euo pipefail
+PIN=927b2b3; R=${WAVEWAIT_REPO:-$HOME/Projects/mojo/wavewait}; C=$HOME/.cache/baro/wavewait/$PIN
+if [ ! -x "$C/build/wavewait" ]; then
+  [ -d "$R/.git" ] || { echo "FAIL wavewait: no repo at $R"; exit 1; }
+  mkdir -p "$C"; git -C "$R" archive "$PIN" | tar -x -C "$C"
+  mkdir -p "$C/build"; (cd "$C"; rtlib=$(ls -d $OLDPWD/.venv/lib/python*/site-packages/modular/lib); "$OLDPWD/.venv/bin/mojo" build -I src src/wavewait.mojo -Xlinker -rpath -Xlinker "$rtlib" -o build/wavewait >/dev/null) || { echo "FAIL wavewait: build"; exit 1; }
+fi
+[ "${1:-}" = --root ] && { echo "$C"; exit 0; }
+exec "$C/build/wavewait" "$@"

@@ -1,0 +1,17 @@
+[profile]
+name = "regescore-fast"
+model = "qwen35moe"
+description = "RegesCore-35B, all experts in VRAM, persistent MoE token kernel (BARO_MEGA=1), one sequence, 8192-token context; fits beside a desktop holding ~1-2 GB of VRAM. Built from the checkout: the gguf's own harness (e340ee1) predates BARO_SEQ_CAP and batched MoE prefill."
+source = "checkout"
+warm = "1"
+speed = "decode-probe 2026-09-24, same engine and ids: 107.1 tok/s at 47 tokens of context, 101.9 at 5.5k (launch path 100.7 / 90.2), served 107.4 / 101.0; tokens identical to the launch path on 4 of 4 requests"
+receipt = "exchange/receipts/decode-probe/; docs/BASELINE.md R6 persistent MoE token kernel"
+
+[env]
+BARO_MEGA = "1"
+BARO_TMAX = "8192"
+BARO_CKPT = "16"
+MODULAR_DEVICE_CONTEXT_MEMORY_MANAGER_SIZE_PERCENT = "2"
+
+[build]
+BARO_SEQ_CAP = "1"

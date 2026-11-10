@@ -1,0 +1,25 @@
+# Lane rowbw: loaded before the plan (2026-11-02)
+
+Brief `.work/briefs/rowbw.md` (primary checkout). One line per mandatory item.
+
+- Skill inference-kernels: decode is bytes; bit-identity rides the token gate; row batching = share the weight load, keep the m = 1 fma order; every kernel gets an ISA spill check (192-VGPR cap); at fixed occupancy bytes in flight per wave set GB/s (section 10).
+- Skill wavewait: capture WGP 3, warm iteration via `--kernel-iteration-range`, read `mism`/WARN before any verdict, `--causes --top 100000` filtered to the hot loop pc range is the per-iteration stall budget, `diff A B` is the verdict of an edit.
+- Skill mojo-syntax: `def` only, `comptime` for alias/if/for, `var` on every new binding, `std.` imports, `Self.T` inside structs, `Array[T, N]` not InlinedFixedVector.
+- Skill mojo-gpu-fundamentals: `max.gpu` imports, `comptime assert flat_rank`, bind kernel parameters before `enqueue_function`, accumulators in comptime-indexed SIMD, gfx1100 warp 32.
+- Skill gate-authoring: args before the re-exec, env explicit through gpu-wait, arm file first, loud FAIL lines, refcache for the reference arm, `LOAD_START_MAX` explicit on ab-resident, cite files never globs, settings-template for every new knob, `.work/engine` before run-tests.
+- Skill mojo-nightly-lane-builder: compile-error table, one commit per item, `${PIPESTATUS[0]}` after tee, `.venv` symlink never committed.
+- Skill memory-optimization: capacity, variant, padding, zero-copy, dedup; measure sizes before and after.
+- bench/PROTOCOL-RULES.md: P1 read-back or VOID, P2 freeze before run, P4 20-prompt median with min-max, P5 row-scaling receipt m = 1/2/4/8 (1.25x at m = 4 is the defect line), P15 CPU preflight, P16 loud failures, P17 cache the reference never ours, P18 quick to iterate full to claim, P19 GPU only on the question, P20 shorter implementation wins, P21 `bench/ww.sh` before and after every kernel change.
+- bench/coldcache-protocol.md: cold = read-only sweep over more than 2 x 96 MB (`ICFlush`), never a D2D copy; spread above 5% voids the ratio; 8 tensors rotated on the real pack.
+- ~/Brain/protocols/README.md: matching folders gpu-and-rocm, mojo-performance, debugging (method + gpu-and-rocm), model-bring-up.
+- Protocol gpu-and-rocm: rocprofv3 kernel-trace first, classify each kernel by roofline, steady thermals, budget VRAM before launch, gpu-wait for every job.
+- Protocol mojo-performance: `comptime for` unroll selectively, `@always_inline` on small hot helpers, vectorized loads then LDS tiling then WMMA, pin the toolchain.
+- Protocol debugging: symptom, repro, recall, receipt, readings, cheapest falsifier, same repro gone; stale binary and masked exit codes are the top recurring failures; gpu-wait env is bare, absolute ROCm paths.
+- brain-ask --net repo "27B decode kernel bandwidth per row": turbokernel-report sections 0 and 8 (bench_turbo_rows instrument, 8 tensors rotated) and prediction K5.
+- brain-ask --net repo "two rows per wave R=2 GEMV occupancy bytes in flight": `bench/gemv-kq-rows.mojo` prototype (R rows per wave, independent accumulators), `kernels/gemv_kq.mojo` (one row in flight 385 GB/s, two 660 on the megakernel), `lab/wavegroup/.../gemv_split.mojo`, mrow-gemm-protocol per-window split.
+- brain-ask --net repo "amar_turbo_rows LDS staged A rows window kernel": `kernels/mega.mojo` LDSA = MR == 1 and Q4 (f32 LDS staging of one K row), `kernels/prefill_rows.mojo` kq prefill GEMM dispatch, `kernels/test_ssm_rows.mojo` bit-exact rows pattern.
+- docs/lanes/turbokernel-report.md: winning path q4 pack + spec k = 2 on the launch path, 62.9 -> 68.72 tok/s (BARO_TURBO=1, 20-prompt, job turbo-ab-spec); per-window table (pre-turbo trace): FFN gate/up 2 x 64 x 87.8 us 571 GB/s, down 64 x 90.9 us 551, ssm_out/attn_out 64 x 44.5 us 398, qkv 48 x 56.5 us 522, z 48 x 38.8 us 456, attn q 16 x 65.6 us 540, head verify 1.65 x 1054 us 678, head draft 1.16 x 803 us 890, draft FFN gate/up 4.8 x 109.8 us 456 (142 VGPR), rmsnorm_cast 140 x 9.4 us, ssm_delta_step 48 x 27 us; 37.5 ms per window against a 15.3 ms byte floor.
+- turbokernel-report kernel receipt: `amar_turbo_rows` m = 3 gate 80.8 us 621 GB/s, down 82.7 us 606, m = 1 807 / 788 GB/s; VGPR MR 1 94, MR 2 147, MR 3 131, MR 4 139; v2 double-buffered LDS REJECTED (146 VGPR, occupancy); UNROLL 4 loses at m = 3; ww after: barrier 20.4% (serial stage), vmcnt 32%.
+- turbokernel-report limiter: GB/s follows waves per SIMD (95 VGPR 890, 126 VGPR 571, 142 VGPR 456); FMA is not the bound (VALU 24%); the 27B run-to-run identity flips on p03-story, same-arm control before reading a miss as a kernel bug.
+- docs/kernel-facts: `amar_turbo_rows` vgpr 147 max over instances, spills 0, ww barrier 21.8%; `amar_matmul_skinny_q4rowb` no ISA receipt; `amar_rmsnorm_cast` roles rmsc_k/h2/p in `kernels/elementwise.mojo`; `amar_head_rmsnorm` 12 VGPR.
+- Box at start: load 10.7 (1 min), VRAM 7.9 GB used by a defunct python (PID 642142, 7.1 GB), free 16.1 GB < q4 pack 17.2 GB: pack-fit blocked until that VRAM returns.

@@ -1,0 +1,15 @@
+PASS: megakernel gate at m = 1 and m = 3 (q8) and m = 1 (q4)
+PASS spec=0 mega==launch  launch:tok/s_gen: 109.60435968146633  mega:tok/s_gen: 130.63686566874867
+PASS spec=1 mega==launch  launch:tok/s_gen: 191.314496182096  mega:tok/s_gen: 190.01462584800623
+PASS launch vs model-ref 64/64
+PASS run-tests: GEMM OK — 4 x 3 @ 3 x 2 matches host reference;54 kernels, 26 in registry, 0 orphans;
+mega fail word: 0 
+##### A2 no-spec pre-attn vs attn
+pre median 125.14 tok/s_gen spread 2.2%  |  attn median 130.74 spread 1.2%  |  ratio 1.045  |  identity fails: none
+clock-probe: busy 110/162 samples (skipped 11 in first 3.5s)  sclk min/med/max 1240/2988/3317 MHz  power 61-353 W (cap 290 W, 44 busy samples above it: rocm-smi package power is instantaneous, the cap is a moving average)  junction max 72 C  -- .work/clock-probe-20260906-051825.log
+     40 mega fail word: 0 
+engine-pre-attn run1 tok/s_gen: 123.99766023894352 | attn  34 318 24 295 14 168 | total total 8175.44
+engine run1 tok/s_gen: 129.90204357008153 | attn  32 320 23 92 12 158 | total total 7495.72
+engine-pre-attn run2 tok/s_gen: 123.40322688390775 | attn  38 322 25 605 13 162 | total total 8184.2
+engine run2 tok/s_gen: 129.85118246526568 | attn  32 321 23 92 13 158 | total total 7498.52
+exit 0

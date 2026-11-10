@@ -1,0 +1,249 @@
+{#- ============================================================================
+    OrcaSAQ chat template (Qwen3.5 ChatML), rewritten from the GGUF original.
+
+    For every input without latent_* variables the output is byte for byte the
+    same as the original. Checks: tools/template-equiv.sh (minja),
+    tools/template-equiv-jinja2.py (jinja2), tools/template-latent-check.sh.
+    Runs in minijinja, jinja2 and minja: no reverse filter, no do tag, no
+    conditional expression that hides a call.
+
+    Inputs
+      messages               list of role, content, reasoning_content, tool_calls
+      tools                  optional list of OpenAI style function definitions
+      enable_thinking        default true. false prefills an empty think block
+      reasoning_effort       xhigh (default), medium or low
+      preserve_thinking      default true. false drops reasoning of old turns
+      add_vision_id          prefix Picture N or Video N before media
+      add_generation_prompt  open the assistant turn
+
+    Latent handoff (optional)
+      latent_notes           list of from and text. Rendered at the end of the
+                             last user message, each note ends with one newline
+      latent_instruction     text after the notes. Must start with a non-space
+                             character, so the split stays stable in the tokenizer
+      latent_part            prefix stops right after the notes. That text is the
+                             state prefix that an engine can hand to another engine.
+                             The suffix is the full render minus the prefix render.
+    ============================================================================ -#}
+
+{#- ---------------------------------------------------------------------------
+    1. Content renderer. A string passes through. A list of parts becomes text,
+       image and video markers. Media are not allowed in a system message.
+    --------------------------------------------------------------------------- -#}
+{%- set image_count = namespace(value=0) -%}
+{%- set video_count = namespace(value=0) -%}
+
+{%- macro render_content(content, do_vision_count=false, is_system=false) -%}
+    {%- if content is string -%}
+        {{- content -}}
+    {%- elif content is iterable and content is not mapping -%}
+        {%- for item in content -%}
+            {%- if 'image' in item or 'image_url' in item or item.type == 'image' -%}
+                {%- if is_system -%}
+                    {{- raise_exception('System message cannot contain images.') -}}
+                {%- endif -%}
+                {%- if do_vision_count -%}
+                    {%- set image_count.value = image_count.value + 1 -%}
+                {%- endif -%}
+                {%- if add_vision_id -%}
+                    {{- 'Picture ' ~ image_count.value ~ ': ' -}}
+                {%- endif -%}
+                {{- '<|vision_start|><|image_pad|><|vision_end|>' -}}
+            {%- elif 'video' in item or item.type == 'video' -%}
+                {%- if is_system -%}
+                    {{- raise_exception('System message cannot contain videos.') -}}
+                {%- endif -%}
+                {%- if do_vision_count -%}
+                    {%- set video_count.value = video_count.value + 1 -%}
+                {%- endif -%}
+                {%- if add_vision_id -%}
+                    {{- 'Video ' ~ video_count.value ~ ': ' -}}
+                {%- endif -%}
+                {{- '<|vision_start|><|video_pad|><|vision_end|>' -}}
+            {%- elif 'text' in item -%}
+                {{- item.text -}}
+            {%- else -%}
+                {{- raise_exception('Unexpected item type in content.') -}}
+            {%- endif -%}
+        {%- endfor -%}
+    {%- elif content is none or content is undefined -%}
+        {{- '' -}}
+    {%- else -%}
+        {{- raise_exception('Unexpected content type.') -}}
+    {%- endif -%}
+{%- endmacro -%}
+
+{%- if not messages -%}
+    {{- raise_exception('No messages provided.') -}}
+{%- endif -%}
+
+{#- ---------------------------------------------------------------------------
+    2. Reasoning line. Only when thinking is on. medium adds no line.
+    --------------------------------------------------------------------------- -#}
+{%- set reasoning_instructions = '' -%}
+{%- if enable_thinking is undefined or enable_thinking is true -%}
+    {%- set effort = reasoning_effort | default('xhigh') -%}
+    {%- if effort not in ('xhigh', 'medium', 'low') -%}
+        {{- raise_exception('Unexpected reasoning effort ' ~ reasoning_effort ~ '. Supported types are xhigh (default), medium, and low.') -}}
+    {%- endif -%}
+    {%- if effort == 'xhigh' -%}
+        {%- set reasoning_instructions = 'Reasoning effort is set to xhigh. Please think carefully through the task, validate key assumptions, consider plausible alternatives, and prioritize correctness, consistency, and clarity in the final answer.' -%}
+    {%- elif effort == 'low' -%}
+        {%- set reasoning_instructions = 'Reasoning effort is set to low. Keep your thinking brief and focused, moving directly to the conclusion without unnecessary elaboration.' -%}
+    {%- endif -%}
+{%- endif -%}
+
+{#- ---------------------------------------------------------------------------
+    3. Latent flags. part is full unless the caller asks for the prefix.
+       stop_after_notes is true only when a prefix render has notes to show.
+    --------------------------------------------------------------------------- -#}
+{%- set part = latent_part if latent_part is defined else 'full' -%}
+{%- set stop_after_notes = (part == 'prefix' and latent_notes) -%}
+
+{#- ---------------------------------------------------------------------------
+    4. System turn. With tools: reasoning line, tool list, call format, then the
+       caller system text. Without tools: reasoning line and system text, or
+       nothing when both are empty.
+    --------------------------------------------------------------------------- -#}
+{%- set has_system = messages[0].role == 'system' -%}
+{%- if has_system -%}
+    {%- set system_text = render_content(messages[0].content, false, true) | trim -%}
+{%- else -%}
+    {%- set system_text = '' -%}
+{%- endif -%}
+
+{%- if tools and tools is iterable and tools is not mapping -%}
+    {{- '<|im_start|>system\n' -}}
+    {%- if reasoning_instructions -%}
+        {{- reasoning_instructions + '\n\n' -}}
+    {%- endif -%}
+    {{- '# Tools\n\nYou have access to the following functions:\n\n<tools>' -}}
+    {%- for tool in tools -%}
+        {{- '\n' -}}
+        {{- tool | tojson -}}
+    {%- endfor -%}
+    {{- '\n</tools>' -}}
+    {{- '\n\nIf you choose to call a function ONLY reply in the following format with NO suffix:\n\n<tool_call>\n<function=example_function_name>\n<parameter=example_parameter_1>\nvalue_1\n</parameter>\n<parameter=example_parameter_2>\nThis is the value for the second parameter\nthat can span\nmultiple lines\n</parameter>\n</function>\n</tool_call>\n\n<IMPORTANT>\nReminder:\n- Function calls MUST follow the specified format: an inner <function=...></function> block must be nested within <tool_call></tool_call> XML tags\n- Required parameters MUST be specified\n- You may provide optional reasoning for your function call in natural language BEFORE the function call, but NOT after\n- If there is no function call available, answer the question like normal with your current knowledge and do not tell the user about function calls\n</IMPORTANT>' -}}
+    {%- if system_text -%}
+        {{- '\n\n' + system_text -}}
+    {%- endif -%}
+    {{- '<|im_end|>\n' -}}
+{%- elif system_text -%}
+    {{- '<|im_start|>system\n' -}}
+    {%- if reasoning_instructions -%}
+        {{- reasoning_instructions + '\n\n' -}}
+    {%- endif -%}
+    {{- system_text + '<|im_end|>\n' -}}
+{%- elif reasoning_instructions -%}
+    {{- '<|im_start|>system\n' + reasoning_instructions + '<|im_end|>\n' -}}
+{%- endif -%}
+
+{#- ---------------------------------------------------------------------------
+    5. Last real user query. A user turn that only holds tool responses does not
+       count. Older assistant turns drop their reasoning after this point.
+    --------------------------------------------------------------------------- -#}
+{%- set ns = namespace(multi_step_tool=true, last_query_index=messages|length - 1) -%}
+{%- for message in messages[::-1] -%}
+    {%- set index = (messages|length - 1) - loop.index0 -%}
+    {%- if ns.multi_step_tool and message.role == 'user' -%}
+        {%- set content = render_content(message.content, false) | trim -%}
+        {%- if not (content.startswith('<tool_response>') and content.endswith('</tool_response>')) -%}
+            {%- set ns.multi_step_tool = false -%}
+            {%- set ns.last_query_index = index -%}
+        {%- endif -%}
+    {%- endif -%}
+{%- endfor -%}
+{%- if ns.multi_step_tool -%}
+    {{- raise_exception('No user query found in messages.') -}}
+{%- endif -%}
+
+{#- ---------------------------------------------------------------------------
+    6. Messages.
+    --------------------------------------------------------------------------- -#}
+{%- for message in messages -%}
+    {%- set content = render_content(message.content, true) | trim -%}
+
+    {%- if message.role == 'system' -%}
+        {%- if not loop.first -%}
+            {{- raise_exception('System message must be at the beginning.') -}}
+        {%- endif -%}
+
+    {%- elif message.role == 'user' -%}
+        {{- '<|im_start|>user\n' + content -}}
+        {#- Latent notes belong to the last user message only. -#}
+        {%- if latent_notes and loop.last -%}
+            {%- for note in latent_notes -%}
+                {{- '\n\nNotes from ' + note.from + ':\n' + (note.text | trim) + '\n' -}}
+            {%- endfor -%}
+            {%- if not stop_after_notes and latent_instruction is defined and latent_instruction -%}
+                {{- latent_instruction -}}
+            {%- endif -%}
+        {%- endif -%}
+        {%- if not (stop_after_notes and loop.last) -%}
+            {{- '<|im_end|>\n' -}}
+        {%- endif -%}
+
+    {%- elif message.role == 'assistant' -%}
+        {%- set reasoning_content = '' -%}
+        {%- if message.reasoning_content is string -%}
+            {%- set reasoning_content = message.reasoning_content -%}
+        {%- endif -%}
+        {%- set reasoning_content = reasoning_content | trim -%}
+        {%- if preserve_thinking is undefined or preserve_thinking is true or loop.index0 > ns.last_query_index -%}
+            {{- '<|im_start|>' + message.role + '\n<think>\n' + reasoning_content + '\n</think>\n\n' + content -}}
+        {%- else -%}
+            {{- '<|im_start|>' + message.role + '\n' + content -}}
+        {%- endif -%}
+        {#- Tool calls: a blank line after visible text, otherwise one newline between calls. -#}
+        {%- if message.tool_calls and message.tool_calls is iterable and message.tool_calls is not mapping -%}
+            {%- for tool_call in message.tool_calls -%}
+                {%- if tool_call.function is defined -%}
+                    {%- set tool_call = tool_call.function -%}
+                {%- endif -%}
+                {%- if loop.first -%}
+                    {%- if content | trim -%}
+                        {{- '\n\n' -}}
+                    {%- endif -%}
+                {%- else -%}
+                    {{- '\n' -}}
+                {%- endif -%}
+                {{- '<tool_call>\n<function=' + tool_call.name + '>\n' -}}
+                {%- if tool_call.arguments is defined and tool_call.arguments != '' -%}
+                    {%- for args_name, args_value in tool_call.arguments | items -%}
+                        {{- '<parameter=' + args_name + '>\n' -}}
+                        {%- set args_value = args_value | string if args_value is string else args_value | tojson | safe -%}
+                        {{- args_value -}}
+                        {{- '\n</parameter>\n' -}}
+                    {%- endfor -%}
+                {%- endif -%}
+                {{- '</function>\n</tool_call>' -}}
+            {%- endfor -%}
+        {%- endif -%}
+        {{- '<|im_end|>\n' -}}
+
+    {%- elif message.role == 'tool' -%}
+        {#- Consecutive tool responses share one user turn. -#}
+        {%- if loop.previtem and loop.previtem.role != 'tool' -%}
+            {{- '<|im_start|>user' -}}
+        {%- endif -%}
+        {{- '\n<tool_response>\n' + content + '\n</tool_response>' -}}
+        {%- if loop.last or loop.nextitem.role != 'tool' -%}
+            {{- '<|im_end|>\n' -}}
+        {%- endif -%}
+
+    {%- else -%}
+        {{- raise_exception('Unexpected message role.') -}}
+    {%- endif -%}
+{%- endfor -%}
+
+{#- ---------------------------------------------------------------------------
+    7. Open the assistant turn. Thinking off prefills an empty think block.
+    --------------------------------------------------------------------------- -#}
+{%- if add_generation_prompt and not stop_after_notes -%}
+    {{- '<|im_start|>assistant\n' -}}
+    {%- if enable_thinking is defined and enable_thinking is false -%}
+        {{- '<think>\n\n</think>\n\n' -}}
+    {%- else -%}
+        {{- '<think>\n' -}}
+    {%- endif -%}
+{%- endif -%}

@@ -1,0 +1,1 @@
+{"type": "object", "properties": {"pct": {"type": "number"}, "label": {"type": "string"}}, "required": ["pct", "label"]}

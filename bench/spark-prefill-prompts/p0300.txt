@@ -1,0 +1,35 @@
+Water boils at 100 degrees Celsius at sea level because
+def fibonacci(n):
+    """Return the n-th Fibonacci number."""
+
+Once upon a time, in a small village by the sea, there lived an old fisherman who
+List the planets of the solar system in order from the sun:
+1.
+Q: What is 17 times 23?
+A:
+Translate to German: "The weather is nice today and we are going to the park."
+German:
+Return a JSON object describing a book with fields title, author, year, and genres:
+{
+-- Table users(id, name, email, created_at)
+-- Query: the 10 most recently created users
+SELECT
+Explain in two sentences why GPU decode of a large language model is memory-bandwidth bound.
+Recipe: simple tomato pasta sauce
+Ingredients:
+-
+Write a short polite email declining a meeting invitation for Thursday.
+
+Subject:
+// Rust: read a file into a String and count its lines
+fn count_lines(path: &str) -> std::io::Result<usize> {
+
+Write a haiku about winter mornings.
+
+The Roman Empire fell in the year
+#!/usr/bin/env bash
+# find the 5 largest files under the current directory
+
+User: I keep forgetting my passwords. What should I do?
+Assistant:
+Sum

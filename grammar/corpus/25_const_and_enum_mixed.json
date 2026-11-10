@@ -1,0 +1,1 @@
+{"type": "object", "properties": {"op": {"const": "add"}, "unit": {"type": "string", "enum": ["px", "em", "rem", "%"]}, "value": {"type": "integer"}}, "required": ["op", "value"]}

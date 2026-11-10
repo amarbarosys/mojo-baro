@@ -1,0 +1,1 @@
+{"messages":[{"role":"user","content":"weather in two cities"},{"role":"assistant","content":"Checking both.","reasoning_content":"r","tool_calls":[{"function":{"name":"get_weather","arguments":{"city":"Rome"}}},{"function":{"name":"get_weather","arguments":{"city":"Oslo"}}}]},{"role":"tool","content":"sunny"},{"role":"tool","content":"snow"}],"add_generation_prompt":true}

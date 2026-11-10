@@ -1,0 +1,25 @@
+PASS: megakernel gate at m = 1 and m = 3 (q8) and m = 1 (q4)
+m = 1  4-layer+head us/window: launch= 2014.0196299999998  mega(G= 96 )= 8791.58682  ratio= 4.365194206175637  fail= 1
+PASS spec=0 mega==launch  launch:tok/s_gen: 106.85681761600515  mega:tok/s_gen: 128.63446208304237
+PASS spec=1 mega==launch  launch:tok/s_gen: 189.42319167849124  mega:tok/s_gen: 187.48804261528215
+PASS launch vs model-ref 64/64
+PASS run-tests: GEMM OK — 4 x 3 @ 3 x 2 matches host reference;54 kernels, 26 in registry, 0 orphans;
+co20 None group_segment_fixed_size=16
+co21 None group_segment_fixed_size=16
+co22 None group_segment_fixed_size=0
+co23 None group_segment_fixed_size=0
+co24 None group_segment_fixed_size=6560
+co25 None group_segment_fixed_size=6432
+.work/isa-p1/co0.s ds_load_b128=2 mov_b16=0 lshl16=0
+.work/isa-p1/co12.s ds_load_b128=4 mov_b16=0 lshl16=0
+.work/isa-p1/co16.s ds_load_b128=2 mov_b16=0 lshl16=0
+##### P2 no-spec head vs lds
+head median 120.08 tok/s_gen spread 1.0%  |  lds median 127.58 spread 2.2%  |  ratio 1.063  |  identity fails: none
+clock-probe: busy 114/165 samples (skipped 11 in first 3.5s)  sclk min/med/max 1301/3017/3316 MHz  power 61-358 W (cap 290 W, 51 busy samples above it: rocm-smi package power is instantaneous, the cap is a moving average)  junction max 71 C  -- .work/clock-probe-20260906-050313.log
+##### P2 spec
+head median 148.81 tok/s_gen spread 36.2%  |  lds median 149.41 spread 36.2%  |  ratio 1.004  |  identity fails: none
+engine-head run1 tok/s_gen: 120.1889186656405 | ssm  15 97 1070 77 44 392 53 584 | attn  34 315 22 305 11 156 | ffn  133 2621 66 1590 | head  4 635 4 | total total 8249.12
+engine run1 tok/s_gen: 127.53089773043465 | ssm  15 91 1032 87 49 471 51 574 | attn  33 313 22 300 13 157 | ffn  125 2294 61 1372 | head  3 624 13 | total total 7718.76
+engine-head run2 tok/s_gen: 120.29085021567202 | ssm  15 97 1082 77 44 391 53 583 | attn  34 314 23 306 13 155 | ffn  134 2614 64 1589 | head  4 636 4 | total total 8252.8
+engine run2 tok/s_gen: 127.93722910535573 | ssm  14 93 1029 88 50 470 51 577 | attn  35 314 22 300 14 158 | ffn  128 2295 61 1372 | head  3 629 4 | total total 7727.0
+exit 0

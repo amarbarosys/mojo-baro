@@ -1,0 +1,12 @@
+# gitleaks config for mojo-baro. The default rules stay on; this only allowlists
+# three generic-api-key false positives, each an ordinary identifier next to the
+# word "token": a transformers import and the phrase "L2-normalized".
+[extend]
+useDefault = true
+
+[allowlist]
+description = "identifiers that sit next to the word token"
+regexes = [
+  '''Qwen3_5ForCausalLM''',
+  '''L2-normalized''',
+]

@@ -1,0 +1,55 @@
+##### A3 no-spec prev vs new
+power_cap_uW=290000000 vddgfx=-100mV armA='BARO_BIN=./.work/engine-prev' armB='BARO_BIN=./.work/engine'
+prompt            n_prompt  prev_tok_s          new_tok_s           identity
+p01-water         13        112.1584820287316   116.40469122656972  PASS
+p02-python-fib    15        110.32512167166642  117.66803515587685  PASS
+p03-story         20        113.31926734244318  117.84398194904792  PASS
+p04-list-planets  16        113.57939242618646  117.67843380584456  PASS
+p05-math          15        113.9428532641494   118.97695613332658  PASS
+p06-translate     21        113.55937615561874  118.27320423442627  PASS
+p07-json          20        112.8981751305631   118.76557392529499  PASS
+p08-sql           26        112.85224733177164  117.58993997681242  PASS
+p09-explain-gpu   19        113.39939714612488  118.6647550189018   PASS
+p10-recipe        11        113.79127144617546  118.48961557855424  PASS
+p11-email         15        113.90400661736717  118.29867198830925  PASS
+p12-rust          32        112.38656282350436  117.5708551255812   PASS
+p13-haiku         9         113.80394425503464  118.38541572856795  PASS
+p14-history       7         114.28711123184668  118.54011637440726  PASS
+p15-bash          18        113.46429985564242  118.33721671936945  PASS
+p16-chat          16        112.76169714537481  118.04456126350748  PASS
+p17-summarize     59        111.37653081273889  115.8009816316869   PASS
+p18-regex         11        113.11070651870216  118.52908164073932  PASS
+p19-numbers       24        113.09456803343043  117.81349684360625  PASS
+p20-dialog        12        113.82121409219151  119.4444683280716   PASS
+prev median 113.36 tok/s_gen spread 3.5%  |  new median 118.29 spread 3.1%  |  ratio 1.043  |  identity fails: none
+clock-probe: busy 131/169 samples (skipped 10 in first 3.5s)  sclk min/med/max 1235/2977/3310 MHz  power 62-356 W (cap 290 W, 52 busy samples above it: rocm-smi package power is instantaneous, the cap is a moving average)  junction max 72 C  -- .work/clock-probe-20260906-041205.log
+##### A3 spec prev vs new
+power_cap_uW=290000000 vddgfx=-100mV armA='BARO_SPEC=1 BARO_BIN=./.work/engine-prev' armB='BARO_SPEC=1 BARO_BIN=./.work/engine'
+prompt            n_prompt  prev_tok_s          new_tok_s           identity
+p01-water         13        116.10571908575113  135.05528044151808  PASS
+p02-python-fib    15        138.55717488694313  161.97072985291211  PASS
+p03-story         20        110.00071154745983  127.61965834904801  PASS
+p04-list-planets  16        145.006323668233    169.35207990966597  PASS
+p05-math          15        135.54905403004656  156.47829026037815  PASS
+p06-translate     21        121.55628605652483  140.17636554208258  PASS
+p07-json          20        134.84339269109512  161.23751213549014  PASS
+p08-sql           26        135.31254375374058  157.42916986146886  PASS
+p09-explain-gpu   19        99.97899361995636   115.72086779916361  PASS
+p10-recipe        11        126.2027517881017   144.64108731894052  PASS
+p11-email         15        120.49468346376578  138.85548030930545  PASS
+p12-rust          32        135.4025970875791   156.4721582544308   PASS
+p13-haiku         9         113.44742047721186  131.28578577008037  PASS
+p14-history       7         129.9078406353544   141.47325913550432  PASS
+p15-bash          18        121.16332322277968  140.04167515771204  PASS
+p16-chat          16        129.04145073167302  149.86945014930308  PASS
+p17-summarize     59        119.88289199734277  139.65129691831928  PASS
+p18-regex         11        116.26189034573792  135.89944855886617  PASS
+p19-numbers       24        141.64829064891003  164.89476251361617  PASS
+p20-dialog        12        140.2706887643499   163.60764135877454  PASS
+prev median 127.62 tok/s_gen spread 35.3%  |  new median 143.06 spread 37.5%  |  ratio 1.121  |  identity fails: none
+##### profile new
+mega profile (last token, us): ssm sub-blocks 2674.5199999999995  attn sub-blocks 852.28  ffn 4415.039999999999  head 679.48  total 8631.96  fail 0
+mega phases ssm (24 layers, us, stamps 0>12>1>2>3>4>5>6>7): 15 133 1374 75 42 393 51 588
+mega phases attn (8 layers, us, stamps 0>1>2>3>4>5>7): 34 314 23 306 11 162
+mega phases ffn (32 layers, us, stamps 7>8>9>10>11): 133 2628 61 1590
+mega phases head (us, stamps 0>1>2>3): 4 670 4

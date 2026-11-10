@@ -1,0 +1,27 @@
+rocprofv3 kernel trace, p01, 64 tokens, last 40% of dispatches (decode tail); wavegroup .work/decode (24d9239 build) vs spark main b469c02 TMAX 16384 (tools/kernel_table.py)
+== wg
+dispatches 3996  span 51.99 ms  busy 38.43 ms (74%)
+gemv_kq_amar_gemv_kq_SIMD_DTy6A6AcB6A6Ac   16.968 ms    885 x   19.17 us  44.1%
+llama_gateup_SIMD_DType_int6A6AcB6A6AcBu   10.195 ms    429 x   23.77 us  26.5%
+elementwise_amar_rmsnorm_cast6A6AcB6A_9d    4.081 ms    885 x    4.61 us  10.6%
+gemv_split_wg_gemv_kq_SIMD_DT6A6AcB6A6Ac    3.214 ms    429 x    7.49 us   8.4%
+attn_split_wg_attn_split_SIMD6A6AcB6A6A_    1.847 ms    429 x    4.30 us   4.8%
+attn_split_wg_attn_merge_Tens6A6AcB6A6A_    0.809 ms    429 x    1.89 us   2.1%
+rope_wg_rope_kv_SIMD_DType_in6A6AcB6A6Ac    0.764 ms    429 x    1.78 us   2.0%
+llama_argmax_part_Pointer_Tru6A6AoA6A6Ac    0.346 ms     27 x   12.83 us   0.9%
+llama_argmax_fin_Pointer_True6A6AoA6A6Ac    0.154 ms     27 x    5.72 us   0.4%
+llama_embed_rows_Pointer_True6A6AoA6A6Ac    0.051 ms     26 x    1.97 us   0.1%
+__amd_rocclr_copyBuffer                     0.003 ms      1 x    3.08 us   0.0%
+== sp
+dispatches 4030  span 52.72 ms  busy 39.89 ms (76%)
+gemv_kq_amar_gemv_kq_SIMD_DTy6A6AcB6A6Ac   17.438 ms    894 x   19.51 us  43.7%
+gemv_kq_amar_gemv_kq_gateup_S6A6AcB6A6A_   10.432 ms    432 x   24.15 us  26.2%
+elementwise_amar_rmsnorm_cast6A6AcB6A_e4    3.719 ms    893 x    4.16 us   9.3%
+gemv_kq_amar_gemv_kq_splitk_S6A6AcB6A6A_    3.402 ms    432 x    7.88 us   8.5%
+spark_kernels_amar_attn_decode_6A6A_3226    3.324 ms    432 x    7.70 us   8.3%
+spark_kernels_amar_rope_kv_appe6A6A_7065    0.673 ms    432 x    1.56 us   1.7%
+spark_kernels_amar_rope_plain6A6AcB6A_0b    0.589 ms    432 x    1.36 us   1.5%
+spark_kernels_amar_argmax_final6A6A_68e7    0.191 ms     28 x    6.82 us   0.5%
+spark_kernels_amar_argmax_part6A6AcB_3dd    0.070 ms     28 x    2.48 us   0.2%
+spark_kernels_amar_embed_lookup6A6A_154a    0.052 ms     27 x    1.93 us   0.1%
+per layer: attention wg split+merge 6.19 us vs spark one block/head 7.70; rope wg 1 kernel 1.78 us vs spark 2 kernels 2.92 us; GEMVs spark +1.6-5% (same kernels, not attributed)

@@ -1,0 +1,90 @@
+[
+  {
+    "id": 1,
+    "claim": "Teleport KV",
+    "then": "FAKE: env var read and printed, never used",
+    "now": "PARTIAL, real. HIP IPC via shim amarbaro_ipc_open (fda465b) + serve/latent_ipc.mojo: 40 MiB KV in 0.51 ms, 14.1x memfd, every float equal. Missing: live engine pair through the agent under BARO_FORCE (T3b).",
+    "status": "partial",
+    "notes": []
+  },
+  {
+    "id": 2,
+    "claim": "Bidirectional / latent recurrence",
+    "then": "FAKE: env var read and printed",
+    "now": "Ladder run40b: CoT 77.5, latent R8k32 75.0, no-CoT 70.0; FLAW control failed (32.5), no clean verdict. Next: second frozen round at more layers (R0b); LoRA only after.",
+    "status": "open",
+    "notes": []
+  },
+  {
+    "id": 3,
+    "claim": "EAGLE-2 / n-gram tree speculation",
+    "then": "FAKE: ngram_propose_tree never called",
+    "now": "Closed at stage 0 (6f3e09c): every simulated arm 0.71-0.97x of k=2 MTP. Reopen only with a long-repeat workload trace.",
+    "status": "closed",
+    "notes": []
+  },
+  {
+    "id": 4,
+    "claim": "JIT hot-patching",
+    "then": "FAKE: no code reads baro.kernel.src",
+    "now": "Replaced by per-shape prefill tile table (19a474e), baro.tune.pf read at boot. Opt-in, +0.4% at 128, null 256-8192. Bake path UNVERIFIED.",
+    "status": "partial",
+    "notes": []
+  },
+  {
+    "id": 5,
+    "claim": "Multimodal latent injection, hyperbolic MCTS",
+    "then": "FAKE: nothing calls them",
+    "now": "Unchanged: nothing calls them.",
+    "status": "fake",
+    "notes": []
+  },
+  {
+    "id": 6,
+    "claim": "megalatent v2-Super, NeSy/SciWalker, ATOM TBO/rocMLIR",
+    "then": "FAKE: files missing or banner-only",
+    "now": "Unchanged. README marks them CLAIMED, false (rows 35-48).",
+    "status": "fake",
+    "notes": []
+  },
+  {
+    "id": 7,
+    "claim": "KV pruning",
+    "then": "was live in decode",
+    "now": "Reverted (fb9f92f): flipped p13-haiku; decode same without it (151.9/152.2 vs 150.8/152.9).",
+    "status": "closed",
+    "notes": []
+  },
+  {
+    "id": 8,
+    "claim": "MLA decode",
+    "then": "imported, never called; no MLA model",
+    "now": "Unchanged: needs an MLA model to mean anything.",
+    "status": "fake",
+    "notes": []
+  },
+  {
+    "id": 9,
+    "claim": "int8 MMQ prefill",
+    "then": "real, parity-tested, 0.91x of bf16",
+    "now": "Unchanged: PARTIAL, not the default; no speed case on gfx1100.",
+    "status": "partial",
+    "notes": []
+  },
+  {
+    "id": 10,
+    "claim": "int8 KV",
+    "then": "dense gated only",
+    "now": "Dense passed (1.171x after 32k). MoE 96.9% at 32k on 1 prompt, full 60 not run (I1). Spark ungated. int8 state export returns 501 (I2).",
+    "status": "partial",
+    "notes": []
+  },
+  {
+    "id": 11,
+    "claim": "Latent CoT steps",
+    "then": "real loop in spark, untrained",
+    "now": "Unchanged: needs a trained model; waits on the ladder verdict.",
+    "status": "open",
+    "notes": []
+  }
+]

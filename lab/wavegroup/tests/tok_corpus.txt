@@ -1,0 +1,9 @@
+Once upon a time, there was a little girl named Lily.
+The capital of France is
+  leading spaces and trailing   
+Numbers: 1234567 3.14159 -42 0x1F
+Contractions: I'm, you're, they'll, it's, we'd, DON'T
+Unicode: café naïve Zürich 東京 привет 🙂👍
+Code: def f(x): return x**2 # comment
+<|begin_of_text|>special in text<|eot_id|>
+tabs	and	newlines\nliteral backslash-n

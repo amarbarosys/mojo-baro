@@ -1,0 +1,1 @@
+{"type": "array", "items": {"type": "object", "properties": {"name": {"type": "string"}, "arguments": {"type": "object", "properties": {"path": {"type": "string"}, "recursive": {"type": "boolean"}}, "required": ["path"]}}, "required": ["name", "arguments"]}, "minItems": 1, "maxItems": 3}

@@ -1,0 +1,31 @@
+# neuron hop receipts (RESULT lines; test starts, stream 20000+seed). Binary d1645dc, data = neuron-data N=2048 R=4 K=16 seed 1.
+## g1
+RESULT arm none seed 110 steps 1500 lr 0.001 aux 0.5 acc2 0.3056640625 acc3 0.324951171875 mean 0.3153076171875 readout2 0.0 readout3 0.0 wall_s 16.451636057
+RESULT arm none seed 111 steps 1500 lr 0.001 aux 0.5 acc2 0.316650390625 acc3 0.320556640625 mean 0.318603515625 readout2 0.0 readout3 0.0 wall_s 16.693676661
+RESULT arm none seed 112 steps 1500 lr 0.001 aux 0.5 acc2 0.322998046875 acc3 0.3173828125 mean 0.3201904296875 readout2 0.0 readout3 0.0 wall_s 18.44018051
+RESULT arm real seed 110 steps 1500 lr 0.001 aux 0.5 acc2 0.982421875 acc3 0.984375 mean 0.9833984375 readout2 0.983154296875 readout3 0.98046875 wall_s 58.605035064
+RESULT arm real seed 111 steps 1500 lr 0.001 aux 0.5 acc2 0.988525390625 acc3 0.989501953125 mean 0.989013671875 readout2 0.98193359375 readout3 0.981689453125 wall_s 62.254821037
+RESULT arm real seed 112 steps 1500 lr 0.001 aux 0.5 acc2 0.989013671875 acc3 0.986328125 mean 0.9876708984375 readout2 0.982666015625 readout3 0.98046875 wall_s 63.131673105
+RESULT arm shuffled seed 110 steps 1500 lr 0.001 aux 0.5 acc2 0.250244140625 acc3 0.274169921875 mean 0.26220703125 readout2 0.061767578125 readout3 0.05029296875 wall_s 58.483562427
+RESULT arm shuffled seed 111 steps 1500 lr 0.001 aux 0.5 acc2 0.22119140625 acc3 0.2578125 mean 0.239501953125 readout2 0.066650390625 readout3 0.03515625 wall_s 62.711610697
+RESULT arm shuffled seed 112 steps 1500 lr 0.001 aux 0.5 acc2 0.256103515625 acc3 0.253662109375 mean 0.2548828125 readout2 0.064697265625 readout3 0.040283203125 wall_s 62.424701549
+## c-3e-4
+RESULT arm none seed 110 steps 1500 lr 0.0003 aux 0.5 acc2 0.31689453125 acc3 0.328369140625 mean 0.3226318359375 readout2 0.0 readout3 0.0 wall_s 9.648112859
+RESULT arm none seed 111 steps 1500 lr 0.0003 aux 0.5 acc2 0.30517578125 acc3 0.31201171875 mean 0.30859375 readout2 0.0 readout3 0.0 wall_s 9.967677296
+RESULT arm none seed 112 steps 1500 lr 0.0003 aux 0.5 acc2 0.305908203125 acc3 0.32080078125 mean 0.3133544921875 readout2 0.0 readout3 0.0 wall_s 10.032742355
+RESULT arm shuffled seed 110 steps 1500 lr 0.0003 aux 0.5 acc2 0.25830078125 acc3 0.27392578125 mean 0.26611328125 readout2 0.073974609375 readout3 0.050048828125 wall_s 52.699033985
+RESULT arm shuffled seed 111 steps 1500 lr 0.0003 aux 0.5 acc2 0.2470703125 acc3 0.275634765625 mean 0.2613525390625 readout2 0.0732421875 readout3 0.050537109375 wall_s 52.69839239
+RESULT arm shuffled seed 112 steps 1500 lr 0.0003 aux 0.5 acc2 0.26513671875 acc3 0.283447265625 mean 0.2742919921875 readout2 0.078125 readout3 0.04736328125 wall_s 46.491855341
+## c-3e-3
+RESULT arm none seed 110 steps 1500 lr 0.003 aux 0.5 acc2 0.315673828125 acc3 0.322021484375 mean 0.31884765625 readout2 0.0 readout3 0.0 wall_s 9.557245465
+RESULT arm none seed 111 steps 1500 lr 0.003 aux 0.5 acc2 0.306396484375 acc3 0.31591796875 mean 0.3111572265625 readout2 0.0 readout3 0.0 wall_s 11.829418384
+RESULT arm none seed 112 steps 1500 lr 0.003 aux 0.5 acc2 0.320068359375 acc3 0.321533203125 mean 0.32080078125 readout2 0.0 readout3 0.0 wall_s 11.839359551
+RESULT arm shuffled seed 110 steps 1500 lr 0.003 aux 0.5 acc2 0.25927734375 acc3 0.29833984375 mean 0.27880859375 readout2 0.033935546875 readout3 0.00830078125 wall_s 45.782212531
+RESULT arm shuffled seed 111 steps 1500 lr 0.003 aux 0.5 acc2 0.2529296875 acc3 0.28125 mean 0.26708984375 readout2 0.04052734375 readout3 0.01708984375 wall_s 45.860952565
+RESULT arm shuffled seed 112 steps 1500 lr 0.003 aux 0.5 acc2 0.250732421875 acc3 0.281005859375 mean 0.265869140625 readout2 0.034912109375 readout3 0.01220703125 wall_s 45.983670265
+## r-aux0
+RESULT arm real seed 110 steps 1500 lr 0.001 aux 0.0 acc2 0.32470703125 acc3 0.319580078125 mean 0.3221435546875 readout2 0.0 readout3 0.0 wall_s 51.578183567
+RESULT arm real seed 111 steps 1500 lr 0.001 aux 0.0 acc2 0.3154296875 acc3 0.326416015625 mean 0.3209228515625 readout2 0.0 readout3 0.0 wall_s 42.406486592
+RESULT arm real seed 112 steps 1500 lr 0.001 aux 0.0 acc2 0.32373046875 acc3 0.31884765625 mean 0.3212890625 readout2 0.0 readout3 0.0 wall_s 51.579372267
+## r-aux0-3x
+RESULT arm real seed 110 steps 4500 lr 0.0003 aux 0.0 acc2 0.26171875 acc3 0.297119140625 mean 0.2794189453125 readout2 0.0 readout3 0.0 wall_s 106.686980967

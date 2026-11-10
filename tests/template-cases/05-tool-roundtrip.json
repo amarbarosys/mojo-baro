@@ -1,0 +1,1 @@
+{"messages":[{"role":"user","content":"weather?"},{"role":"assistant","content":"Checking.","reasoning_content":"need tool","tool_calls":[{"function":{"name":"get_weather","arguments":{"city":"Rome"}}}]},{"role":"tool","content":"sunny"},{"role":"user","content":"thanks"}],"add_generation_prompt":true}

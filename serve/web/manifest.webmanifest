@@ -1,0 +1,12 @@
+{
+  "name": "baro",
+  "short_name": "baro",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#1b1f27",
+  "theme_color": "#1b1f27",
+  "icons": [
+    { "src": "/web/icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

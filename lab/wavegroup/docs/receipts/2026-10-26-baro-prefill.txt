@@ -1,0 +1,47 @@
+mojo-baro batched prefill (2c936ea) + Q5_0 (08f7d64), 2026-10-26. Check: generated ids, BARO_PREFILL_ROWS=1 vs =0 (token-by-token), same binary.
+Llama 3.2 1B: 21/21 prompts x 64 identical; 217-row prompt prefill 0.331 -> 0.032 s
+vibe15 t1 rows=1 n=46 prefill_s=0.02686718 gen=39aae181
+vibe15 t1 rows=0 n=46 prefill_s=0.114825618 gen=39aae181
+vibe15 t2 rows=1 n=42 prefill_s=0.026238077 gen=6be7cc8c
+vibe15 t2 rows=0 n=42 prefill_s=0.106516115 gen=6be7cc8c
+vibe15 t3 rows=1 n=34 prefill_s=0.026061266 gen=1ed473a4
+vibe15 t3 rows=0 n=34 prefill_s=0.08829514 gen=1ed473a4
+granite3 t1 rows=1 n=47 prefill_s=0.0575265 gen=3abf9227
+granite3 t1 rows=0 n=47 prefill_s=0.281409687 gen=3abf9227
+granite3 t2 rows=1 n=44 prefill_s=0.056901936 gen=51d37cc2
+granite3 t2 rows=0 n=44 prefill_s=0.263449883 gen=51d37cc2
+granite3 t3 rows=1 n=34 prefill_s=0.05763098 gen=b65f4d00
+granite3 t3 rows=0 n=34 prefill_s=0.204474566 gen=b65f4d00
+spark4 t1 rows=1 n=48 prefill_s=0.054516384 gen=cbde6b28
+spark4 t1 rows=0 n=48 prefill_s=0.249604081 gen=cbde6b28
+spark4 t2 rows=1 n=44 prefill_s=0.052078121 gen=0ecba69c
+spark4 t2 rows=0 n=44 prefill_s=0.228217889 gen=0ecba69c
+spark4 t3 rows=1 n=34 prefill_s=0.051338708 gen=d9a2e9dc
+spark4 t3 rows=0 n=34 prefill_s=0.178708322 gen=d9a2e9dc
+qwen7 t1 rows=1 n=46 prefill_s=0.086983583 gen=820ea01c
+qwen7 t1 rows=0 n=46 prefill_s=0.310534968 gen=820ea01c
+qwen7 t2 rows=1 n=42 prefill_s=0.08642712 gen=4880b82a
+qwen7 t2 rows=0 n=42 prefill_s=0.284207771 gen=4880b82a
+qwen7 t3 rows=1 n=34 prefill_s=0.085133284 gen=ed7e28fc
+qwen7 t3 rows=0 n=34 prefill_s=0.230460941 gen=ed7e28fc
+rows=0 prefill_s: 0.401508572
+rows=0 prefill_s: 0.331089625
+rows=0 prefill_s: 0.333062206
+rows=1 prefill_s: 0.033275094
+rows=1 prefill_s: 0.032486579
+rows=1 prefill_s: 0.03058426
+qwen05 t1 46 rows prefill r1 0.017524521 r0 0.079420554 ids identical
+qwen05 t2 42 rows prefill r1 0.016260135 r0 0.073403542 ids identical
+qwen05 t3 34 rows prefill r1 0.016870628 r0 0.062092273 ids identical
+three-arm decode stint (.work/stint-final):
+ours median 571.1 tok/s, llama.cpp median 411.9, ratio median 1.388 (min 1.371, max 1.406), faster 21/21, drift 0.9967
+alt median 558.3 tok/s, ours/alt ratio median 1.027, alt/llama.cpp 1.356
+ids equal to llama.cpp: 13/21 prompts all 64; matching prefix per prompt [64, 3, 64, 64, 64, 64, 64, 64, 6, 64, 64, 45, 49, 64, 64, 64, 29, 27, 42, 28, 64]
+
+long prompt (292 words, 3 chunks of 128), generated ids rows=1 vs rows=0, same binary:
+vibe15 n=349 prefill r1 0.063833593 r0 0.871635192 ids identical
+granite3 n=353 prefill r1 0.141172625 r0 2.257796864 ids identical
+spark4 n=361 prefill r1 0.17861258 r0 1.946323891 ids identical
+qwen7 n=349 prefill r1 0.248410934 r0 2.436922737 ids identical
+qwen05 n=349 prefill r1 0.037552006 r0 0.610120028 ids identical
+Spark SWA window 512 not crossed (361 rows): sliding-window prefill past the window UNVERIFIED

@@ -1,0 +1,36 @@
+PASS: megakernel gate at m = 1 and m = 3 (q8) and m = 1 (q4)
+PASS spec=0 mega==launch  launch:tok/s_gen: 107.37979980205574  mega:tok/s_gen: 60.93146805667787
+PASS spec=1 mega==launch  launch:tok/s_gen: 187.29512143418924  mega:tok/s_gen: 182.2219172206555
+PASS launch vs model-ref 64/64
+PASS run-tests: GEMM OK — 4 x 3 @ 3 x 2 matches host reference;54 kernels, 26 in registry, 0 orphans;
+co25 mega_amar_mega_token_SIMD_D6A6AcB6A6AcB6A6A_7bc47b2c9ca0dac9 vgpr_count=256
+co25 mega_amar_mega_token_SIMD_D6A6AcB6A6AcB6A6A_7bc47b2c9ca0dac9 vgpr_spill_count=77
+co26 mega_amar_mega_token_SIMD_D6A6AcB6A6AcB6A6A_5a13f9b5993ba985 vgpr_count=256
+co26 mega_amar_mega_token_SIMD_D6A6AcB6A6AcB6A6A_5a13f9b5993ba985 vgpr_spill_count=583
+##### A3b no-spec a2 vs unroll4
+power_cap_uW=290000000 vddgfx=-100mV armA='BARO_BIN=./.work/engine-a2' armB='BARO_BIN=./.work/engine'
+prompt            n_prompt  a2_tok_s            u4_tok_s            identity
+p01-water         13        119.67557615365139  61.327361110070875  PASS
+p02-python-fib    15        119.19989781806345  61.44444065081917   PASS
+p03-story         20        119.64297351667459  60.354498064872885  PASS
+p04-list-planets  16        119.25073265520666  61.728102811882444  PASS
+p05-math          15        119.21237789764443  61.404173564873254  PASS
+p06-translate     21        118.94500111344794  61.51080603973081   PASS
+p07-json          20        120.01537065427058  61.34389183620648   PASS
+p08-sql           26        119.64193538788174  61.41201307877021   PASS
+p09-explain-gpu   19        119.15437321524833  60.43962337246323   PASS
+p10-recipe        11        119.34249626960458  61.54998598047636   PASS
+p11-email         15        119.8666797124741   61.71361493515091   PASS
+p12-rust          32        119.37139794911904  61.40605730285777   PASS
+p13-haiku         9         119.41661571320792  61.73559047001095   PASS
+p14-history       7         119.4114641089843   61.62457902085875   PASS
+p15-bash          18        119.09201232803461  61.32359719151709   PASS
+p16-chat          16        119.56135988718768  61.512117468273026  PASS
+p17-summarize     59        116.00942600524745  60.24112773571276   PASS
+p18-regex         11        118.25176322951737  61.14574851150212   PASS
+p19-numbers       24        113.01115976771715  60.72812161843166   PASS
+p20-dialog        12        118.08268890611788  61.06283019592156   PASS
+a2 median 119.30 tok/s_gen spread 5.9%  |  u4 median 61.41 spread 2.4%  |  ratio 0.515  |  identity fails: none
+clock-probe: busy 160/200 samples (skipped 11 in first 3.5s)  sclk min/med/max 1309/3050/3320 MHz  power 63-356 W (cap 290 W, 53 busy samples above it: rocm-smi package power is instantaneous, the cap is a moving average)  junction max 74 C  -- .work/clock-probe-20260906-041708.log
+u4 run1 tok/s_gen: 60.96504678876221 |  20 97 2129 71 51 1049 59 980 | ffn  152 5623 65 3667 | head  4 747 4
+u4 run2 tok/s_gen: 61.03015661041486 |  36 403 2139 67 50 1066 58 986 | ffn  151 5637 63 3784 | head  4 761 4

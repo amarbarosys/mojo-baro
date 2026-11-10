@@ -1,0 +1,1 @@
+{"type": "array", "items": {"type": "string", "enum": ["north", "south", "east", "west"]}, "minItems": 1, "maxItems": 4}

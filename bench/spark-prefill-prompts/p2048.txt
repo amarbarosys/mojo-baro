@@ -1,0 +1,140 @@
+Water boils at 100 degrees Celsius at sea level because
+def fibonacci(n):
+    """Return the n-th Fibonacci number."""
+
+Once upon a time, in a small village by the sea, there lived an old fisherman who
+List the planets of the solar system in order from the sun:
+1.
+Q: What is 17 times 23?
+A:
+Translate to German: "The weather is nice today and we are going to the park."
+German:
+Return a JSON object describing a book with fields title, author, year, and genres:
+{
+-- Table users(id, name, email, created_at)
+-- Query: the 10 most recently created users
+SELECT
+Explain in two sentences why GPU decode of a large language model is memory-bandwidth bound.
+Recipe: simple tomato pasta sauce
+Ingredients:
+-
+Write a short polite email declining a meeting invitation for Thursday.
+
+Subject:
+// Rust: read a file into a String and count its lines
+fn count_lines(path: &str) -> std::io::Result<usize> {
+
+Write a haiku about winter mornings.
+
+The Roman Empire fell in the year
+#!/usr/bin/env bash
+# find the 5 largest files under the current directory
+
+User: I keep forgetting my passwords. What should I do?
+Assistant:
+Summarize in one sentence: The mitochondrion is a double-membrane-bound organelle found in most eukaryotic organisms. Mitochondria generate most of the cell's supply of adenosine triphosphate, used as a source of chemical energy.
+Summary:
+A regular expression that matches a valid IPv4 address is
+Continue the sequence: 2, 3, 5, 7, 11, 13,
+"Where were you last night?" she asked.
+"I
+# Baseline — what is verified working
+
+Current truth for `mojo-baro`. Every number here was measured on this machine and
+is reproducible with the command given. If you are an agent picking up a kernel
+task, this is your starting point: **do not re-derive it, and do not trust a
+number that is not in this file or produced by `bench/run.py`.**
+
+Last verified: 2026-09-02 (fp16 WMMA rows; see `bench/wmma-fp16-protocol.md` Round 3).
+
+## Hardware and toolchain
+
+| | |
+|---|---|
+| GPU | AMD RX 7900 XTX, **gfx1100 (RDNA3)** — 24 GB, ~22.3 GB free to MAX |
+| Warp size | **32** (RDNA3, *not* 64 like CDNA) |
+| LDS | 64 KB/block |
+| ROCm | 7.2, hipBLASLt present at `/opt/rocm/lib/libhipblaslt.so` |
+| Mojo | **1.0.0** — repo-local venv, `./.venv/bin/mojo` |
+| MAX | 26.5.0 |
+| Rust | 1.97.1 (service layer not started) |
+
+Nothing is installed machine-wide. `uv sync` creates `.venv` from the tracked
+`pyproject.toml`, which pins `max[all]==26.5.0` (Mojo 1.0.0) from PyPI. **Not the
+nightly index** — an earlier version of this file said nightly, but 26.5.0 is a
+stable release and is not carried there, so a nightly pin does not resolve.
+
+## Layers
+
+```
+Python/app  →  Mojo (GPU kernels)  →  C++ shim (vendor SDK)  →  hipBLASLt
+                      ↑
+                    Rust (network/API shell) — NOT STARTED
+```
+
+Rust talks only to Mojo's C-ABI surface. It must **not** bind the C++ shim
+directly: two independent owners of one hipBLASLt context is a lifetime bug.
+
+## What runs
+
+| Component | Path | Verify with |
+|---|---|---|
+| C++ hipBLASLt shim | `shim/` | `./run-tests.sh` |
+| Mojo FFI binding | `kernels/amarbaro.mojo` | `./run-tests.sh` |
+| GEMM kernels | `kernels/matmul.mojo` | `./bench/run.py` |
+| Bench + correctness engine | `bench/run.py` | `./bench/run.py` |
+| Parameter sweep | `bench/sweep.py` | `./bench/sweep.py` |
+
+Related work lives in `~/AMDHQ` — this box's AMD/ROCm evaluation lab (`lab` CLI,
+`tools/`, `runs/` ledger, rocprofv3 captures). Its 2026-08-27 shortlist already
+recorded verdicts worth knowing before reaching for ROCm ecosystem pieces:
+**aiter/ATOM have no RDNA3 build path** (gfx942/gfx950 only), **hip-ep's autotune
+LUT is gfx1151-only**, and MIGraphX EP is already installed system-wide.
+
+`./run-tests.sh` builds the shim and checks an fp16 GEMM through the C ABI
+against a host reference. `./bench/run.py` gates on correctness *before*
+reporting throughput and exits non-zero if any variant is wrong.
+
+## Engine (2026-09-04)
+
+`serve/engine.mojo` runs on the **q8 pack** by default (`BARO_PACK`, default
+`.work/engine-pack-q8`, built by `tools/engine-pack.py MODEL.gguf OUTDIR --q8`;
+`tools/q8-check.py` proves it bit-equal to `llama-quantize Q8_0`). All 2D
+weight GEMMs are `amar_matmul_skinny_q8row`: one wave per weight row over the
+weight-native [out, in] int8 layout plus fp16 block-32 scales, 855 GB/s on
+the ffn shape (62.6 us per 100 MB-equivalent stream). Decode: **68.8 tok/s_gen**,
+64/64 greedy identity with llama.cpp Q8_0 and the bf16 reference; llama.cpp
+Q8_0 no-spec bar 74.1. The bf16 pack path (41.7 tok/s) is gone from the
+engine; its numbers stay in `bench/q8-protocol.md`.
+
+**MTP speculative decode (`BARO_SPEC=1`; default k=2 via `BARO_SPEC_K` or
+`spec-k.txt`).** Draft = `blk.32` head; rows verified in one m=k+1 trunk
+window, SSM/conv state in a (k+1)-slot ring so rollback is free.
+
+Headline is the **20-prompt median**, per `bench/PROTOCOL-RULES.md` P4 —
+a single-prompt speculative number is an instrument receipt, never a verdict:
+
+| set | ours | llama.cpp Q8_0 | ratio |
+|---|---|---|---|
+| **20 real prompts (median, k=2)** | **100.7** | **123.5** | **0.78x** |
+| 5-token race prompt (k=4) | 145.6 | 109.8 | 1.33x |
+
+So: ahead on the preregistered race prompt, **behind on real text**. Both
+engines' speculative output matches their own greedy output on the race
+prompt; on the 20-prompt set ours matches on 20/20, llama.cpp's on 16/20.
+
+The earlier headline of **127.96 tok/s_gen (1.89x over 67.77, acceptance
+50/53)** was measured on the 5-token race prompt alone and is superseded —
+that prompt's repetitive tail inflates acceptance to ~94%. Kept here only so
+the number is recognisable when it turns up in older notes.
+Protocol, k sweep and bug log: `bench/mtp-protocol.md` Result 2.
+
+Weight-native wave-per-row is the fastest measured stream on this card
+(qingming-gfx1100-gemv 917 GB/s fp32; ours 856 bf16 / 855 q8). The earlier
+"wt-layout is coalescing-bound" verdict was about a thread-per-column kernel.
+
+## Measured kernel performance
+
+512×512×512, fp32, 200 iterations, 10 warmup. Run-to-run spread <0.5%.
+
+| variant | GF

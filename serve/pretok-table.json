@@ -1,0 +1,942 @@
+{
+ "source": "llama.cpp src/llama-vocab.cpp + convert_hf_to_gguf_update.py",
+ "llama_cpp_commit": "3057bb66c",
+ "names": {
+  "a.x-4.0": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_GPT2",
+   "regexes": [
+    "'s|'t|'re|'ve|'m|'ll|'d| ?\\p{L}+| ?\\p{N}+| ?[^\\s\\p{L}\\p{N}]+|\\s+(?!\\S)"
+   ],
+   "flags": {},
+   "tokt": "BPE",
+   "repo": "https://huggingface.co/skt/A.X-4.0"
+  },
+  "afmoe": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_AFMOE",
+   "regexes": [
+    "\\p{AFMoE_digits}",
+    "[一-鿿㐀-䶿豈-﫿぀-ゟ゠-ヿ･-ﾟ⼀-⿟เ-๿຀-໿ក-៿က-႟ꩠ-ꩿꧠ-꧿가-힯ᄀ-ᇿ]+",
+    "[!\"#$%&'()*+,\\-./:;<=>?@\\[\\\\\\]^_`{|}~][A-Za-z]+|[^\\r\\n\\p{L}\\p{P}\\p{S}]?[\\p{L}\\p{M}]+| ?[\\p{P}\\p{S}]+[\\r\\n]*|\\s*[\\r\\n]+|\\s+(?!\\S)|\\s+"
+   ],
+   "flags": {
+    "clean_spaces": false
+   },
+   "tokt": "BPE",
+   "repo": "https://huggingface.co/arcee-ai/Trinity-Tokenizer"
+  },
+  "bailingmoe": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_BAILINGMOE",
+   "regexes": [
+    "'(?:[sSdDmMtT]|[lL][lL]|[vV][eE]|[rR][eE])|[^\\r\\n\\p{L}\\p{N}]?\\p{L}+|\\p{N}| ?[^\\s\\p{L}\\p{N}]+[\\r\\n]*|\\s*[\\r\\n]|\\s+(?!\\S)|\\s+"
+   ],
+   "flags": {
+    "clean_spaces": false
+   },
+   "tokt": "BPE",
+   "repo": "https://huggingface.co/inclusionAI/Ling-lite"
+  },
+  "bailingmoe2": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_BAILINGMOE",
+   "regexes": [
+    "'(?:[sSdDmMtT]|[lL][lL]|[vV][eE]|[rR][eE])|[^\\r\\n\\p{L}\\p{N}]?\\p{L}+|\\p{N}| ?[^\\s\\p{L}\\p{N}]+[\\r\\n]*|\\s*[\\r\\n]|\\s+(?!\\S)|\\s+"
+   ],
+   "flags": {
+    "clean_spaces": false
+   },
+   "tokt": "BPE",
+   "repo": "https://huggingface.co/inclusionAI/Ling-mini-base-2.0"
+  },
+  "bloom": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_BLOOM",
+   "regexes": [
+    " ?[^(\\s|.,!?…。，、।۔،)]+"
+   ],
+   "flags": {}
+  },
+  "chameleon": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_CHAMELEON",
+   "regexes": [],
+   "flags": {
+    "add_bos": true,
+    "clean_spaces": false
+   },
+   "tokt": "BPE",
+   "repo": "https://huggingface.co/facebook/chameleon-7b"
+  },
+  "chatglm-bpe": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_CHATGLM4",
+   "regexes": [
+    "(?:'[sS]|'[tT]|'[rR][eE]|'[vV][eE]|'[mM]|'[lL][lL]|'[dD])|[^\\r\\n\\p{L}\\p{N}]?\\p{L}+|\\p{N}{1,3}| ?[^\\s\\p{L}\\p{N}]+[\\r\\n]*|\\s*[\\r\\n]+|\\s+(?!\\S)|\\s+"
+   ],
+   "flags": {},
+   "tokt": "BPE",
+   "repo": "https://huggingface.co/THUDM/glm-4-9b-chat"
+  },
+  "codeshell": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_CODESHELL",
+   "regexes": [
+    "\\p{N}",
+    "'s|'t|'re|'ve|'m|'ll|'d| ?\\p{L}+| ?\\p{N}+| ?[^\\s\\p{L}\\p{N}]+|\\s+(?!\\S)"
+   ],
+   "flags": {},
+   "tokt": "BPE",
+   "repo": "https://huggingface.co/WisdomShell/CodeShell-7B"
+  },
+  "cohere2moe": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_TINY_AYA",
+   "regexes": [
+    "\\d{1,3}(?=(?:\\d{3})*\\b)",
+    "[^\\r\\n\\p{L}\\p{N}]?[\\p{Lu}\\p{Lt}\\p{Lm}\\p{Lo}\\p{M}]*[\\p{Ll}\\p{Lm}\\p{Lo}\\p{M}]+(?:'[sS]|'[tT]|'[rR][eE]|'[vV][eE]|'[mM]|'[lL][lL]|'[dD])?|[^\\r\\n\\p{L}\\p{N}]?[\\p{Lu}\\p{Lt}\\p{Lm}\\p{Lo}\\p{M}]+[\\p{Ll}\\p{Lm}\\p{Lo}\\p{M}]*(?:'[sS]|'[tT]|'[rR][eE]|'[vV][eE]|'[mM]|'[lL][lL]|'[dD])?|\\p{N}{1,3}| ?[^\\s\\p{L}\\p{N}]+[\\r\\n/]*|\\s*[\\r\\n]+|\\s+(?!\\S)|\\s+"
+   ],
+   "flags": {
+    "clean_spaces": false
+   },
+   "tokt": "BPE",
+   "repo": "https://huggingface.co/CohereLabs/North-Mini-Code-1.0"
+  },
+  "command-r": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_COMMAND_R",
+   "regexes": [
+    "\\p{N}",
+    "'s|'t|'re|'ve|'m|'ll|'d| ?\\p{L}+| ?\\p{N}+| ?[^\\s\\p{L}\\p{N}]+|\\s+(?!\\S)"
+   ],
+   "flags": {
+    "clean_spaces": false
+   },
+   "tokt": "BPE",
+   "repo": "https://huggingface.co/CohereForAI/c4ai-command-r-v01"
+  },
+  "dbrx": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_DBRX",
+   "regexes": [
+    "(?:'[sS]|'[tT]|'[rR][eE]|'[vV][eE]|'[mM]|'[lL][lL]|'[dD])|[^\\r\\n\\p{L}\\p{N}]?\\p{L}+|\\p{N}{1,3}| ?[^\\s\\p{L}\\p{N}]+[\\r\\n]*|\\s*[\\r\\n]+|\\s+(?!\\S)|\\s+"
+   ],
+   "flags": {},
+   "tokt": "BPE",
+   "repo": "https://huggingface.co/databricks/dbrx-base"
+  },
+  "deepseek-coder": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_DEEPSEEK_CODER",
+   "regexes": [
+    "[\r\n]",
+    "\\s?\\p{L}+",
+    "\\s?\\p{P}+",
+    "[一-龥ࠀ-一가-퟿]+",
+    "\\p{N}"
+   ],
+   "flags": {
+    "clean_spaces": false
+   },
+   "tokt": "BPE",
+   "repo": "https://huggingface.co/deepseek-ai/deepseek-coder-6.7b-base"
+  },
+  "deepseek-llm": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_DEEPSEEK_LLM",
+   "regexes": [
+    "[\r\n]",
+    "\\s?[A-Za-zµÀ-ÖØ-öø-ƺƼ-ƿǄ-ʓʕ-ʯͰ-ͳͶͷͻ-ͽͿΆΈ-ΊΌΎ-ΡΣ-ϵϷ-ҁҊ-ԯԱ-ՖႠ-ჅᎠ-Ᏽᏸ-ᏽᲐ-ᲺᲽ-Ჿᴀ-ᴫᵫ-ᵷᵹ-ᶚḀ-ἕἘ-Ἕἠ-ὅὈ-Ὅὐ-ὗὙὛὝὟ-ώᾀ-ᾴᾶ-ᾼιῂ-ῄῆ-ῌῐ-ΐῖ-Ίῠ-Ῥῲ-ῴῶ-ῼℂℇℊ-ℓℕℙ-ℝℤΩℨK-ℭℯ-ℴℹℼ-ℿⅅ-ⅉⅎↃↄⰀ-ⱻⱾ-ⳤⳫ-ⳮⳲⳳꙀ-ꙭꚀ-ꚛꜢ-ꝯꝱ-ꞇꞋ-ꞎꭰ-ꮿﬀ-ﬆﬓ-ﬗＡ-Ｚａ-ｚ𐐀-𐑏𐒰-𐓓𐓘-𐓻𐲀-𐲲𐳀-𐳲𑢠-𑣟𞤀-𞥃]+",
+    "\\s?[!-/:-~！-／：-～‘-‟　-。]+",
+    "\\s+$",
+    "[一-龥ࠀ-一가-퟿]+",
+    "\\p{N}+"
+   ],
+   "flags": {
+    "clean_spaces": false
+   },
+   "tokt": "BPE",
+   "repo": "https://huggingface.co/deepseek-ai/deepseek-llm-7b-base"
+  },
+  "deepseek-r1-qwen": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_QWEN2",
+   "regexes": [
+    "(?:'[sS]|'[tT]|'[rR][eE]|'[vV][eE]|'[mM]|'[lL][lL]|'[dD])|[^\\r\\n\\p{L}\\p{N}]?\\p{L}+|\\p{N}| ?[^\\s\\p{L}\\p{N}]+[\\r\\n]*|\\s*[\\r\\n]+|\\s+(?!\\S)|\\s+"
+   ],
+   "flags": {
+    "clean_spaces": false
+   },
+   "tokt": "BPE",
+   "repo": "https://huggingface.co/deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B"
+  },
+  "deepseek-v3": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_DEEPSEEK3_LLM",
+   "regexes": [
+    "\\p{N}{1,3}",
+    "[一-龥぀-ゟ゠-ヿ]+",
+    "[!\"#$%&'()*+,\\-./:;<=>?@\\[\\\\\\]^_`{|}~][A-Za-z]+|[^\r\n\\p{L}\\p{P}\\p{S}]?[\\p{L}\\p{M}]+| ?[\\p{P}\\p{S}]+[\r\n]*|\\s*[\r\n]+|\\s+(?!\\S)|\\s+"
+   ],
+   "flags": {
+    "clean_spaces": false
+   },
+   "tokt": "BPE",
+   "repo": "https://huggingface.co/deepseek-ai/DeepSeek-V3"
+  },
+  "default": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_DEFAULT",
+   "regexes": [
+    "[\\p{P}\\$\\+<=>\\^~\\|]+",
+    "'s|'t|'re|'ve|'m|'ll|'d| ?\\p{L}+| ?\\p{N}+| ?[^\\s\\p{L}\\p{N}]+|\\s+(?!\\S)",
+    "\\p{N}+",
+    "[0-9][0-9][0-9]"
+   ],
+   "flags": {}
+  },
+  "exaone": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_EXAONE",
+   "regexes": [
+    "\\p{N}",
+    "'s|'t|'re|'ve|'m|'ll|'d| ?\\p{L}+| ?\\p{N}+| ?[^\\s\\p{L}\\p{N}]+|\\s+(?!\\S)"
+   ],
+   "flags": {},
+   "tokt": "BPE",
+   "repo": "https://huggingface.co/LGAI-EXAONE/EXAONE-3.0-7.8B-Instruct"
+  },
+  "exaone-moe": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_EXAONE_MOE",
+   "regexes": [
+    "(?:'[sS]|'[tT]|'[rR][eE]|'[vV][eE]|'[mM]|'[lL][lL]|'[dD])|[^\\r\\n\\p{L}\\p{N}]?(?:\\p{L}\\p{M}*(?: \\p{L}\\p{M}*)*)+|\\p{N}| ?[^\\s\\p{L}\\p{N}]+[\\r\\n/]?|\\s*[\\r\\n]|\\s+(?!\\S)|\\s+"
+   ],
+   "flags": {},
+   "tokt": "BPE",
+   "repo": "https://huggingface.co/LGAI-EXAONE/K-EXAONE-236B-A23B"
+  },
+  "exaone4": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_GPT2",
+   "regexes": [
+    "'s|'t|'re|'ve|'m|'ll|'d| ?\\p{L}+| ?\\p{N}+| ?[^\\s\\p{L}\\p{N}]+|\\s+(?!\\S)"
+   ],
+   "flags": {},
+   "tokt": "BPE",
+   "repo": "https://huggingface.co/LGAI-EXAONE/EXAONE-4.0-32B"
+  },
+  "f2llmv2": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_QWEN2",
+   "regexes": [
+    "(?:'[sS]|'[tT]|'[rR][eE]|'[vV][eE]|'[mM]|'[lL][lL]|'[dD])|[^\\r\\n\\p{L}\\p{N}]?\\p{L}+|\\p{N}| ?[^\\s\\p{L}\\p{N}]+[\\r\\n]*|\\s*[\\r\\n]+|\\s+(?!\\S)|\\s+"
+   ],
+   "flags": {
+    "clean_spaces": false
+   },
+   "tokt": "BPE",
+   "repo": "https://huggingface.co/codefuse-ai/F2LLM-v2-4B"
+  },
+  "falcon": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_FALCON",
+   "regexes": [
+    "[\\p{P}\\$\\+<=>\\^~\\|`]+",
+    "'s|'t|'re|'ve|'m|'ll|'d| ?\\p{L}+| ?\\p{N}+| ?[^\\s\\p{L}\\p{N}]+|\\s+(?!\\S)",
+    "[0-9][0-9][0-9]"
+   ],
+   "flags": {},
+   "tokt": "BPE",
+   "repo": "https://huggingface.co/tiiuae/falcon-7b"
+  },
+  "falcon-h1": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_LLAMA3",
+   "regexes": [
+    "(?:'[sS]|'[tT]|'[rR][eE]|'[vV][eE]|'[mM]|'[lL][lL]|'[dD])|[^\\r\\n\\p{L}\\p{N}]?\\p{L}+|\\p{N}{1,3}| ?[^\\s\\p{L}\\p{N}]+[\\r\\n]*|\\s*[\\r\\n]+|\\s+(?!\\S)|\\s+"
+   ],
+   "flags": {
+    "ignore_merges": true,
+    "add_bos": true
+   },
+   "tokt": "BPE",
+   "repo": "https://huggingface.co/tiiuae/Falcon-H1-34B-Base"
+  },
+  "falcon3": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_LLAMA3",
+   "regexes": [
+    "(?:'[sS]|'[tT]|'[rR][eE]|'[vV][eE]|'[mM]|'[lL][lL]|'[dD])|[^\\r\\n\\p{L}\\p{N}]?\\p{L}+|\\p{N}{1,3}| ?[^\\s\\p{L}\\p{N}]+[\\r\\n]*|\\s*[\\r\\n]+|\\s+(?!\\S)|\\s+"
+   ],
+   "flags": {
+    "ignore_merges": true,
+    "add_bos": true
+   },
+   "tokt": "BPE",
+   "repo": "https://huggingface.co/tiiuae/Falcon3-7B-Base"
+  },
+  "gemma4": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_GEMMA4",
+   "regexes": [],
+   "flags": {
+    "escape_whitespaces": true
+   }
+  },
+  "gigachat": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_GPT2",
+   "regexes": [
+    "'s|'t|'re|'ve|'m|'ll|'d| ?\\p{L}+| ?\\p{N}+| ?[^\\s\\p{L}\\p{N}]+|\\s+(?!\\S)"
+   ],
+   "flags": {},
+   "tokt": "BPE",
+   "repo": "https://huggingface.co/ai-sage/GigaChat-20B-A3B-instruct"
+  },
+  "glm4": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_CHATGLM4",
+   "regexes": [
+    "(?:'[sS]|'[tT]|'[rR][eE]|'[vV][eE]|'[mM]|'[lL][lL]|'[dD])|[^\\r\\n\\p{L}\\p{N}]?\\p{L}+|\\p{N}{1,3}| ?[^\\s\\p{L}\\p{N}]+[\\r\\n]*|\\s*[\\r\\n]+|\\s+(?!\\S)|\\s+"
+   ],
+   "flags": {},
+   "tokt": "BPE",
+   "repo": "https://huggingface.co/zai-org/GLM-4.7-Flash"
+  },
+  "gpt-2": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_GPT2",
+   "regexes": [
+    "'s|'t|'re|'ve|'m|'ll|'d| ?\\p{L}+| ?\\p{N}+| ?[^\\s\\p{L}\\p{N}]+|\\s+(?!\\S)"
+   ],
+   "flags": {},
+   "tokt": "BPE",
+   "repo": "https://huggingface.co/evilfreelancer/ruGPT3XL"
+  },
+  "gpt-4o": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_GPT4O",
+   "regexes": [
+    "[^\\r\\n\\p{L}\\p{N}]?((?=[\\p{L}])([^a-z]))*((?=[\\p{L}])([^A-Z]))+(?:'[sS]|'[tT]|'[rR][eE]|'[vV][eE]|'[mM]|'[lL][lL]|'[dD])?|[^\\r\\n\\p{L}\\p{N}]?((?=[\\p{L}])([^a-z]))+((?=[\\p{L}])([^A-Z]))*(?:'[sS]|'[tT]|'[rR][eE]|'[vV][eE]|'[mM]|'[lL][lL]|'[dD])?|\\p{N}{1,3}| ?[^\\s\\p{L}\\p{N}]+[\\r\\n/]*|\\s*[\\r\\n]+|\\s+(?!\\S)|\\s+"
+   ],
+   "flags": {
+    "clean_spaces": false
+   },
+   "tokt": "BPE",
+   "repo": "https://huggingface.co/Xenova/gpt-4o"
+  },
+  "gpt3-finnish": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_GPT3_FINNISH",
+   "regexes": [
+    " ?[^(\\s|.,!?…。，、।۔،)]+"
+   ],
+   "flags": {}
+  },
+  "granite-docling": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_GRANITE_DOCLING",
+   "regexes": [
+    "'s|'t|'re|'ve|'m|'ll|'d| ?\\p{L}+| ?\\p{N}+| ?[^\\s\\p{L}\\p{N}]+|\\s+(?!\\S)"
+   ],
+   "flags": {
+    "clean_spaces": false
+   },
+   "tokt": "BPE",
+   "repo": "https://huggingface.co/ibm-granite/granite-docling-258M"
+  },
+  "granite-embed-multi-311m": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_GEMMA4",
+   "regexes": [],
+   "flags": {
+    "escape_whitespaces": true
+   },
+   "tokt": "BPE",
+   "repo": "https://huggingface.co/ibm-granite/granite-embedding-311m-multilingual-r2"
+  },
+  "granite-embed-multi-97m": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_GRANITE_EMB_MULTI",
+   "regexes": [],
+   "flags": {
+    "clean_spaces": false,
+    "ignore_merges": true
+   },
+   "tokt": "BPE",
+   "repo": "https://huggingface.co/ibm-granite/granite-embedding-97m-multilingual-r2"
+  },
+  "grok-2": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_GROK_2",
+   "regexes": [
+    "(?:'[sS]|'[tT]|'[rR][eE]|'[vV][eE]|'[mM]|'[lL][lL]|'[dD])|[^\\r\\n\\p{L}\\p{N}]?\\p{L}+|\\p{N}| ?[^\\s\\p{L}\\p{N}]+[\\r\\n]*|\\s*[\\r\\n]+|\\s+(?!\\S)|\\s+"
+   ],
+   "flags": {
+    "clean_spaces": false
+   },
+   "tokt": "BPE",
+   "repo": "https://huggingface.co/alvarobartt/grok-2-tokenizer"
+  },
+  "hunyuan": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_HUNYUAN",
+   "regexes": [
+    "(?:'[sS]|'[tT]|'[rR][eE]|'[vV][eE]|'[mM]|'[lL][lL]|'[dD])|[^\\r\\n\\p{L}\\p{N}]?\\p{L}+|\\p{N}| ?[^\\s\\p{L}\\p{N}]+[\\r\\n]*|\\s*[\\r\\n]+|\\s+(?!\\S)|\\s+"
+   ],
+   "flags": {
+    "clean_spaces": false
+   },
+   "tokt": "BPE",
+   "repo": "https://huggingface.co/tencent/Hunyuan-A13B-Instruct"
+  },
+  "hunyuan-dense": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_HUNYUAN_DENSE",
+   "regexes": [
+    "\\p{N}{1,3}",
+    "[一-龥぀-ゟ゠-ヿ]+",
+    "[!\"#$%&'()*+,\\-./:;<=>?@\\[\\\\\\]^_`{|}~][A-Za-z]+|[^\r\n\\p{L}\\p{P}\\p{S}]?[\\p{L}\\p{M}]+| ?[\\p{P}\\p{S}]+[\r\n]*|\\s*[\r\n]+|\\s+(?!\\S)|\\s+"
+   ],
+   "flags": {
+    "clean_spaces": false
+   },
+   "tokt": "BPE",
+   "repo": "https://huggingface.co/tencent/Hunyuan-4B-Instruct"
+  },
+  "hy_v4": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_HY_V4",
+   "regexes": [
+    "\\p{N}{1,3}",
+    "[一-龥぀-ゟ゠-ヿ]+",
+    "[!\"#$%&'()*+,\\-./:;<=>?@\\[\\\\\\]^_`{|}~][A-Za-z]+|[^\r\n\\p{L}\\p{P}\\p{S}]?[\\p{L}\\p{M}]+| ?[\\p{P}\\p{S}]+[\r\n]*|\\s*[\r\n]+|\\s+(?!\\S)|\\s+"
+   ],
+   "flags": {
+    "clean_spaces": false
+   },
+   "tokt": "BPE",
+   "repo": "https://huggingface.co/tencent/Hy4-preview"
+  },
+  "jais": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_JAIS",
+   "regexes": [
+    "'s|'t|'re|'ve|'m|'ll|'d| ?\\p{L}+| ?\\p{N}+| ?[^\\s\\p{L}\\p{N}]+|\\s+(?!\\S)"
+   ],
+   "flags": {},
+   "tokt": "BPE",
+   "repo": "https://huggingface.co/core42/jais-13b"
+  },
+  "jais-2": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_JAIS2",
+   "regexes": [
+    "(?:'[sS]|'[tT]|'[rR][eE]|'[vV][eE]|'[mM]|'[lL][lL]|'[dD])|[^\\r\\n\\p{L}\\p{N}]?\\p{L}+|\\p{N}{1,3}| ?[^\\s\\p{L}\\p{N}]+[\\r\\n]*|\\s*[\\r\\n]+|\\s{512}(?!\\S)|\\s{256}(?!\\S)|\\s{128}(?!\\S)|\\s{64}(?!\\S)|\\s{32}(?!\\S)|\\s{16}(?!\\S)|\\s{8}(?!\\S)|\\s{4}(?!\\S)|\\s{1,2}(?!\\S)|\\s{1}"
+   ],
+   "flags": {},
+   "tokt": "BPE",
+   "repo": "https://huggingface.co/inceptionai/Jais-2-8B-Chat"
+  },
+  "jina-de": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_GPT2",
+   "regexes": [
+    "'s|'t|'re|'ve|'m|'ll|'d| ?\\p{L}+| ?\\p{N}+| ?[^\\s\\p{L}\\p{N}]+|\\s+(?!\\S)"
+   ],
+   "flags": {}
+  },
+  "jina-es": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_GPT2",
+   "regexes": [
+    "'s|'t|'re|'ve|'m|'ll|'d| ?\\p{L}+| ?\\p{N}+| ?[^\\s\\p{L}\\p{N}]+|\\s+(?!\\S)"
+   ],
+   "flags": {}
+  },
+  "jina-v1-en": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_GPT2",
+   "regexes": [
+    "'s|'t|'re|'ve|'m|'ll|'d| ?\\p{L}+| ?\\p{N}+| ?[^\\s\\p{L}\\p{N}]+|\\s+(?!\\S)"
+   ],
+   "flags": {
+    "add_sep": true
+   },
+   "tokt": "BPE",
+   "repo": "https://huggingface.co/jinaai/jina-reranker-v1-tiny-en"
+  },
+  "jina-v2-code": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_GPT2",
+   "regexes": [
+    "'s|'t|'re|'ve|'m|'ll|'d| ?\\p{L}+| ?\\p{N}+| ?[^\\s\\p{L}\\p{N}]+|\\s+(?!\\S)"
+   ],
+   "flags": {
+    "add_sep": true
+   },
+   "tokt": "BPE",
+   "repo": "https://huggingface.co/jinaai/jina-embeddings-v2-base-code"
+  },
+  "jina-v2-de": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_GPT2",
+   "regexes": [
+    "'s|'t|'re|'ve|'m|'ll|'d| ?\\p{L}+| ?\\p{N}+| ?[^\\s\\p{L}\\p{N}]+|\\s+(?!\\S)"
+   ],
+   "flags": {},
+   "tokt": "BPE",
+   "repo": "https://huggingface.co/aari1995/German_Semantic_V3"
+  },
+  "jina-v2-es": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_GPT2",
+   "regexes": [
+    "'s|'t|'re|'ve|'m|'ll|'d| ?\\p{L}+| ?\\p{N}+| ?[^\\s\\p{L}\\p{N}]+|\\s+(?!\\S)"
+   ],
+   "flags": {},
+   "tokt": "BPE",
+   "repo": "https://huggingface.co/jinaai/jina-embeddings-v2-base-es"
+  },
+  "jina-v5-nano": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_LLAMA3",
+   "regexes": [
+    "(?:'[sS]|'[tT]|'[rR][eE]|'[vV][eE]|'[mM]|'[lL][lL]|'[dD])|[^\\r\\n\\p{L}\\p{N}]?\\p{L}+|\\p{N}{1,3}| ?[^\\s\\p{L}\\p{N}]+[\\r\\n]*|\\s*[\\r\\n]+|\\s+(?!\\S)|\\s+"
+   ],
+   "flags": {
+    "ignore_merges": true,
+    "add_bos": true
+   },
+   "tokt": "BPE",
+   "repo": "https://huggingface.co/jinaai/jina-embeddings-v5-text-nano"
+  },
+  "joyai-llm": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_JOYAI_LLM",
+   "regexes": [
+    "\\p{N}{1,3}",
+    "[一-龥぀-ゟ゠-ヿ]+",
+    "[!\"#$%&'()*+,\\-./:;<=>?@\\[\\\\\\]^_`{|}~][A-Za-z]+|[^\r\n\\p{L}\\p{P}\\p{S}]?[\\p{L}\\p{M}]+| ?[\\p{P}\\p{S}]+[\r\n]*|\\s*[\r\n]+|\\s+(?!\\S)|\\s+"
+   ],
+   "flags": {
+    "clean_spaces": false
+   },
+   "tokt": "BPE",
+   "repo": "https://huggingface.co/jdopensource/JoyAI-LLM-Flash"
+  },
+  "kanana2": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_GPT4O",
+   "regexes": [
+    "[^\\r\\n\\p{L}\\p{N}]?((?=[\\p{L}])([^a-z]))*((?=[\\p{L}])([^A-Z]))+(?:'[sS]|'[tT]|'[rR][eE]|'[vV][eE]|'[mM]|'[lL][lL]|'[dD])?|[^\\r\\n\\p{L}\\p{N}]?((?=[\\p{L}])([^a-z]))+((?=[\\p{L}])([^A-Z]))*(?:'[sS]|'[tT]|'[rR][eE]|'[vV][eE]|'[mM]|'[lL][lL]|'[dD])?|\\p{N}{1,3}| ?[^\\s\\p{L}\\p{N}]+[\\r\\n/]*|\\s*[\\r\\n]+|\\s+(?!\\S)|\\s+"
+   ],
+   "flags": {
+    "clean_spaces": false
+   },
+   "tokt": "BPE",
+   "repo": "https://huggingface.co/kakaocorp/kanana-2-30b-a3b-instruct-2601"
+  },
+  "kimi-k2": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_KIMI_K2",
+   "regexes": [
+    "\\p{Han}+"
+   ],
+   "flags": {
+    "clean_spaces": false
+   },
+   "tokt": "BPE",
+   "repo": "https://huggingface.co/moonshotai/Kimi-K2-Base"
+  },
+  "kormo": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_QWEN2",
+   "regexes": [
+    "(?:'[sS]|'[tT]|'[rR][eE]|'[vV][eE]|'[mM]|'[lL][lL]|'[dD])|[^\\r\\n\\p{L}\\p{N}]?\\p{L}+|\\p{N}| ?[^\\s\\p{L}\\p{N}]+[\\r\\n]*|\\s*[\\r\\n]+|\\s+(?!\\S)|\\s+"
+   ],
+   "flags": {
+    "clean_spaces": false
+   },
+   "tokt": "BPE",
+   "repo": "https://huggingface.co/KORMo-Team/KORMo-tokenizer"
+  },
+  "laguna": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_LAGUNA",
+   "regexes": [
+    "[^\\n]+|[\\n]+",
+    "(?:'[sS]|'[tT]|'[rR][eE]|'[vV][eE]|'[mM]|'[lL][lL]|'[dD])|[^\\r\\n\\p{L}\\p{N}]?\\p{L}+|\\p{N}| ?[^\\s\\p{L}\\p{N}]+[\\r\\n]*|\\s*[\\r\\n]+|\\s+(?!\\S)|\\s+"
+   ],
+   "flags": {
+    "clean_spaces": false
+   },
+   "tokt": "BPE",
+   "repo": "https://huggingface.co/poolside/Laguna-XS.2"
+  },
+  "lfm2": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_LLAMA3",
+   "regexes": [
+    "(?:'[sS]|'[tT]|'[rR][eE]|'[vV][eE]|'[mM]|'[lL][lL]|'[dD])|[^\\r\\n\\p{L}\\p{N}]?\\p{L}+|\\p{N}{1,3}| ?[^\\s\\p{L}\\p{N}]+[\\r\\n]*|\\s*[\\r\\n]+|\\s+(?!\\S)|\\s+"
+   ],
+   "flags": {
+    "ignore_merges": true,
+    "add_bos": true
+   },
+   "tokt": "BPE",
+   "repo": "https://huggingface.co/LiquidAI/LFM2.5-8B-A1B"
+  },
+  "llada-moe": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_BAILINGMOE",
+   "regexes": [
+    "'(?:[sSdDmMtT]|[lL][lL]|[vV][eE]|[rR][eE])|[^\\r\\n\\p{L}\\p{N}]?\\p{L}+|\\p{N}| ?[^\\s\\p{L}\\p{N}]+[\\r\\n]*|\\s*[\\r\\n]|\\s+(?!\\S)|\\s+"
+   ],
+   "flags": {
+    "clean_spaces": false
+   }
+  },
+  "llama-bpe": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_LLAMA3",
+   "regexes": [
+    "(?:'[sS]|'[tT]|'[rR][eE]|'[vV][eE]|'[mM]|'[lL][lL]|'[dD])|[^\\r\\n\\p{L}\\p{N}]?\\p{L}+|\\p{N}{1,3}| ?[^\\s\\p{L}\\p{N}]+[\\r\\n]*|\\s*[\\r\\n]+|\\s+(?!\\S)|\\s+"
+   ],
+   "flags": {
+    "ignore_merges": true,
+    "add_bos": true
+   },
+   "tokt": "BPE",
+   "repo": "https://huggingface.co/meta-llama/Meta-Llama-3-8B"
+  },
+  "llama-v3": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_LLAMA3",
+   "regexes": [
+    "(?:'[sS]|'[tT]|'[rR][eE]|'[vV][eE]|'[mM]|'[lL][lL]|'[dD])|[^\\r\\n\\p{L}\\p{N}]?\\p{L}+|\\p{N}{1,3}| ?[^\\s\\p{L}\\p{N}]+[\\r\\n]*|\\s*[\\r\\n]+|\\s+(?!\\S)|\\s+"
+   ],
+   "flags": {
+    "ignore_merges": true,
+    "add_bos": true
+   }
+  },
+  "llama3": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_LLAMA3",
+   "regexes": [
+    "(?:'[sS]|'[tT]|'[rR][eE]|'[vV][eE]|'[mM]|'[lL][lL]|'[dD])|[^\\r\\n\\p{L}\\p{N}]?\\p{L}+|\\p{N}{1,3}| ?[^\\s\\p{L}\\p{N}]+[\\r\\n]*|\\s*[\\r\\n]+|\\s+(?!\\S)|\\s+"
+   ],
+   "flags": {
+    "ignore_merges": true,
+    "add_bos": true
+   }
+  },
+  "llama4": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_GPT4O",
+   "regexes": [
+    "[^\\r\\n\\p{L}\\p{N}]?((?=[\\p{L}])([^a-z]))*((?=[\\p{L}])([^A-Z]))+(?:'[sS]|'[tT]|'[rR][eE]|'[vV][eE]|'[mM]|'[lL][lL]|'[dD])?|[^\\r\\n\\p{L}\\p{N}]?((?=[\\p{L}])([^a-z]))+((?=[\\p{L}])([^A-Z]))*(?:'[sS]|'[tT]|'[rR][eE]|'[vV][eE]|'[mM]|'[lL][lL]|'[dD])?|\\p{N}{1,3}| ?[^\\s\\p{L}\\p{N}]+[\\r\\n/]*|\\s*[\\r\\n]+|\\s+(?!\\S)|\\s+"
+   ],
+   "flags": {
+    "clean_spaces": false
+   },
+   "tokt": "BPE",
+   "repo": "https://huggingface.co/meta-llama/Llama-4-Scout-17B-16E-Instruct"
+  },
+  "megrez": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_QWEN2",
+   "regexes": [
+    "(?:'[sS]|'[tT]|'[rR][eE]|'[vV][eE]|'[mM]|'[lL][lL]|'[dD])|[^\\r\\n\\p{L}\\p{N}]?\\p{L}+|\\p{N}| ?[^\\s\\p{L}\\p{N}]+[\\r\\n]*|\\s*[\\r\\n]+|\\s+(?!\\S)|\\s+"
+   ],
+   "flags": {},
+   "tokt": "BPE",
+   "repo": "https://huggingface.co/Infinigence/Megrez-3B-Instruct"
+  },
+  "mellum": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_GPT2",
+   "regexes": [
+    "'s|'t|'re|'ve|'m|'ll|'d| ?\\p{L}+| ?\\p{N}+| ?[^\\s\\p{L}\\p{N}]+|\\s+(?!\\S)"
+   ],
+   "flags": {},
+   "tokt": "BPE",
+   "repo": "https://huggingface.co/JetBrains/Mellum-4b-base"
+  },
+  "mellum2": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_MELLUM2",
+   "regexes": [
+    "\\p{N}",
+    "'s|'t|'re|'ve|'m|'ll|'d| ?\\p{L}+| ?\\p{N}+| ?[^\\s\\p{L}\\p{N}]+|\\s+(?!\\S)"
+   ],
+   "flags": {},
+   "tokt": "BPE",
+   "repo": "https://huggingface.co/JetBrains/Mellum2-12B-A2.5B-Base"
+  },
+  "midm-2.0": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_LLAMA3",
+   "regexes": [
+    "(?:'[sS]|'[tT]|'[rR][eE]|'[vV][eE]|'[mM]|'[lL][lL]|'[dD])|[^\\r\\n\\p{L}\\p{N}]?\\p{L}+|\\p{N}{1,3}| ?[^\\s\\p{L}\\p{N}]+[\\r\\n]*|\\s*[\\r\\n]+|\\s+(?!\\S)|\\s+"
+   ],
+   "flags": {
+    "ignore_merges": true,
+    "add_bos": true
+   },
+   "tokt": "BPE",
+   "repo": "https://huggingface.co/K-intelligence/Midm-2.0-Base-Instruct"
+  },
+  "minerva-7b": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_MINERVA",
+   "regexes": [
+    "\\p{N}",
+    "'s|'t|'re|'ve|'m|'ll|'d| ?\\p{L}+| ?\\p{N}+| ?[^\\s\\p{L}\\p{N}]+|\\s+(?!\\S)"
+   ],
+   "flags": {},
+   "tokt": "BPE",
+   "repo": "https://huggingface.co/sapienzanlp/Minerva-7B-base-v1.0"
+  },
+  "minicpm5": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_MINICPM5",
+   "regexes": [
+    "\\p{N}{1,3}",
+    "(?:'[sS]|'[tT]|'[rR][eE]|'[vV][eE]|'[mM]|'[lL][lL]|'[dD])|[^\\r\\n\\p{L}\\p{N}]?\\p{L}+|\\p{N}+| ?[^\\s\\p{L}\\p{N}]+[\\r\\n]*|\\s*[\\r\\n]+|\\s+(?!\\S)|\\s+"
+   ],
+   "flags": {
+    "ignore_merges": true
+   },
+   "tokt": "BPE",
+   "repo": "https://huggingface.co/openbmb/MiniCPM5-1B"
+  },
+  "minimax-m2": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_MINIMAX_M2",
+   "regexes": [
+    "[^\\r\\n\\p{L}\\p{N}]?((?=[\\p{L}])([^a-z]))*((?=[\\p{L}])([^A-Z]))+(?:'[sS]|'[tT]|'[rR][eE]|'[vV][eE]|'[mM]|'[lL][lL]|'[dD])?|[^\\r\\n\\p{L}\\p{N}]?((?=[\\p{L}])([^a-z]))+((?=[\\p{L}])([^A-Z]))*(?:'[sS]|'[tT]|'[rR][eE]|'[vV][eE]|'[mM]|'[lL][lL]|'[dD])?|\\p{N}{1,3}| ?[^\\s\\p{L}\\p{N}]+[\\r\\n/]*|\\s*[\\r\\n]+|\\s+(?!\\S)|\\s+"
+   ],
+   "flags": {
+    "clean_spaces": false
+   },
+   "tokt": "BPE",
+   "repo": "https://huggingface.co/MiniMaxAI/MiniMax-M2"
+  },
+  "modern-bert": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_GPT2",
+   "regexes": [
+    "'s|'t|'re|'ve|'m|'ll|'d| ?\\p{L}+| ?\\p{N}+| ?[^\\s\\p{L}\\p{N}]+|\\s+(?!\\S)"
+   ],
+   "flags": {},
+   "tokt": "BPE",
+   "repo": "https://huggingface.co/answerdotai/ModernBERT-base"
+  },
+  "mpt": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_MPT",
+   "regexes": [
+    "'s|'t|'re|'ve|'m|'ll|'d| ?\\p{L}+| ?\\p{N}+| ?[^\\s\\p{L}\\p{N}]+|\\s+(?!\\S)"
+   ],
+   "flags": {},
+   "tokt": "BPE",
+   "repo": "https://huggingface.co/mosaicml/mpt-7b"
+  },
+  "olmo": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_OLMO",
+   "regexes": [
+    "'s|'t|'re|'ve|'m|'ll|'d| ?\\p{L}+| ?\\p{N}+| ?[^\\s\\p{L}\\p{N}]+|\\s+(?!\\S)"
+   ],
+   "flags": {},
+   "tokt": "BPE",
+   "repo": "https://huggingface.co/allenai/OLMo-1.7-7B-hf"
+  },
+  "phi-2": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_GPT2",
+   "regexes": [
+    "'s|'t|'re|'ve|'m|'ll|'d| ?\\p{L}+| ?\\p{N}+| ?[^\\s\\p{L}\\p{N}]+|\\s+(?!\\S)"
+   ],
+   "flags": {},
+   "tokt": "BPE",
+   "repo": "https://huggingface.co/microsoft/phi-2"
+  },
+  "pixtral": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_LLAMA3",
+   "regexes": [
+    "(?:'[sS]|'[tT]|'[rR][eE]|'[vV][eE]|'[mM]|'[lL][lL]|'[dD])|[^\\r\\n\\p{L}\\p{N}]?\\p{L}+|\\p{N}{1,3}| ?[^\\s\\p{L}\\p{N}]+[\\r\\n]*|\\s*[\\r\\n]+|\\s+(?!\\S)|\\s+"
+   ],
+   "flags": {
+    "ignore_merges": true,
+    "add_bos": true
+   },
+   "tokt": "BPE",
+   "repo": "https://huggingface.co/mistral-community/pixtral-12b"
+  },
+  "poro-chat": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_PORO",
+   "regexes": [
+    " ?[^(\\s|.,!?…。，、।۔،)]+"
+   ],
+   "flags": {
+    "clean_spaces": false
+   },
+   "tokt": "BPE",
+   "repo": "https://huggingface.co/LumiOpen/Poro-34B-chat"
+  },
+  "qwen2": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_QWEN2",
+   "regexes": [
+    "(?:'[sS]|'[tT]|'[rR][eE]|'[vV][eE]|'[mM]|'[lL][lL]|'[dD])|[^\\r\\n\\p{L}\\p{N}]?\\p{L}+|\\p{N}| ?[^\\s\\p{L}\\p{N}]+[\\r\\n]*|\\s*[\\r\\n]+|\\s+(?!\\S)|\\s+"
+   ],
+   "flags": {
+    "clean_spaces": false
+   },
+   "tokt": "BPE",
+   "repo": "https://huggingface.co/Qwen/Qwen3-Embedding-0.6B"
+  },
+  "qwen35": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_QWEN35",
+   "regexes": [
+    "(?:'[sS]|'[tT]|'[rR][eE]|'[vV][eE]|'[mM]|'[lL][lL]|'[dD])|[^\\r\\n\\p{L}\\p{N}]?[\\p{L}\\p{M}]+|\\p{N}| ?[^\\s\\p{L}\\p{M}\\p{N}]+[\\r\\n]*|\\s*[\\r\\n]+|\\s+(?!\\S)|\\s+"
+   ],
+   "flags": {
+    "clean_spaces": false
+   },
+   "tokt": "BPE",
+   "repo": "https://huggingface.co/openbmb/MiniCPM-V-4_6"
+  },
+  "refact": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_REFACT",
+   "regexes": [
+    "\\p{N}",
+    "'s|'t|'re|'ve|'m|'ll|'d| ?\\p{L}+| ?\\p{N}+| ?[^\\s\\p{L}\\p{N}]+|\\s+(?!\\S)"
+   ],
+   "flags": {},
+   "tokt": "BPE",
+   "repo": "https://huggingface.co/smallcloudai/Refact-1_6-base"
+  },
+  "roberta-bpe": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_GPT2",
+   "regexes": [
+    "'s|'t|'re|'ve|'m|'ll|'d| ?\\p{L}+| ?\\p{N}+| ?[^\\s\\p{L}\\p{N}]+|\\s+(?!\\S)"
+   ],
+   "flags": {
+    "add_sep": true
+   },
+   "tokt": "BPE",
+   "repo": "https://huggingface.co/sentence-transformers/stsb-roberta-base"
+  },
+  "sarvam-moe": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_SARVAM_MOE",
+   "regexes": [],
+   "flags": {
+    "escape_whitespaces": true,
+    "clean_spaces": false
+   },
+   "tokt": "BPE",
+   "repo": "https://huggingface.co/sarvamai/sarvam-30b"
+  },
+  "seed-coder": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_SEED_CODER",
+   "regexes": [
+    "(?:'[sS]|'[tT]|'[rR][eE]|'[vV][eE]|'[mM]|'[lL][lL]|'[dD])|[^\\r\\n\\p{L}\\p{N}]?\\p{L}+|\\p{N}{1}| ?[^\\s\\p{L}\\p{N}\\r\\n]+|\\s*[\\r\\n]+|\\s+(?!\\S)|\\s+"
+   ],
+   "flags": {
+    "clean_spaces": false
+   },
+   "tokt": "BPE",
+   "repo": "https://huggingface.co/ByteDance-Seed/Seed-Coder-8B-Base"
+  },
+  "smaug-bpe": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_SMAUG",
+   "regexes": [
+    "(?:'[sS]|'[tT]|'[rR][eE]|'[vV][eE]|'[mM]|'[lL][lL]|'[dD])|[^\\r\\n\\p{L}\\p{N}]?\\p{L}+|\\p{N}{1,3}| ?[^\\s\\p{L}\\p{N}]+[\\r\\n]*|\\s*[\\r\\n]+|\\s+(?!\\S)|\\s+"
+   ],
+   "flags": {},
+   "tokt": "BPE",
+   "repo": "https://huggingface.co/abacusai/Smaug-Llama-3-70B-Instruct"
+  },
+  "smollm": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_SMOLLM",
+   "regexes": [
+    "\\p{N}",
+    "'s|'t|'re|'ve|'m|'ll|'d| ?\\p{L}+| ?\\p{N}+| ?[^\\s\\p{L}\\p{N}]+|\\s+(?!\\S)"
+   ],
+   "flags": {
+    "clean_spaces": false
+   },
+   "tokt": "BPE",
+   "repo": "https://huggingface.co/HuggingFaceTB/SmolLM-135M"
+  },
+  "solar-open": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_SOLAR_OPEN",
+   "regexes": [
+    "(?:'[sS]|'[tT]|'[rR][eE]|'[vV][eE]|'[mM]|'[lL][lL]|'[dD])|[^\\r\\n\\p{L}\\p{N}]?\\p{L}+|\\p{N}| ?[^\\s\\p{L}\\p{N}]+[\\r\\n]*|\\s*[\\r\\n]+|\\s+(?!\\S)|\\s+"
+   ],
+   "flags": {
+    "clean_spaces": false
+   },
+   "tokt": "BPE",
+   "repo": "https://huggingface.co/upstage/Solar-Open-100B"
+  },
+  "spark2_5": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_SPARK2_5",
+   "regexes": [
+    "\\p{N}{1,3}",
+    "[一-龥぀-ゟ゠-ヿ]+",
+    "[!\"#$%&'()*+,\\-./:;<=>?@\\[\\\\\\]^_`{|}~][A-Za-z]+|[^\r\n\\p{L}\\p{P}\\p{S}]?[\\p{L}\\p{M}]+| ?[\\p{P}\\p{S}]+|[\r\n]|\\s+(?!\\S)|\\s+",
+    "\\p{N}"
+   ],
+   "flags": {
+    "clean_spaces": false
+   },
+   "tokt": "BPE",
+   "repo": "https://huggingface.co/XHToken/Spark-X2.5-1.7B"
+  },
+  "stablelm2": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_STABLELM2",
+   "regexes": [
+    "(?:'[sS]|'[tT]|'[rR][eE]|'[vV][eE]|'[mM]|'[lL][lL]|'[dD])|[^\\r\\n\\p{L}\\p{N}]?\\p{L}+|\\p{N}| ?[^\\s\\p{L}\\p{N}]+[\\r\\n]*|\\s*[\\r\\n]+|\\s+(?!\\S)|\\s+"
+   ],
+   "flags": {},
+   "tokt": "BPE",
+   "repo": "https://huggingface.co/stabilityai/stablelm-2-zephyr-1_6b"
+  },
+  "starcoder": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_STARCODER",
+   "regexes": [
+    "\\p{N}",
+    "'s|'t|'re|'ve|'m|'ll|'d| ?\\p{L}+| ?\\p{N}+| ?[^\\s\\p{L}\\p{N}]+|\\s+(?!\\S)"
+   ],
+   "flags": {},
+   "tokt": "BPE",
+   "repo": "https://huggingface.co/bigcode/starcoder2-3b"
+  },
+  "superbpe": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_SUPERBPE",
+   "regexes": [
+    "\\p{N}+",
+    "(?=(\\d{3})+(?!\\d))"
+   ],
+   "flags": {
+    "clean_spaces": false
+   },
+   "tokt": "BPE",
+   "repo": "https://huggingface.co/UW/OLMo2-8B-SuperBPE-t180k"
+  },
+  "talkie": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_GPT4O",
+   "regexes": [
+    "[^\\r\\n\\p{L}\\p{N}]?((?=[\\p{L}])([^a-z]))*((?=[\\p{L}])([^A-Z]))+(?:'[sS]|'[tT]|'[rR][eE]|'[vV][eE]|'[mM]|'[lL][lL]|'[dD])?|[^\\r\\n\\p{L}\\p{N}]?((?=[\\p{L}])([^a-z]))+((?=[\\p{L}])([^A-Z]))*(?:'[sS]|'[tT]|'[rR][eE]|'[vV][eE]|'[mM]|'[lL][lL]|'[dD])?|\\p{N}{1,3}| ?[^\\s\\p{L}\\p{N}]+[\\r\\n/]*|\\s*[\\r\\n]+|\\s+(?!\\S)|\\s+"
+   ],
+   "flags": {
+    "clean_spaces": false
+   },
+   "tokt": "BPE",
+   "repo": "https://huggingface.co/lewtun/talkie-1930-13b-it-hf"
+  },
+  "tekken": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_TEKKEN",
+   "regexes": [],
+   "flags": {
+    "clean_spaces": false,
+    "ignore_merges": true,
+    "add_bos": true
+   },
+   "tokt": "BPE",
+   "repo": "https://huggingface.co/mistralai/Mistral-Nemo-Base-2407"
+  },
+  "tiny_aya": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_TINY_AYA",
+   "regexes": [
+    "\\d{1,3}(?=(?:\\d{3})*\\b)",
+    "[^\\r\\n\\p{L}\\p{N}]?[\\p{Lu}\\p{Lt}\\p{Lm}\\p{Lo}\\p{M}]*[\\p{Ll}\\p{Lm}\\p{Lo}\\p{M}]+(?:'[sS]|'[tT]|'[rR][eE]|'[vV][eE]|'[mM]|'[lL][lL]|'[dD])?|[^\\r\\n\\p{L}\\p{N}]?[\\p{Lu}\\p{Lt}\\p{Lm}\\p{Lo}\\p{M}]+[\\p{Ll}\\p{Lm}\\p{Lo}\\p{M}]*(?:'[sS]|'[tT]|'[rR][eE]|'[vV][eE]|'[mM]|'[lL][lL]|'[dD])?|\\p{N}{1,3}| ?[^\\s\\p{L}\\p{N}]+[\\r\\n/]*|\\s*[\\r\\n]+|\\s+(?!\\S)|\\s+"
+   ],
+   "flags": {
+    "clean_spaces": false
+   },
+   "tokt": "BPE",
+   "repo": "https://huggingface.co/CohereLabs/tiny-aya-base"
+  },
+  "trillion": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_TRILLION",
+   "regexes": [
+    "'s|'t|'re|'ve|'m|'ll|'d| ?\\p{L}+| ?\\p{N}+| ?[^\\s\\p{L}\\p{N}]+|\\s+(?!\\S)"
+   ],
+   "flags": {
+    "clean_spaces": false
+   },
+   "tokt": "BPE",
+   "repo": "https://huggingface.co/trillionlabs/Trillion-7B-preview"
+  },
+  "viking": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_VIKING",
+   "regexes": [
+    " ?[^(\\s|.,!?…。，、।۔،)]+",
+    "\\p{N}"
+   ],
+   "flags": {
+    "clean_spaces": false
+   },
+   "tokt": "BPE",
+   "repo": "https://huggingface.co/LumiOpen/Viking-7B"
+  },
+  "whitespace": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_WHITESPACE",
+   "regexes": [],
+   "flags": {}
+  },
+  "youtu": {
+   "enum": "LLAMA_VOCAB_PRE_TYPE_YOUTU",
+   "regexes": [
+    "[가-힣ㄱ-ㆎ]+|[！…“”‘’—：；，、-〿︰-﹏]+|[ㄅ-ㄯ]+|[一-龥぀-ゟ゠-ヿ]+",
+    "[^\\r\\n\\p{L}\\p{N}]?[\\p{Lu}\\p{Lt}\\p{Lm}\\p{Lo}\\p{M}]*[\\p{Ll}\\p{Lm}\\p{Lo}\\p{M}]+(?:'[sS]|'[tT]|'[rR][eE]|'[vV][eE]|'[mM]|'[lL][lL]|'[dD])?|[^\\r\\n\\p{L}\\p{N}]?[\\p{Lu}\\p{Lt}\\p{Lm}\\p{Lo}\\p{M}]+[\\p{Ll}\\p{Lm}\\p{Lo}\\p{M}]*(?:'[sS]|'[tT]|'[rR][eE]|'[vV][eE]|'[mM]|'[lL][lL]|'[dD])?|\\p{N}| ?[^\\s\\p{L}\\p{N}]+[\\r\\n/]*|\\s*[\\r\\n]+|\\s+(?!\\S)|\\s+"
+   ],
+   "flags": {
+    "clean_spaces": false,
+    "ignore_merges": true
+   },
+   "tokt": "BPE",
+   "repo": "https://huggingface.co/tencent/Youtu-LLM-2B"
+  }
+ }
+}

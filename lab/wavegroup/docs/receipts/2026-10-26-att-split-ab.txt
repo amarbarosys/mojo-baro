@@ -1,0 +1,10 @@
+spark split attention A/B (prereg 36950cc), binary 1d7622e60eea72ef, TMAX 16384
+spark=~/Projects/mojo/mojo-baro/lab/wavegroup/.work/pf16/spark.att sha=1d7622e60eea72ef pack=~/Projects/mojo/mojo-baro/lab/wavegroup/.work/baro-head/pack arms=base:BARO_ATT_SPLIT=0 split:BARO_ATT_SPLIT=1 load=4.42 9.14 9.67
+g64 base     median  551.1 tok/s, /base median 1.0000 (min 1.0000, max 1.0000), ids same 21/21, prefill_s median 0.0190
+g64 split    median  536.2 tok/s, /base median 0.9704 (min 0.3748, max 1.0006), ids same 21/21, prefill_s median 0.0192
+g256 base     median  544.7 tok/s, /base median 1.0000 (min 1.0000, max 1.0000), ids same 21/21, prefill_s median 0.0191
+g256 split    median  558.2 tok/s, /base median 1.0222 (min 0.9179, max 1.3565), ids same 21/21, prefill_s median 0.0191
+per prompt base/split tok/s:
+g64 01:553/545 02:556/546 03:558/536 04:554/543 05:558/538 06:551/541 07:556/548 08:560/538 09:550/550 10:546/516 11:547/530 12:533/506 13:398/149 14:497/495 15:552/533 16:536/527 17:476/464 18:545/526 19:558/545 20:566/539 21:551/535
+g256 01:539/556 02:546/550 03:545/556 04:545/559 05:549/561 06:549/558 07:546/559 08:544/559 09:549/558 10:539/558 11:540/549 12:408/553 13:514/552 14:538/546 15:548/553 16:544/499 17:535/546 18:543/559 19:547/559 20:549/561 21:545/559
+verdict vs prereg: g64 MISS (0.9704, consistent ~-2.5% on 19/21, p13 contention outlier), g256 HIT direction (1.0222 > g64), ids 21/21 both. Next: split only above a context threshold.

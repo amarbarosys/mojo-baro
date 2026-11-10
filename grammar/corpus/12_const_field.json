@@ -1,0 +1,1 @@
+{"type": "object", "properties": {"kind": {"const": "weather.get"}, "city": {"type": "string"}}, "required": ["kind", "city"]}

@@ -1,0 +1,6 @@
+# P4 fixture manifest. Model bytes stay in ~/Models; this file records paths and hashes only.
+# prompt_set_sha256 is sha256sum of the sorted per-file sha256 lines for bench/mtp-prompts/p*.tokens.
+name	model_gguf	pack	device_selector	device_readback	kernel_constraint	prompt_set	sha256
+xtx-dense-q4	~/Models/qwythos-9b-claude-mythos-5-1m-mtp-bf16/Qwythos-9B-Claude-Mythos-5-1M-MTP-Q4_0-pure.gguf	~/Projects/mojo/mojo-baro/.work/engine-pack-q4	ROCR_VISIBLE_DEVICES=<gfx1100 Uuid from rocminfo; rocm-smi bare ID suffix cross-check>	rocm-smi --showpids; rocminfo gfx1100 Uuid	gfx1100; dense q4; normal build	bench/mtp-prompts/p*.tokens	pack index cd420c015201d47b1a198e1eb96cfe0407d48668d273d9a0cc2a5d5d283941bf
+igpu-qwen25-7b	~/Models/qwen2.5-7b-instruct-import/qwen2.5-7b-instruct-q4_K_M-BARO-b4271cd.gguf	.work/team-B/codex/p4/qwen-pack	igpu-env (live ROCr index; HIP unset; HSA_OVERRIDE_GFX_VERSION=10.3.0)	rocm-smi --showpids plus external rocminfo gfx1030 mapping	gfx1030 objects under override; WMMA-free path	bench/mtp-prompts/p*.tokens	gguf a0fb4588c1baf9067aa280753b1a7c2e202c4a7cb763f3e8f5206d5d91edd191; expected pack index e2ef587fa49be96a8d95d2715038398b8a45757428fb0f80c7469e9be2471084
+# Prompt set aggregate hash: 9516c4a9b8dc8be9a3a9e95ef092f2b46d6e5094b99e44951919105b742cb3fd

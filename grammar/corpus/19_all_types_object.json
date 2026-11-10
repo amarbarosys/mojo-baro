@@ -1,0 +1,1 @@
+{"type": "object", "properties": {"s": {"type": "string"}, "i": {"type": "integer"}, "n": {"type": "number"}, "b": {"type": "boolean"}, "z": {"type": "null"}}, "required": ["s", "i", "n", "b", "z"]}

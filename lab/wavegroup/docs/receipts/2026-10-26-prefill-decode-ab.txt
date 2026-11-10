@@ -1,0 +1,5 @@
+spark batched prefill vs decode tok/s, BARO_PREFILL_ROWS 0/1 interleaved, 21 prompts, one binary (main 00234ee, profile TMAX 16384)
+spark=~/Projects/mojo/mojo-baro/lab/wavegroup/.work/pf16/spark sha=7389acab3623e0ef pack=~/Projects/mojo/mojo-baro/lab/wavegroup/.work/baro-head/pack load=11.30 6.75 4.05
+
+[exited with code 0]
+earlier same-job A/B, spark.l2 vs spark.pf1 (TMAX 4096): 569.0 -> 557.5 median, ids 21/21 (.work/baro-head/pf.p*)

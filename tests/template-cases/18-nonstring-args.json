@@ -1,0 +1,1 @@
+{"messages":[{"role":"user","content":"q"},{"role":"assistant","content":"","tool_calls":[{"function":{"name":"g","arguments":{"n":3,"flag":true,"obj":{"a":[1,2]},"s":"text"}}}]}],"add_generation_prompt":false}

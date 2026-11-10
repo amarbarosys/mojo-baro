@@ -1,0 +1,58 @@
+{
+ "lily-cybersecurity-7b-v0.2": {
+  "gguf": "lily-cybersecurity-7b-v0.2-q6_k.gguf",
+  "sha": "26a59556925c",
+  "bos_token": "<s>",
+  "eos_token": "</s>",
+  "pad_token": "</s>"
+ },
+ "llama-3.2-1b-instruct": {
+  "gguf": "Llama-3.2-1B-Instruct-Q4_K_M.gguf",
+  "sha": "5816fce10444",
+  "bos_token": "<|begin_of_text|>",
+  "eos_token": "<|eot_id|>",
+  "pad_token": ""
+ },
+ "ornith-1.5-9b": {
+  "gguf": "Ornith-1.5-9B-Q4_K_M.gguf",
+  "sha": "f55f52930aa8",
+  "bos_token": "",
+  "eos_token": "<|im_end|>",
+  "pad_token": "<|endoftext|>"
+ },
+ "qwen2.5-7b-instruct-gguf": {
+  "gguf": "Qwen2.5-7B-Instruct-Q4_K_M.gguf",
+  "sha": "cd8e9439f057",
+  "bos_token": "<|endoftext|>",
+  "eos_token": "<|im_end|>",
+  "pad_token": "<|endoftext|>"
+ },
+ "qwen3-vl-8b-instruct": {
+  "gguf": "Qwen3-VL-8B-Instruct-Q4_K_M.gguf",
+  "sha": "3636d0f0bd6b",
+  "bos_token": "<|endoftext|>",
+  "eos_token": "<|im_end|>",
+  "pad_token": "<|vision_pad|>"
+ },
+ "qwen3.8-27b-obliterated": {
+  "gguf": "Qwen3.8-27B-OBLITERATED.Q4_K_M.gguf",
+  "sha": "c3cf9e34abf4",
+  "bos_token": "<|endoftext|>",
+  "eos_token": "<|im_end|>",
+  "pad_token": "<|endoftext|>"
+ },
+ "qwythos-9b-claude-mythos-5-1m-mtp-bf16": {
+  "gguf": "Qwythos-9B-Claude-Mythos-5-1M-MTP-BF16.gguf",
+  "sha": "2dda373b9705",
+  "bos_token": "",
+  "eos_token": "<|im_end|>",
+  "pad_token": "<|endoftext|>"
+ },
+ "spark-x2.5-4b": {
+  "gguf": "Spark-X2.5-4B-Q4_K_M.gguf",
+  "sha": "705345721970",
+  "bos_token": "<｜start▁of▁sentence｜>",
+  "eos_token": "<｜end▁of▁sentence｜>",
+  "pad_token": "<｜▁pad▁｜>"
+ }
+}

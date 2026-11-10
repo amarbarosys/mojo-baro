@@ -1,0 +1,38 @@
+blk.0.ffn_gate.weight  N= 12288  K= 4096  G= 96  mismatches vs native: 0
+blk.0.ffn_gate.weight  N= 12288  K= 4096  G= 144  mismatches vs native: 0
+blk.0.ffn_gate.weight  N= 12288  K= 4096  G= 192  mismatches vs native: 0
+shape rep native_us g96_us g144_us g192_us   (grid native= 1536 )
+blk.0.ffn_gate.weight   0   71.51687   64.39979   64.15224   64.70034
+blk.0.ffn_gate.weight   1   71.700965   64.337485   64.304685   64.747085
+blk.0.ffn_gate.weight   2   71.90666   64.31768   64.439285   64.75938500000001
+blk.0.ffn_gate.weight   3   71.829705   64.23288   64.646035   64.63853
+blk.0.ffn_gate.weight   4   72.05431   64.22688   64.25987500000001   64.60488000000001
+blk.0.ffn_down.weight  N= 4096  K= 12288  G= 96  mismatches vs native: 0
+blk.0.ffn_down.weight  N= 4096  K= 12288  G= 144  mismatches vs native: 0
+blk.0.ffn_down.weight  N= 4096  K= 12288  G= 192  mismatches vs native: 0
+shape rep native_us g96_us g144_us g192_us   (grid native= 512 )
+blk.0.ffn_down.weight   0   77.700225   65.450025   68.49224   74.88306
+blk.0.ffn_down.weight   1   77.26652   65.347375   68.52738500000001   74.77711000000001
+blk.0.ffn_down.weight   2   77.25556499999999   65.326625   69.963785   74.869755
+blk.0.ffn_down.weight   3   77.35301   65.21347   68.573385   74.790955
+blk.0.ffn_down.weight   4   77.38411   65.88442   68.97597999999999   74.68865
+blk.0.attn_qkv.weight  N= 8192  K= 4096  G= 96  mismatches vs native: 0
+blk.0.attn_qkv.weight  N= 8192  K= 4096  G= 144  mismatches vs native: 0
+blk.0.attn_qkv.weight  N= 8192  K= 4096  G= 192  mismatches vs native: 0
+shape rep native_us g96_us g144_us g192_us   (grid native= 1024 )
+blk.0.attn_qkv.weight   0   46.987305   44.63335   44.183445   44.857245000000006
+blk.0.attn_qkv.weight   1   46.971205   44.600795   44.229295   44.551445
+blk.0.attn_qkv.weight   2   47.017705   44.42064500000001   44.393145000000004   44.685294999999996
+blk.0.attn_qkv.weight   3   47.018455   44.736689999999996   44.22229   44.74859000000001
+blk.0.attn_qkv.weight   4   46.97965   44.814645   44.360344999999995   44.631890000000006
+blk.0.attn_gate.weight  N= 4096  K= 4096  G= 96  mismatches vs native: 0
+blk.0.attn_gate.weight  N= 4096  K= 4096  G= 144  mismatches vs native: 0
+blk.0.attn_gate.weight  N= 4096  K= 4096  G= 192  mismatches vs native: 0
+shape rep native_us g96_us g144_us g192_us   (grid native= 512 )
+blk.0.attn_gate.weight   0   27.868290000000002   24.20903   24.239375   24.432125
+blk.0.attn_gate.weight   1   27.82694   24.495275000000003   24.388125   24.519274999999997
+blk.0.attn_gate.weight   2   27.880985   24.253725   24.206225   24.526574999999998
+blk.0.attn_gate.weight   3   27.989835   24.280124999999998   24.201025   24.52488
+blk.0.attn_gate.weight   4   27.988090000000003   24.194425000000003   24.211225   24.518725
+clock-probe: busy 276/276 samples (skipped 4 in first 1s)  sclk min/med/max 2694/2802/3122 MHz  power 281-346 W  junction max 74 C  -- .work/clock-probe-20260905-234038.log
+exit=0

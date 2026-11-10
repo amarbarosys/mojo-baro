@@ -1,0 +1,10 @@
+MTP prefetch falsifier aggregate, captured 2026-10-21
+Source: lane-draft-overlap commit 0614239, .work/ov/run1/receipt.txt
+Source snapshot SHA256: 650909786277e848147fef80da3ac186ea58b6abbd922c8850f37676767c8080
+Completed arms: 40 (20 prompts x K=2,4)
+Verify route overlap: vhit/v = 71070/965362 = 7.36%
+Miss bytes saved: savedB/missB = 10504857600/143343820800 = 7.33%
+Frozen kill thresholds: overlap <50% OR saved miss bytes <10% -> STOP
+Decision: STOP. Both thresholds crossed. No prefetch kernel or A/B.
+Aggregation: awk over rows containing "draftov windows"; sum vhit, v, savedB, missB.
+No timing or PCIe throughput claim. Source run complete.

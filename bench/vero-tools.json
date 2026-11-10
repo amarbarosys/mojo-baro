@@ -1,0 +1,39 @@
+[
+  {
+    "type": "function",
+    "function": {
+      "name": "run_vero",
+      "description": "Run the vero gate on a whole claim; returns computes, every mutant verdict and GATE PASS/FAIL, or the parse/eval error.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "source": {
+            "type": "string",
+            "description": "the complete .vero claim"
+          }
+        },
+        "required": [
+          "source"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "paperbrain_ask",
+      "description": "Search the paper corpus (definitions, constants, exact statements).",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "question": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "question"
+        ]
+      }
+    }
+  }
+]

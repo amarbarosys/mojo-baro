@@ -1,0 +1,8 @@
+<|im_start|>system
+Reasoning effort is set to xhigh. Please think carefully through the task, validate key assumptions, consider plausible alternatives, and prioritize correctness, consistency, and clarity in the final answer.
+
+你是助手。<|im_end|>
+<|im_start|>user
+Ünïcödé 😀 "quotes" \ back<|im_end|>
+<|im_start|>assistant
+<think>

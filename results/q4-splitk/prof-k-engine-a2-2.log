@@ -1,0 +1,26 @@
+BARO_DRAFT_Q4: False
+BARO_DOT: False
+pack q4 trunk: True
+BARO_MEGA: True
+BARO_MEGA_WIN: False
+loading pack: 6639194112 bytes
+pack loaded in 0.468013888 s
+prompt file: .work/engine-pack-q4/prompt-tokens.txt
+prompt tokens: 5
+spec k: 2
+BARO_SPEC: False
+host_enqueue_s: 0.563226077  gpu_total_s: 0.563254507
+mega profile (last token, us): ssm sub-blocks 2340.3599999999997  attn sub-blocks 853.56  ffn 4425.719999999999  head 644.96  total 8274.56  fail 0
+mega phases ssm (24 layers, us, stamps 0>12>1>2>3>4>5>6>7): 15 98 1070 76 44 393 54 586
+mega phases attn (8 layers, us, stamps 0>1>2>3>4>5>7): 34 318 23 309 12 155
+mega phases ffn (32 layers, us, stamps 7>8>9>10>11): 132 2627 64 1600
+mega phases head (us, stamps 0>1>2>3): 4 636 4
+profile: attn 0.003600869 0.13536101053583785
+profile: ssm 0.011645365 0.43776332170336585
+profile: ffn 0.011337971 0.4262080103402884
+profile: head 1.7761e-05 0.0006676574205079429
+profile: mtp_proc 0.0  mtp_draft 0.0
+tokens: 64  prefill_s: 0.0368863  decode_s: 0.526368207
+tok/s_total: 113.62536687167601  tok/s_gen: 119.68807986915517
+GENERATED: 11751 13 198 760 6511 314 9338 369 11751 13 198 760 6511 314 9338 369 11751 13 198 760 6511 314 9338 369 11751 13 198 760 6511 314 9338 369 11751 13 198 760 6511 314 9338 369 11751 13 198 760 6511 314 9338 369 11751 13 198 760 6511 314 9338 369 11751 13 198 760 6511 314 9338 369 
+DRAFT: from_token 369 draft_argmax 428

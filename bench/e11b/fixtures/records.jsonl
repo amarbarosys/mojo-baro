@@ -1,0 +1,6 @@
+{"item":"cty-dev-000","arm":"0","L":null,"vec_src":null,"out":"Paraguay.","n_tokens":1}
+{"item":"cty-dev-000","arm":"T","L":null,"vec_src":null,"out":"the Paraguay!","n_tokens":2}
+{"item":"cty-dev-000","arm":"S","L":null,"vec_src":null,"out":"Paraguay or Italy","n_tokens":3}
+{"item":"cty-dev-000","arm":"C","L":17,"vec_src":"cty-dev-000t","out":"Sweden","n_tokens":1}
+{"item":"tip-dev-000","arm":"0","L":null,"vec_src":null,"out":"Amber Arc, Birch Byte","n_tokens":3}
+{"item":"tip-dev-000","arm":"T","L":null,"vec_src":null,"out":"Amber Arc.","n_tokens":2}

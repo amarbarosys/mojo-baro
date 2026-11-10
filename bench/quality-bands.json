@@ -1,0 +1,13 @@
+{
+  "_comment": "Frozen predicted bands, bench/quality-protocol.md item 2. Machine-readable copy of that table; the .md table is the record of intent, this file is what bench/quality-score.py reads. Keep them in sync by hand -- this file changes only if the protocol doc changes.",
+  "llama-3.2-1b": {"model": "Llama-3.2-1B-Instruct-Q4_K_M", "ppl_ratio": [0.90, 1.10], "delta_pp": 8},
+  "lily-7b": {"model": "lily-cybersecurity-7b-v0.2-Q6_K", "ppl_ratio": [0.90, 1.10], "delta_pp": 8},
+  "qwen25-7b": {"model": "Qwen2.5-7B-Instruct-Q4_K_M", "ppl_ratio": [0.90, 1.10], "delta_pp": 8},
+  "qwen25-coder-7b": {"model": "Qwen2.5-Coder-7B-Instruct-Q4_K_M", "ppl_ratio": [0.90, 1.10], "delta_pp": 8},
+  "granite-4.2-3b": {"model": "Granite-4.2-3B-BF16", "ppl_ratio": [0.90, 1.10], "delta_pp": 8},
+  "ornith-1.5-9b": {"model": "Ornith-1.5-9B-Q4_K_M", "ppl_ratio": [0.90, 1.10], "delta_pp": 8},
+  "qwythos-v2": {"model": "Qwythos-9B-v2-MTP-Q6_K", "ppl_ratio": [0.85, 1.15], "delta_pp": 10},
+  "qwythos-champion": {"model": "Qwythos-9B-Claude-Mythos-5-1M-MTP-BF16", "ppl_ratio": [0.85, 1.15], "delta_pp": 10},
+  "regescore-35b": {"model": "RegesCore-1.0-35B-UD-Q4_K_S", "ppl_ratio": [0.60, 1.40], "delta_pp": 20},
+  "spark-x2.5-4b": {"model": "Spark-X2.5-4B-Q8_0", "ppl_ratio": [0.75, 1.25], "delta_pp": 15, "basis": "none"}
+}

@@ -1,0 +1,1 @@
+{"messages":[{"role":"user","content":"a"},{"role":"assistant","content":"A","reasoning_content":"ra"},{"role":"user","content":"b"},{"role":"assistant","content":"B","reasoning_content":"rb"},{"role":"user","content":"c"}],"preserve_thinking":false,"add_generation_prompt":true}

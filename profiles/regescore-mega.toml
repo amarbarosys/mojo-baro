@@ -1,0 +1,10 @@
+[profile]
+name = "regescore-mega"
+model = "qwen35moe"
+description = "RegesCore-35B, all experts in VRAM, one persistent kernel per token. Fastest measured, opt-in."
+source = "file"
+speed = "113.94 tok/s decode (same stint 110.90 on the launch path)"
+receipt = "docs/BASELINE.md, persistent MoE token kernel (R6.2)"
+
+[env]
+BARO_MEGA = "1"

@@ -1,0 +1,35 @@
+# label | op_bench args. Shapes come from the models traced by ggml-harvest (2026-09-11 catalog):
+# the top families by GPU time share across the 10 models in ~/Models, at each model's real tensor shapes.
+# Generation = M/NQ 1; prompt = M/NQ 512 (the traced prompt length). Attention decode at a 4096-token cache.
+
+# token generation, quantized matrix-vector (mul_mat_vec_q): 65% of generation time
+mmvq_q4K_qwen25_ffn_up    | mul_mat q4_K 18944 3584 1
+mmvq_q4K_27b_ffn_up       | mul_mat q4_K 17408 5120 1
+mmvq_q4K_spark_ffn_up     | mul_mat q4_K 10240 2560 1
+mmvq_q6K_qwen25_ffn_down  | mul_mat q6_K 3584 18944 1
+mmvq_q6K_lmhead_248k      | mul_mat q6_K 248320 4096 1
+mmvq_q8_0_qwythos_ffn_up  | mul_mat q8_0 12288 4096 1
+
+# token generation, bf16 matrix-vector (mul_mat_vec_f): 19%, granite + Qwythos bf16
+mmvf_bf16_granite_ffn_up  | mul_mat bf16 8192 2560 1
+mmvf_bf16_granite_lmhead  | mul_mat bf16 100352 2560 1
+mmvf_bf16_qwythos_ffn_up  | mul_mat bf16 12288 4096 1
+
+# prompt, quantized GEMM (mul_mat_q): 41% of prompt time
+mmq_q4K_qwen25_ffn_up     | mul_mat q4_K 18944 3584 512
+mmq_q4K_27b_ffn_up        | mul_mat q4_K 17408 5120 512
+
+# prompt, bf16 GEMM (rocBLAS Tensile): about 30% of prompt time on the bf16 models
+gemm_bf16_granite_ffn_up  | mul_mat bf16 8192 2560 512
+gemm_bf16_qwythos_ffn_up  | mul_mat bf16 12288 4096 512
+
+# attention (flash_attn_tile / flash_attn_ext_f16), f16 KV cache, no mask
+fa_hd256_qwen35_decode    | flash_attn 16 4 256 4096 1
+fa_hd256_qwen35_prompt    | flash_attn 16 4 256 512 512
+fa_hd64_granite_decode    | flash_attn 40 8 64 4096 1
+fa_hd64_granite_prompt    | flash_attn 40 8 64 512 512
+fa_hd128_qwen25_decode    | flash_attn 28 4 128 4096 1
+
+# rms_norm: 3% of generation, in every model
+rmsnorm_4096_decode       | rms_norm 4096 1
+rmsnorm_4096_prompt       | rms_norm 4096 512

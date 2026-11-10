@@ -1,0 +1,256 @@
+[
+ {
+  "type": "function",
+  "function": {
+   "name": "bash",
+   "description": "Run a shell command and return its output. Use a timeout for long commands.",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "command": {
+      "type": "string",
+      "description": "The command to run"
+     },
+     "timeout_s": {
+      "type": "integer",
+      "description": "Seconds before the command is stopped"
+     }
+    },
+    "required": [
+     "command"
+    ]
+   }
+  }
+ },
+ {
+  "type": "function",
+  "function": {
+   "name": "read_file",
+   "description": "Read a text file. Read only the lines you need.",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "path": {
+      "type": "string"
+     },
+     "offset": {
+      "type": "integer",
+      "description": "First line, from 1"
+     },
+     "limit": {
+      "type": "integer",
+      "description": "Number of lines"
+     }
+    },
+    "required": [
+     "path"
+    ]
+   }
+  }
+ },
+ {
+  "type": "function",
+  "function": {
+   "name": "write_file",
+   "description": "Create a file or replace it completely. Read an existing file first.",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "path": {
+      "type": "string"
+     },
+     "content": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "path",
+     "content"
+    ]
+   }
+  }
+ },
+ {
+  "type": "function",
+  "function": {
+   "name": "edit_file",
+   "description": "Replace one exact string in a file. The old string must be unique.",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "path": {
+      "type": "string"
+     },
+     "old": {
+      "type": "string"
+     },
+     "new": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "path",
+     "old",
+     "new"
+    ]
+   }
+  }
+ },
+ {
+  "type": "function",
+  "function": {
+   "name": "search",
+   "description": "Search file contents with a regex, or list files with a glob.",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "pattern": {
+      "type": "string"
+     },
+     "mode": {
+      "type": "string",
+      "enum": [
+       "content",
+       "files"
+      ]
+     },
+     "path": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "pattern"
+    ]
+   }
+  }
+ },
+ {
+  "type": "function",
+  "function": {
+   "name": "latent_checkpoint",
+   "description": "Save the current context as a state handle on this engine. Returns the handle id, the token position and the size in bytes. Max 8 live handles.",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "label": {
+      "type": "string",
+      "description": "Short name for the handle"
+     }
+    },
+    "required": []
+   }
+  }
+ },
+ {
+  "type": "function",
+  "function": {
+   "name": "latent_handoff",
+   "description": "Continue from a state handle on another engine that shares the weights. The target answers the instruction and returns its text. The handle is not consumed.",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "checkpoint_id": {
+      "type": "string"
+     },
+     "target": {
+      "type": "string",
+      "description": "host:port of the target engine"
+     },
+     "instruction": {
+      "type": "string",
+      "description": "Text that follows the saved context; start with a non-space character"
+     },
+     "max_tokens": {
+      "type": "integer"
+     }
+    },
+    "required": [
+     "checkpoint_id",
+     "target",
+     "instruction"
+    ]
+   }
+  }
+ },
+ {
+  "type": "function",
+  "function": {
+   "name": "latent_release",
+   "description": "Free a state handle. Call this after the handle has been used.",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "checkpoint_id": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "checkpoint_id"
+    ]
+   }
+  }
+ },
+ {
+  "type": "function",
+  "function": {
+   "name": "latent_list",
+   "description": "List live state handles with id, position and size.",
+   "parameters": {
+    "type": "object",
+    "properties": {},
+    "required": []
+   }
+  }
+ },
+ {
+  "type": "function",
+  "function": {
+   "name": "crew_assign",
+   "description": "Give one task to a worker. Returns the worker note as text.",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "worker": {
+      "type": "string",
+      "description": "Worker name"
+     },
+     "task": {
+      "type": "string",
+      "description": "One task with the expected output"
+     },
+     "max_words": {
+      "type": "integer",
+      "description": "Length limit for the note"
+     }
+    },
+    "required": [
+     "worker",
+     "task"
+    ]
+   }
+  }
+ },
+ {
+  "type": "function",
+  "function": {
+   "name": "crew_note",
+   "description": "Send a short text note to another team member. Use it when a state handle is not worth its cost.",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "from": {
+      "type": "string",
+      "description": "Worker name"
+     },
+     "text": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "from",
+     "text"
+    ]
+   }
+  }
+ }
+]

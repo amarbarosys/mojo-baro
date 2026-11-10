@@ -1,0 +1,22 @@
+synthetic pack q4 = True : 1059131648 bytes, 56 entries
+=== case m = 1  q4 = True ===
+PASS: megakernel gate at m = 1 and m = 3 (q8) and m = 1 (q4)
+m = 1  4-layer+head us/window: launch= 1863.62313  mega(G= 96 )= 1904.78915  ratio= 1.022089240757599  fail= 0
+PASS spec=0 mega==launch  launch:tok/s_gen: 103.99694873612705  mega:tok/s_gen: 106.83113261878431
+PASS spec=1 mega==launch  launch:tok/s_gen: 184.67795323535034  mega:tok/s_gen: 187.6891219272777
+PASS launch vs model-ref 64/64
+PASS run-tests: GEMM OK — 4 x 3 @ 3 x 2 matches host reference;54 kernels, 26 in registry, 0 orphans;
+co26 mega_amar_mega_token_SIMD_D6A6AcB6A6AcB6A6A_b4a3ae4062079d8e vgpr_count=256
+co26 mega_amar_mega_token_SIMD_D6A6AcB6A6AcB6A6A_b4a3ae4062079d8e vgpr_spill_count=81
+co27 mega_amar_mega_token_SIMD_D6A6AcB6A6AcB6A6A_33e84880a709fb2d vgpr_count=256
+co27 mega_amar_mega_token_SIMD_D6A6AcB6A6AcB6A6A_33e84880a709fb2d vgpr_spill_count=85
+##### K3 no-spec a2 vs splitk
+a2 median 119.03 tok/s_gen spread 4.8%  |  splitk median 108.10 spread 2.8%  |  ratio 0.908  |  identity fails: ['p07-json', 'p13-haiku', 'p15-bash']
+clock-probe: busy 123/173 samples (skipped 10 in first 3.5s)  sclk min/med/max 1239/3042/3319 MHz  power 62-352 W (cap 290 W, 48 busy samples above it: rocm-smi package power is instantaneous, the cap is a moving average)  junction max 72 C  -- .work/clock-probe-20260906-044046.log
+##### K3 spec a2 vs splitk
+a2 median 149.76 tok/s_gen spread 34.1%  |  splitk median 150.88 spread 36.5%  |  ratio 1.007  |  identity fails: ['p07-json', 'p13-haiku', 'p15-bash']
+engine-a2 run1 tok/s_gen: 120.6663487676594 | ssm  14 99 1072 75 43 397 53 590 | attn  34 337 23 309 11 157 | ffn  132 2678 62 1615 | total total 8365.08
+engine run1 tok/s_gen: 108.72869943294619 | ssm  13 88 1264 68 35 219 45 758 | attn  31 343 26 314 9 227 | ffn  118 2960 45 1898 | total total 9121.76
+engine-a2 run2 tok/s_gen: 119.68807986915517 | ssm  15 98 1070 76 44 393 54 586 | attn  34 318 23 309 12 155 | ffn  132 2627 64 1600 | total total 8274.56
+engine run2 tok/s_gen: 108.46503242218671 | ssm  13 87 1264 69 35 219 45 755 | attn  30 345 27 311 10 227 | ffn  118 2956 44 1896 | total total 9107.2
+exit 0

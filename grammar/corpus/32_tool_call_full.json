@@ -1,0 +1,1 @@
+{"type": "object", "properties": {"name": {"type": "string", "enum": ["get_weather", "search", "translate"]}, "arguments": {"type": "object", "properties": {"q": {"type": "string"}, "lang": {"type": "string", "enum": ["en", "de", "fr"]}, "n": {"type": "integer"}}, "required": ["q"]}}, "required": ["name", "arguments"]}

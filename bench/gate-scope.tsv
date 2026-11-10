@@ -1,0 +1,23 @@
+# Frozen path -> gate map for bench/gate-scope.sh. First match wins; a path no row matches = full.
+# Levels: none (no GPU gate) < cpu (preflight only) < full (preflight + engine identity/agreement gates).
+# Editing this file, the scope script or any gate script is itself `full`: a lane cannot narrow its own gate.
+bench/gate-scope.*	full
+bench/a2-gate.sh	full
+bench/tier-smoke.sh	full
+bench/ab-resident.sh	full
+bench/preflight.sh	full
+tools/build-many.sh	full
+.codebase-memory/*	none
+.rocprofv3/*	none
+docs/*	none
+exchange/*	none
+briefs/*	none
+results/*	none
+artifacts/*	none
+*.md	none
+LICENSE	none
+NOTICE	none
+serve/src/*	cpu
+serve/Cargo.*	cpu
+bench/tests/*	cpu
+tools/*	cpu

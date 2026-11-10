@@ -1,0 +1,8 @@
+Preregistration, spark split decode attention (BARO_ATT_SPLIT=1), frozen before any run, 2026-10-26.
+Arms: one binary (main + this commit, TMAX 16384), BARO_ATT_SPLIT 0 vs 1 interleaved per prompt, 21 prompts, BARO_GEN 64 and 256
+(tools/prefill_decode_ab.sh). Not bit-exact by construction (32-token spans + merge reorder the softmax sums).
+Predictions:
+- g64 decode tok/s ratio split/base median +1.0% to +2.0% (kernel table: -1.5 us/layer attention, 16 layers, ~1.75 ms/token).
+- g256 ratio larger than g64 (attention share grows with context).
+- ids: 21/21 equal to the base arm at 64 and 256 tokens (wavegroup's split equals spark 21/21). Any mismatch -> teacher-forced
+  agreement gate with a same-arm control before landing, bar set then.

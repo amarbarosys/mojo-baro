@@ -1,0 +1,52 @@
+country	aliases	capital + aliases	currency + aliases	continent
+Greece	greece	Athens|athens	euro|eur	Europe
+France	france	Paris|paris	euro|eur	Europe
+Italy	italy	Rome|rome	euro|eur	Europe
+Spain	spain	Madrid|madrid	euro|eur	Europe
+United Kingdom	united kingdom	London|london	pound sterling|pound|gbp	Europe
+Germany	germany	Berlin|berlin	euro|eur	Europe
+Netherlands	netherlands	Amsterdam|amsterdam	euro|eur	Europe
+Czechia	czechia	Prague|prague	koruna|czk	Europe
+Austria	austria	Vienna|vienna	euro|eur	Europe
+Belgium	belgium	Brussels|brussels	euro|eur	Europe
+Canada	canada	Ottawa|ottawa	canadian dollar|cad	North America
+United States	united states	Washington|washington|washington dc	us dollar|dollar|usd	North America
+Mexico	mexico	Mexico City|mexico city	mexican peso|mxn	North America
+Brazil	brazil	Brasilia|brasilia	real|brl	South America
+Peru	peru	Lima|lima	sol|pen	South America
+Venezuela	venezuela	Caracas|caracas	bolivar|ves	South America
+Chile	chile	Santiago|santiago	peso|clp	South America
+Paraguay	paraguay	Asuncion|asuncion	guarani|pyg	South America
+South Africa	south africa	Pretoria|pretoria	rand|zar	Africa
+Zimbabwe	zimbabwe	Harare|harare	zimbabwean dollar|zwl	Africa
+Tanzania	tanzania	Dodoma|dodoma	shilling|tzs	Africa
+Egypt	egypt	Cairo|cairo	egyptian pound|egp	Africa
+Jordan	jordan	Amman|amman	dinar|jod	Asia
+United Arab Emirates	united arab emirates	Abu Dhabi|abu dhabi	dirham|aed	Asia
+Turkey	turkey	Ankara|ankara	lira|try	Asia
+India	india	New Delhi|new delhi	rupee|inr	Asia
+Cambodia	cambodia	Phnom Penh|phnom penh	riel|khr	Asia
+China	china	Beijing|beijing	yuan|renminbi|cny	Asia
+Japan	japan	Tokyo|tokyo	yen|jpy	Asia
+South Korea	south korea	Seoul|seoul	won|krw	Asia
+Malaysia	malaysia	Kuala Lumpur|kuala lumpur	ringgit|myr	Asia
+Singapore	singapore	Singapore|singapore	dollar|sgd	Asia
+Indonesia	indonesia	Jakarta|jakarta	rupiah|idr	Asia
+Australia	australia	Canberra|canberra	australian dollar|aud	Oceania
+New Zealand	new zealand	Wellington|wellington	new zealand dollar|nzd	Oceania
+Nepal	nepal	Kathmandu|kathmandu	rupee|npr	Asia
+Bangladesh	bangladesh	Dhaka|dhaka	taka|bdt	Asia
+Sri Lanka	sri lanka	Sri Jayawardenepura Kotte|sri jayawardenepura kotte|colombo	rupee|lkr	Asia
+Slovenia	slovenia	Ljubljana|ljubljana	euro|eur	Europe
+Bulgaria	bulgaria	Sofia|sofia	lev|bgn	Europe
+Romania	romania	Bucharest|bucharest	leu|ron	Europe
+North Macedonia	north macedonia	Skopje|skopje	denar|mkd	Europe
+Montenegro	montenegro	Podgorica|podgorica	euro|eur	Europe
+Bosnia and Herzegovina	bosnia and herzegovina	Sarajevo|sarajevo	convertible mark|bam	Europe
+Russia	russia	Moscow|moscow	ruble|rub	Europe
+Norway	norway	Oslo|oslo	krone|nok	Europe
+Sweden	sweden	Stockholm|stockholm	krona|sek	Europe
+Denmark	denmark	Copenhagen|copenhagen	krone|dkk	Europe
+Finland	finland	Helsinki|helsinki	euro|eur	Europe
+Portugal	portugal	Lisbon|lisbon	euro|eur	Europe
+Switzerland	switzerland	Bern|bern	franc|chf	Europe

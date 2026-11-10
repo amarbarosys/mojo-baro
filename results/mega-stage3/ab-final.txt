@@ -1,0 +1,10 @@
+engine-prev tok/s_gen: 80.98867862732412
+engine tok/s_gen: 80.89488146985353
+engine-prev tok/s_gen: 80.721825738681
+engine tok/s_gen: 80.94267483664339
+engine-prev tok/s_gen: 80.7536769898604
+engine tok/s_gen: 80.71975101067727
+engine-prev tok/s_gen: 80.82042439474505
+engine tok/s_gen: 80.8654568269293
+engine-prev tok/s_gen: 80.73319954227506
+engine tok/s_gen: 80.67952279409488

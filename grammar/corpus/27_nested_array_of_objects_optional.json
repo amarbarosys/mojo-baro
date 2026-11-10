@@ -1,0 +1,1 @@
+{"type": "object", "properties": {"title": {"type": "string"}, "items": {"type": "array", "items": {"type": "object", "properties": {"sku": {"type": "string"}, "qty": {"type": "integer"}, "note": {"type": "string"}}, "required": ["sku", "qty"]}, "minItems": 1, "maxItems": 2}}, "required": ["title", "items"]}

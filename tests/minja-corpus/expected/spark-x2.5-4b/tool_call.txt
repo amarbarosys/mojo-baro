@@ -1,0 +1,6 @@
+<｜start▁of▁sentence｜><|System|>
+you are a helpful assistant.## Tools
+You have access to the following functions:
+<tools>
+{"name": "get_weather", "description": "Weather", "parameters": {"type": "object", "properties": {"city": {"type": "string"}}}}
+</tools><｜end▁of▁sentence｜><｜start▁of▁sentence｜><|User|>weather in Hefei<｜end▁of▁sentence｜><｜start▁of▁sentence｜><|Bot|></think><tool_call>get_weather<arg_key>city</arg_key><arg_value>Hefei</arg_value><arg_key>unit</arg_key><arg_value>c</arg_value></tool_call><｜end▁of▁sentence｜><｜start▁of▁sentence｜><|Tool|><tool_response>{"temp": 31}</tool_response><｜end▁of▁sentence｜><｜start▁of▁sentence｜><|Bot|><think>

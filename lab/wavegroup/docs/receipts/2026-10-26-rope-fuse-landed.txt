@@ -1,0 +1,8 @@
+fused rope A/B (prereg 2cf86ed), binary a661152e0b93a902, TMAX 16384
+spark=~/Projects/mojo/mojo-baro/lab/wavegroup/.work/pf16/spark.rope sha=a661152e0b93a902 pack=~/Projects/mojo/mojo-baro/lab/wavegroup/.work/baro-head/pack arms=base:BARO_ROPE_FUSE=0 fuse:BARO_ROPE_FUSE=1 load=7.98 14.43 15.79
+g64 base     median  555.1 tok/s, /base median 1.0000 (min 1.0000, max 1.0000), ids same 21/21, prefill_s median 0.0186
+g64 fuse     median  572.1 tok/s, /base median 1.0281 (min 1.0120, max 1.0480), ids same 21/21, prefill_s median 0.0181
+g256 base     median  564.7 tok/s, /base median 1.0000 (min 1.0000, max 1.0000), ids same 21/21, prefill_s median 0.0187
+g256 fuse     median  577.8 tok/s, /base median 1.0249 (min 1.0128, max 1.0337), ids same 21/21, prefill_s median 0.0177
+verdict: ids 21/21 HIT; g256 1.0249 in band, g64 1.0281 above band; faster on 21/21 both
+default read-back, binary 537d319404442a35, p01 64 tokens: BARO_ROPE_FUSE=0 563.04 ids 32d7ca5a, default 575.16 ids 32d7ca5a

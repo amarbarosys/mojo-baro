@@ -1,0 +1,54 @@
+--- a/tests/test-backend-ops.cpp	2026-09-17 09:57:15.405829981 +0200
++++ b/tests/test-backend-ops.cpp	2026-09-17 09:57:15.416938276 +0200
+@@ -1593,6 +1593,12 @@
+             n_runs = (int)std::min<int64_t>(ggml_graph_size(gf) - ggml_graph_n_nodes(gf), target_size / op_size(out)) + 1;
+         }
+ 
++        // mojo-baro lane G1: G0_NRUNS pins the ops per graph (1 = one op per submit and sync)
++        if (const char * g0_nruns = getenv("G0_NRUNS")) {
++            n_runs = (int)std::min<int64_t>(ggml_graph_size(gf) - ggml_graph_n_nodes(gf) + 1, std::max(1, atoi(g0_nruns)));
++        }
++        std::vector<double> g0_iter_us;
++
+         // duplicate the op
+         for (int i = 1; i < n_runs; i++) {
+             ggml_graph_add_node(gf, out);
+@@ -1630,6 +1636,7 @@
+             }
+             int64_t end_time = ggml_time_us();
+ 
++            g0_iter_us.push_back((double)(end_time - start_time) / n_runs);
+             total_time_us += end_time - start_time;
+             total_mem += mem;
+             total_runs += n_runs;
+@@ -1648,6 +1655,9 @@
+         if (output_printer) {
+             output_printer->print_test_result(result);
+         }
++        std::sort(g0_iter_us.begin(), g0_iter_us.end());
++        printf("\n    G0 %s(%s) ops_per_graph=%d graphs=%zu us_per_op med %.1f min %.1f max %.1f\n", current_op_name.c_str(), vars().c_str(),
++               n_runs, g0_iter_us.size(), g0_iter_us[g0_iter_us.size() / 2], g0_iter_us.front(), g0_iter_us.back());
+ 
+         return true;
+     }
+@@ -10151,6 +10161,20 @@
+ static std::vector<std::unique_ptr<test_case>> make_test_cases_perf() {
+     std::vector<std::unique_ptr<test_case>> test_cases;
+ 
++    // mojo-baro lane G1 reference arm: G0_SHAPES="NxK,NxK,..." replaces the perf set with the shapes our
++    // lowered kernels are timed at (rms_norm 4096 x rows, one vocab softmax row, q4_0 GEMV N x K, one token)
++    if (const char * g0_shapes = getenv("G0_SHAPES")) {
++        for (int64_t rows : {1, 2, 4, 8, 16, 32, 64}) {
++            test_cases.emplace_back(new test_rms_norm(GGML_TYPE_F32, {4096, rows, 1, 1}, false, 1e-6f));
++        }
++        test_cases.emplace_back(new test_soft_max(GGML_TYPE_F32, {151936, 1, 1, 1}, false, false, GGML_TYPE_F32, {1, 1}, 1.0f, 0.0f));
++        long long g0_n = 0, g0_k = 0; int g0_used = 0;
++        for (const char * c = g0_shapes; sscanf(c, "%lldx%lld%n", &g0_n, &g0_k, &g0_used) == 2; c += g0_used + (c[g0_used] == ',')) {
++            test_cases.emplace_back(new test_mul_mat(GGML_TYPE_Q4_0, GGML_TYPE_F32, g0_n, 1, g0_k, {1, 1}, {1, 1}));
++        }
++        return test_cases;
++    }
++
+     // SWIGLU at a 27B-class FFN width, fused [gate|up] vs split operands
+     // note: same bytes either way, so a backend that indexes them differently shows it here
+     for (ggml_type type : {GGML_TYPE_F16, GGML_TYPE_F32}) {

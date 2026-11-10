@@ -1,0 +1,69 @@
+{
+  "_comment": "engine: dense (serve/engine.mojo, qwen35) | moe (serve/engine.mojo -D BARO_MODEL=qwen35moe) | spark (serve/spark.mojo). spark-family models are BLOCKED for perplexity (no top_logprobs wiring at current HEAD, question sent to a lane pane 2026-09-16) until the coordinator answers; quality-run.sh refuses them for the ppl step.",
+  "llama-3.2-1b": {
+    "engine": "spark",
+    "baro_gguf": "~/Models/llama-3.2-1b-instruct-q4_K_M/Llama-3.2-1B-Instruct-Q4_K_M-BARO-04867e2.gguf",
+    "llama_gguf": "~/Models/llama-3.2-1b-instruct-q4_K_M/Llama-3.2-1B-Instruct-Q4_K_M.gguf",
+    "vram_gb": 4
+  },
+  "lily-7b": {
+    "engine": "spark",
+    "baro_gguf": "~/Models/lily-cybersecurity-7b-v0.2-q6_k/lily-cybersecurity-7b-v0.2-q6_k-BARO-04867e2.gguf",
+    "llama_gguf": "~/Models/lily-cybersecurity-7b-v0.2-q6_k/lily-cybersecurity-7b-v0.2-q6_k.gguf",
+    "vram_gb": 8
+  },
+  "qwen25-7b": {
+    "engine": "spark",
+    "baro_gguf": "~/Models/qwen2.5-7b-instruct-gguf/Qwen2.5-7B-Instruct-Q4_K_M-BARO-04867e2.gguf",
+    "llama_gguf": "~/Models/qwen2.5-7b-instruct-gguf/Qwen2.5-7B-Instruct-Q4_K_M.gguf",
+    "vram_gb": 8
+  },
+  "qwen25-coder-7b": {
+    "engine": "spark",
+    "baro_gguf": "~/Models/qwen2.5-coder-7b-instruct-q4_k_m-BARO-f3bf2c8.gguf",
+    "llama_gguf": "~/Models/qwen2.5-coder-7b-instruct-q4_k_m.gguf",
+    "vram_gb": 8
+  },
+  "granite-4.2-3b": {
+    "engine": "spark",
+    "baro_gguf": "~/Models/granite-4.2-3b-bf16/granite-4.2-3b-BF16-BARO-f3bf2c8.gguf",
+    "llama_gguf": "~/Models/granite-4.2-3b-bf16/granite-4.2-3b-BF16.gguf",
+    "vram_gb": 8
+  },
+  "ornith-1.5-9b": {
+    "engine": "dense",
+    "baro_gguf": "~/Models/ornith-1.5-9b-q4_K_M/Ornith-1.5-9B-Q4_K_M-BARO-04867e2.gguf",
+    "llama_gguf": "~/Models/ornith-1.5-9b-q4_K_M/Ornith-1.5-9B-Q4_K_M.gguf",
+    "vram_gb": 8
+  },
+  "qwythos-v2": {
+    "engine": "dense",
+    "baro_gguf": "~/Models/qwythos-9b-v2-mtp-q6_k/Qwythos-9B-v2-MTP-Q6_K-BARO-04867e2.gguf",
+    "llama_gguf": "~/Models/qwythos-9b-v2-mtp-q6_k/Qwythos-9B-v2-MTP-Q6_K.gguf",
+    "vram_gb": 10
+  },
+  "qwythos-champion": {
+    "engine": "dense",
+    "baro_gguf": "~/Models/qwythos-9b-claude-mythos-5-1m-mtp-bf16/Qwythos-9B-Claude-Mythos-5-1M-MTP-BF16-BARO-04867e2.gguf",
+    "llama_gguf": "~/Models/qwythos-9b-claude-mythos-5-1m-mtp-bf16/Qwythos-9B-Claude-Mythos-5-1M-MTP-BF16-BARO-04867e2.gguf",
+    "vram_gb": 20
+  },
+  "qwythos-p5b-patched": {
+    "engine": "dense",
+    "baro_gguf": "~/Projects/mojo/mojo-baro-lanes/team-b/.work/team-B/sonnet/p5b/train/patched-selfdesc.gguf",
+    "llama_gguf": "~/Projects/mojo/mojo-baro-lanes/team-b/.work/team-B/sonnet/p5b/train/patched-selfdesc.gguf",
+    "vram_gb": 20
+  },
+  "regescore-35b": {
+    "engine": "moe",
+    "baro_gguf": "~/Models/RegesCore-1.0-35/RegesCore-1.0-35B-UD-Q4_K_S-BARO-e340ee1.gguf",
+    "llama_gguf": "~/Models/RegesCore-1.0-35/RegesCore-1.0-35B-UD-Q4_K_S-BARO-e340ee1.gguf",
+    "vram_gb": 22
+  },
+  "spark-x2.5-4b": {
+    "engine": "spark",
+    "baro_gguf": "~/Models/spark-x2.5-4b/Spark-X2.5-4B-Q8_0-BARO-d84324f.gguf",
+    "llama_gguf": "~/Models/spark-x2.5-4b/Spark-X2.5-4B-Q8_0-BARO-d84324f.gguf",
+    "vram_gb": 6
+  }
+}

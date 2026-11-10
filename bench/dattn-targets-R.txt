@@ -1,0 +1,9 @@
+# arm R of bench/dattn-protocol.md: llama.cpp flash_attn_ext_vec, f16 KV, one query token
+# label | op_bench args (NH NHKV HD KV NQ)
+fa_S1_kv4096   | flash_attn 16 4 256 4096 1
+fa_S2_kv4096   | flash_attn 40 8 64 4096 1
+fa_S3_kv4096   | flash_attn 28 4 128 4096 1
+# S1 scaling receipt; op_bench caps arms at 64, so 512 and 1024 rotate BELOW 4 x 96 MB and are void
+fa_S1_kv512    | flash_attn 16 4 256 512 1
+fa_S1_kv1024   | flash_attn 16 4 256 1024 1
+fa_S1_kv16384  | flash_attn 16 4 256 16384 1

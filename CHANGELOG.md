@@ -1,0 +1,22 @@
+# Changelog
+
+Full notes in `docs/releases/`. Newest first. Format: `~/iTools/dev/release-note/TEMPLATE.md`.
+
+- Unreleased (2026-11-10): 46 implicit state machines get a tag, a guard or a word on the wire (`docs/state-machines.md`): a dead engine in a pool is skipped and `/health` names its state, a dropped client cancels its request, a stream without a terminal event is `502`, the done line carries `fail`, `path`, `grammar`, `load_tier`, engine errors answer with an error line and the engine stays alive (`serve/PROTOCOL.md`, State words). Mojo HTTP front round 1 (`serve/front/`, `baro-front`, 1.14 MB): tokenizer, chat template, engine client and the completion routes in Mojo, text equal to the Rust front on 3297 rows; UNVERIFIED against the real engine, `baro-serve` stays the default. Tool calls: a drawn tool name is constrained to the request's tools.
+- Unreleased (2026-09-25): versioned LatentOS capability/envelope contract, reference lifecycle client with branch isolation/TTL/quota gates, measured handoff router, XChaCha20-Poly1305 chunk transport shim, ciphertext-only relay session, and CPU rectangular binding export/parity fixture. These are conformance/plumbing gates; heterogeneous semantic quality and physical-host transport remain unverified.
+- [v0.6.0](docs/releases/v0.6.0.md) (2026-11-08): multi-session serving (`BARO_SEQS`, `--parallel`), native K-quant packs on the megakernel and in prefill (0.87x / 0.80x of llama.cpp's prefill time), OpenAI `tool_choice`, spark batched prefill, Mojo 1.2.0 pin, repo debloat
+- [v0.5.11](docs/releases/v0.5.11.md) (2026-10-18): q4x over HTTP, 16K floor, split decode attention (16K-context decode 77.9 -> 27.4 ms/token, same ids)
+- [v0.5.10](docs/releases/v0.5.10.md) (2026-10-14): q4x resident stdin mode, default warm list, 0.5 GB cache margin, opt-in chunked prefill
+- [v0.5.9](docs/releases/v0.5.9.md) (2026-10-12): token_embd in host memory (BARO_EMBD_HOST), 2.03 GB less VRAM per weight copy, decode 0.997x
+- [v0.5.8](docs/releases/v0.5.8.md) (2026-10-12): a second engine maps the first one's weights over HIP IPC, 6.64 GB less VRAM per extra engine
+- [v0.5.7](docs/releases/v0.5.7.md) (2026-10-12): two engines on one GPU share a checkpoint over HIP IPC (`/v1/ipc/fork`, 88 ms vs 121 ms file tier), IPC stage leak fixed
+- [v0.5.6](docs/releases/v0.5.6.md) (2026-10-12): qwen4exp decode 1.066x and prefill 1.2-1.6x bit-exact; exact MTP speculative decoding (1.02x); IPC fork routes
+- [v0.5.5](docs/releases/v0.5.5.md) (2026-10-12): the RegesCore-35B MoE bake verifies (int8 reference) and serves in tier mode; spark pack peak 2.60 -> 0.35 GB
+- [v0.5.4](docs/releases/v0.5.4.md) (2026-10-12): bakes pack with the Mojo engine packer, byte-identical, 1.2-2.5x faster, peak memory 12.3 GB -> under 1 GB
+- [v0.5.3](docs/releases/v0.5.3.md) (2026-10-12): spark decodes again, grammar gate 66/66 (retracts v0.5.2's 59/66); spark bakes pack with the Mojo tool (20.7 s / 2.60 GB vs 35.6 s / 6.55 GB)
+- [v0.5.2](docs/releases/v0.5.2.md) (2026-10-12): spark builds on Mojo 1.1 and serves JSON-schema requests (59/66)
+- [v0.5.1](docs/releases/v0.5.1.md) (2026-10-12): grammar requests honour top_p / top_k / min_p
+- [v0.5.0](docs/releases/v0.5.0.md) (2026-10-12): dense 9B decode 148.80 tok/s_gen (+2.4%), MoE int8 KV default, serve engine cache per kernel commit
+- [v0.3.0](docs/releases/v0.3.0.md) (2026-09-24): LatentOS zero-copy brain fork & resume (5.05 ms mint / 3.95 ms resume), BAROKV7 state compression (1.970x ratio, 67.17 -> 34.10 MB, 1.92x faster load), and Kimi-K3 expert cache lease-pinning (-287 MB PCIe).
+- [v0.2.0](docs/releases/v0.2.0.md) (2026-09-24): own state codec BAROKV4/5/6 (585 -> 184 MB at 32k, TTFT 0.78 -> 0.40 s on 10 GbE) with GPU unpack and rANS decode kernels; load stage pins 0.28 GB less.
+- [v0.1.0](docs/releases/v0.1.0.md) (2026-09-24): checkpoint API with fork, share and HTTP import; /v1/turn under 60 ms on a hot 8k prefix; int8 state files and the int8-KV engine (BAROST03, 32k load 0.061 s); chat checkpoints; /metrics; first tagged release.

@@ -1,0 +1,15 @@
+arm runs spikes  peak GB         slots | clean:  decode  prefill   misses | spike:  decode  prefill   (ms/token)
+A      1      1    19.89  11565-11565  |              -        -        - |         150.38    13.92
+B      1      0     0.86  10472-10472  |          24.07     3.66 17179.00 |              -        -
+-      1      1    18.87  11237-11237  |              -        -        - |          32.23     6.51
+
+counters per second, 89 excursion ticks against 89 other ticks (mean)
+  direct scan pages/s         40866.7          0.0
+  alloc stalls/s                 27.3          0.0
+  compaction scan/s          679255.4         46.1
+  page migrations/s           16391.2          0.0
+  memory PSI some ms/s           35.8          2.4
+  MemAvailable GB                43.0         54.0
+spikes arm A: 1 of 1
+spikes arm B: 0 of 1
+spikes arm -: 1 of 1

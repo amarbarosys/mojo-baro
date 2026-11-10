@@ -1,0 +1,15 @@
+spark tail/warm knobs (uncommitted, reverted), one binary dea19210, TMAX 16384, 21 prompts
+spark=~/Projects/mojo/mojo-baro/lab/wavegroup/.work/pf16/spark.opt sha=dea1921024cdf00d pack=~/Projects/mojo/mojo-baro/lab/wavegroup/.work/baro-head/pack arms=rows0:BARO_PREFILL_ROWS=0 cur:BARO_PF_TAIL=2 t4:BARO_PF_TAIL=4 t8:BARO_PF_TAIL=8 w1:BARO_PF_WARM=1 w4:BARO_PF_WARM=4 load=3.11 5.10 4.14
+g64 rows0    median  567.4 tok/s, /rows0 median 1.0000 (min 1.0000, max 1.0000), ids same 21/21, prefill_s median 0.0222
+g64 cur      median  564.8 tok/s, /rows0 median 0.9907 (min 0.9639, max 1.0549), ids same 21/21, prefill_s median 0.0168
+g64 t4       median  567.6 tok/s, /rows0 median 1.0049 (min 0.9780, max 1.0492), ids same 21/21, prefill_s median 0.0203
+g64 t8       median  571.1 tok/s, /rows0 median 1.0077 (min 0.9756, max 1.0580), ids same 21/21, prefill_s median 0.0265
+g64 w1       median  563.3 tok/s, /rows0 median 0.9988 (min 0.9641, max 1.0396), ids same 21/21, prefill_s median 0.0190
+g64 w4       median  570.6 tok/s, /rows0 median 1.0045 (min 0.9826, max 1.0574), ids same 21/21, prefill_s median 0.0246
+g256 rows0    median  552.1 tok/s, /rows0 median 1.0000 (min 1.0000, max 1.0000), ids same 21/21, prefill_s median 0.0231
+g256 cur      median  550.7 tok/s, /rows0 median 0.9944 (min 0.9627, max 1.0061), ids same 21/21, prefill_s median 0.0166
+g256 t4       median  551.1 tok/s, /rows0 median 0.9974 (min 0.9409, max 1.0044), ids same 21/21, prefill_s median 0.0204
+g256 t8       median  549.6 tok/s, /rows0 median 0.9956 (min 0.9086, max 1.0088), ids same 21/21, prefill_s median 0.0266
+g256 w1       median  548.0 tok/s, /rows0 median 0.9926 (min 0.9606, max 1.0046), ids same 21/21, prefill_s median 0.0191
+g256 w4       median  551.6 tok/s, /rows0 median 1.0005 (min 0.9630, max 1.0133), ids same 21/21, prefill_s median 0.0242
+verdict: tail/warm recover decode tok/s (t8 1.0077, w4 1.0045 at g64) by moving 8-10 ms into prefill; cur (tail 2) has the lowest prefill+decode time. Not landed. The stint's decode-only number rewards hiding work outside the timer.

@@ -1,0 +1,2 @@
+<｜start▁of▁sentence｜><|System|>
+you are a helpful assistant.<｜end▁of▁sentence｜><｜start▁of▁sentence｜><|User|>x<｜end▁of▁sentence｜><｜start▁of▁sentence｜><|Bot|></think><tool_call>a<arg_key>k</arg_key><arg_value>1</arg_value></tool_call><tool_call>b<arg_key>k</arg_key><arg_value>[1, 2]</arg_value></tool_call><｜end▁of▁sentence｜><｜start▁of▁sentence｜><|Tool|><tool_response>r1</tool_response><tool_response>r2</tool_response><｜end▁of▁sentence｜><｜start▁of▁sentence｜><|User|>thanks<｜end▁of▁sentence｜><｜start▁of▁sentence｜><|Bot|><think>
