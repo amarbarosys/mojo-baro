@@ -120,6 +120,9 @@ trait EngineLike(Movable, Deinitable):
     def dead_reason(self) -> String:
         ...
 
+    def shutdown(mut self, grace_ms: Int):
+        ...
+
     def ready_info(self) -> Json:
         ...
 
@@ -691,7 +694,38 @@ def stats_json(done: String) -> Json:
     o.set("tok_s_gen", d.get("tok_s"))
     for k in ["drafted", "accepted", "cached", "prefill_rows", "restore_s", "load_s", "load_read_s", "load_parse_s", "load_pin_s", "load_host_s", "load_h2d_s", "wall_s", "finish"]:
         o.set(k, d.get(k))
+    # wire seam words (serve/PROTOCOL.md, State words): present only when the engine sent them
+    for k in ["fail", "path", "grammar", "gdraws", "gaccepted", "grejected", "captured", "load_tier"]:
+        if d.has(k):
+            o.set(k, d.get(k))
+    if d.get("grejected").kind() == INT and d.get("grejected").int() > 0:
+        var w = Json.array()
+        w.push(Json.of("grammar_rejected_tokens"))
+        o.set("warnings", w)
     return o^
+
+
+def fail_word(stats: Json) -> Int:
+    """The megakernel fail word of a done line; non-zero = the tokens of this request are invalid."""
+    var f = stats.get("fail")
+    return f.int() if f.kind() == INT else 0
+
+
+def invalid_tokens_msg(fail: Int) -> String:
+    return String("engine: the run produced invalid tokens (fail word ", fail, "); the output must not be used")
+
+
+def invalid_tokens_error(fail: Int) -> ApiError:
+    return ApiError(502, error_body(502, invalid_tokens_msg(fail), "engine_invalid_tokens"))
+
+
+def invalid_tokens_chunk(fail: Int) -> String:
+    var e = Json.object()
+    e.set("message", Json.of(invalid_tokens_msg(fail)))
+    e.set("type", Json.of("engine_invalid_tokens"))
+    var o = Json.object()
+    o.set("error", e)
+    return o.dumps()
 
 
 def usage_json(n_prompt: Int, n_completion: Int, stats: Json) -> Json:

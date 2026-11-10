@@ -270,6 +270,7 @@ struct EngineClient(Movable):
     var _tmax: Int
     var _buf: List[UInt8]
     var _active: List[Int]
+    var _cancel_wait: List[Int]  # queued ids to cancel the moment they reach the head
     var _pending: List[Event]
     var _trail: List[String]
     var _since: Int
@@ -287,6 +288,7 @@ struct EngineClient(Movable):
         self._tmax = 0
         self._buf = List[UInt8]()
         self._active = List[Int]()
+        self._cancel_wait = List[Int]()
         self._pending = List[Event]()
         self._trail = List[String]()
         self._since = perf_counter_ns()
@@ -340,6 +342,8 @@ struct EngineClient(Movable):
             msg = "REFUSED " + msg
         else:
             self._state = new
+        if len(self._trail) >= 64:  # a server lives for millions of requests: keep the last 64
+            _ = self._trail.pop(0)
         self._trail.append(msg)
         print("engine:", msg, file=stderr)
 
@@ -361,9 +365,14 @@ struct EngineClient(Movable):
         self._active.append(req.id)
 
     def cancel(mut self, id: Int) -> Bool:
-        """Write the cancel line when id is the request decoding now. False for a queued, finished or
-        unknown id (the engine cancels only the running one)."""
-        if self._state != ENG_BUSY or len(self._active) == 0 or self._active[0] != id:
+        """Write the cancel line when id is the request decoding now: True. A queued id is remembered and
+        cancelled the moment it reaches the head (the engine cancels only the running one): False now.
+        False also for a finished or unknown id."""
+        if self._state != ENG_BUSY or len(self._active) == 0:
+            return False
+        if self._active[0] != id:
+            if id in self._active and id not in self._cancel_wait:
+                self._cancel_wait.append(id)
             return False
         if not send_all(self._fd, cancel_line(id).as_bytes()):
             self._die(self._exit_reason("write to engine failed"))
@@ -377,6 +386,8 @@ struct EngineClient(Movable):
         out.extend(self._pending^)
         self._pending = List[Event]()
         if self._closed:
+            if len(out) == n0:
+                _ = PollSet().wait(timeout_ms)  # dead: keep the caller's pace, a bare return spins its loop
             return len(out) - n0
         var ps = PollSet()
         _ = ps.add(self._fd)
@@ -481,9 +492,19 @@ struct EngineClient(Movable):
             return
         if e.kind == EV_DONE or e.kind == EV_ERROR:
             _ = self._active.pop(at)
+            self._unwait(e.id)
+            if len(self._active) > 0 and self._active[0] in self._cancel_wait:
+                _ = send_all(self._fd, cancel_line(self._active[0]).as_bytes())  # a failed write shows as death in poll
+                self._unwait(self._active[0])
             if len(self._active) == 0 and self._state == ENG_BUSY:
                 self._set(ENG_IDLE, String("request ", e.id, " finished"))
         out.append(e^)
+
+    def _unwait(mut self, id: Int):
+        for i in range(len(self._cancel_wait)):
+            if self._cancel_wait[i] == id:
+                _ = self._cancel_wait.pop(i)
+                return
 
     def _exit_reason(mut self, lead: String) -> String:
         """The child's exit status as text: waits up to 1 s for it, then kills a child that closed stdout and lives."""
@@ -492,7 +513,6 @@ struct EngineClient(Movable):
             try:
                 var code = reap(self._pid)
                 if code:
-                    self._pid = -1
                     return _reason(code.value())
             except:
                 return lead
@@ -522,6 +542,7 @@ struct EngineClient(Movable):
         for id in self._active:
             self._pending.append(Event(EV_DEAD, id, 0, why))
         self._active = List[Int]()
+        self._cancel_wait = List[Int]()
         close(self._fd)
         self._closed = True
         self._set(ENG_DEAD, why)

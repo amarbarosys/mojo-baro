@@ -103,8 +103,10 @@ exhaustion, `captured`, and `grejected` on a served grammar. Their fields are te
 
 HTTP side (`baro-serve`): `/health` carries `engine_state` (`starting`, `idle`, `busy`, `dead`,
 `stopping`) and per engine `{state, depth, reason}`; the port answers `503` with phase `starting` or
-`warming` while the pack loads, so `curl -sf /health` succeeds only on a ready server. A dead engine in a
-pool is skipped. A client that drops its stream cancels its request. A stream that ends with no terminal
+`warming` while the pack loads, and `503` with `"status":"engine_dead"` when no engine can take work, so
+`curl -sf /health` succeeds only on a server that can serve (`baro-front` answers the same codes). The
+router's probe reads this code, not the open port; an upstream with no `/health` route (404, 405) is judged
+by its port. A dead engine in a pool is skipped. A client that drops its stream cancels its request. A stream that ends with no terminal
 event is `502` (SSE: an error chunk before `[DONE]`). Turn, fork and chat responses carry `state_source`
 (`none`, `explicit`, `created`, `auto`) and `tier_source`. The router's `/health` says `ok`, `degraded`,
 `starting` or `down`.

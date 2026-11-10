@@ -186,6 +186,7 @@ comptime M_SLOW = 4  # one token per poll (10 ms) until n or a cancel
 comptime M_DEAD_MID = 5  # two tokens, then the child dies
 comptime M_DEAD_IDLE = 6  # dead before any request
 comptime M_SUBMIT_FAIL = 7  # submit raises, the engine stays up
+comptime M_FAIL_WORD = 8  # a normal run whose done line carries "fail":2 (invalid tokens)
 
 
 struct FakeEngine(EngineLike):
@@ -235,6 +236,9 @@ struct FakeEngine(EngineLike):
         self.sent = 0
         self.cancelled = False
 
+    def shutdown(mut self, grace_ms: Int):
+        self.st = ENG_DEAD
+
     def cancel(mut self, id: Int) -> Bool:
         if self.probe != 0:
             _probe_add(self.probe, P_CANCELS)
@@ -260,6 +264,9 @@ struct FakeEngine(EngineLike):
         j.set("cached", Json.of(0))
         j.set("prefill_rows", Json.of(7))
         j.set("finish", Json.of(finish))
+        if self.mode == M_FAIL_WORD:
+            j.set("fail", Json.of(2))
+            j.set("path", Json.of("mega"))
         return Ev(EV_DONE, self.pending_id, 0, j.dumps())
 
     def poll(mut self, mut out: List[Ev], timeout_ms: Int) raises -> Int:

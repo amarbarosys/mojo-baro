@@ -13,7 +13,7 @@ from api import (
     EV_TOKEN, EV_DONE, EV_ERROR, EV_DEAD, plain, bad, parse_body, parse_completion, parse_chat, check_gen,
     tokenize_response, detokenize_response, cancel_id, cancel_response, stats_json, completion_response,
     completion_delta, completion_finish, chat_response, chat_delta, chat_finish, parse_tool_calls, models_response,
-    props_response, health_response, engine_error_chunk, now_secs
+    props_response, health_response, engine_error_chunk, now_secs, fail_word, invalid_tokens_error, invalid_tokens_chunk
 )
 from bento.http import Request, Response
 from bento.server import Handler
@@ -214,6 +214,7 @@ struct Front[T: TextLike, E: EngineLike](Handler):
         hp[].stop = True
         hp[].mu.unlock()
         _ = external_call["pthread_join", Int32](self.tid, Int(0))
+        hp[].engine.shutdown(5000)  # stdin closed first: the engine ends its own way, a kill only after 5 s
         _ = hp.unsafe_take_pointee()
         hp.unsafe_free()
 
@@ -244,7 +245,8 @@ struct Front[T: TextLike, E: EngineLike](Handler):
             if m != "GET":
                 return self._not_allowed(resp, "GET")
             if p == "/health":
-                return self._json(resp, 200, self._health())
+                # 503 unless the engine can take work: `curl -sf /health` and the router's probe read the code
+                return self._json(resp, 200 if self._alive() else 503, self._health())
             if p == "/props":
                 return self._json(resp, 200, props_response(self.model, self._snap_tmax()))
             return self._json(resp, 200, models_response(self.model))
@@ -282,6 +284,13 @@ struct Front[T: TextLike, E: EngineLike](Handler):
 
     def _snap_tmax(self) -> Int:
         return self._snap_info().get("tmax").int()
+
+    def _alive(self) -> Bool:
+        var h = self._h()
+        h[].mu.lock()
+        var st = h[].snap_state
+        h[].mu.unlock()
+        return st == ENG_IDLE or st == ENG_BUSY
 
     def _health(self) -> String:
         var h = self._h()
@@ -327,8 +336,7 @@ struct Front[T: TextLike, E: EngineLike](Handler):
                 b.timed_out = True
                 break
             _ = s[].cv.timedwait(h[].mu, Float64(left) / 1e9)
-        b.evs = s[].events.copy()
-        s[].events.clear()
+        swap(b.evs, s[].events)
         b.ended = s[].ended and len(b.evs) == 0
         h[].mu.unlock()
         return b^
@@ -391,6 +399,8 @@ struct Front[T: TextLike, E: EngineLike](Handler):
                         text_out += d.value()
                 elif ev.kind == EV_DONE:
                     stats = stats_json(ev.text)
+                    if fail_word(stats) != 0:
+                        raise invalid_tokens_error(fail_word(stats))
                     done = True
                     break
                 elif ev.kind == EV_ERROR:
@@ -465,7 +475,9 @@ struct Front[T: TextLike, E: EngineLike](Handler):
                     var stats = stats_json(ev.text)
                     var fin = stats.get("finish")
                     var reason = acc.finish_reason(fin.str() if fin.kind() == 4 else "")
-                    if call.chat:
+                    if fail_word(stats) != 0:
+                        chunk = invalid_tokens_chunk(fail_word(stats))
+                    elif call.chat:
                         chunk = chat_finish(oid, created, model, ts.finish_content(), reason, ts.has_tool(), call.n_prompt, len(acc.tokens), stats)
                     else:
                         chunk = completion_finish(oid, created, model, reason, call.n_prompt, acc.tokens, stats)

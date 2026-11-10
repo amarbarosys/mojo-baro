@@ -1,0 +1,24 @@
+[profile]
+name = "turbo27b-coder"
+model = "qwen35"
+description = "Qwen3.8-27B TurboFCFusion (c71dbdc bake) as a local coding agent behind omp: one sequence, MTP spec k=2, int8 KV for the largest context that fits beside the desktop."
+source = "file"
+port = 8341
+speed = "pack-fit 2026-11-10 at 2.0 GB desktop: TMAX 131072 FITS with 1.19 GB headroom (163840 TIGHT 0.10 GB, 196608 over); f32-KV short-context receipt 66.3 tok/s_gen, int8 KV at this TMAX unmeasured until the first run"
+receipt = "docs/lanes/turbobake-report.md"
+
+[env]
+BARO_MEGA = "1"
+BARO_SPEC = "1"
+BARO_EMBD_HOST = "1"
+BARO_TMAX = "131072"
+MODULAR_DEVICE_CONTEXT_MEMORY_MANAGER_SIZE_PERCENT = "2"
+# Qwen3 thinking-mode sampling for coding (temperature 0.6 is set client-side by omp)
+BARO_DEFAULT_TOP_K = "20"
+BARO_DEFAULT_TOP_P = "0.95"
+BARO_DEFAULT_MIN_P = "0"
+
+[build]
+# The bake already carries -D BARO_SEQ_CAP=1 -D BARO_SLOTS=4 -D BARO_DOT_UNROLL=2 (baro.run.build.flags); a second
+# definition fails the build ("defined more than once"), so only the addition goes here.
+BARO_KVQ = "int8"

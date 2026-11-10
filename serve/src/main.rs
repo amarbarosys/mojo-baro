@@ -463,10 +463,14 @@ async fn access_log(req: AxumRequest, next: Next) -> Response {
 
 // ---- health / models --------------------------------------------------------
 
-async fn health(State(app): State<Shared>) -> Json<Value> {
-    Json(json!({
-        // `--audio-only` has no engine on purpose: that is healthy, not dead.
-        "status": if app.engine.alive() || app.engine.pool_size() == 0 { "ok" } else { "engine_dead" },
+async fn health(State(app): State<Shared>) -> (StatusCode, Json<Value>) {
+    // `--audio-only` has no engine on purpose: that is healthy, not dead.
+    let ok = app.engine.alive() || app.engine.pool_size() == 0;
+    // 503 when no engine can take work: `curl -sf /health` and the router's probe read the status code, and a 200
+    // with "engine_dead" in the body kept a dead node in rotation.
+    let code = if ok { StatusCode::OK } else { StatusCode::SERVICE_UNAVAILABLE };
+    (code, Json(json!({
+        "status": if ok { "ok" } else { "engine_dead" },
         "engine_state": app.engine.state_word(),
         "engines": app.engine.engine_states(),
         "queue": app.engine.queue_depth(),
@@ -478,7 +482,7 @@ async fn health(State(app): State<Shared>) -> Json<Value> {
         // Requests that decode at once across the pool: engines x the sequences each reports (1 on an older engine).
         "capacity": app.engine.pool_size() as u32 * app.engine.limits.seqs.unwrap_or(1),
         "pack": app.engine.limits.pack,
-    }))
+    })))
 }
 
 async fn props(State(app): State<Shared>) -> Json<Value> {
@@ -2481,7 +2485,8 @@ mod sse_tests {
     /// A-M1: `--audio-only` has no engine process on purpose; `/health` used to call that `engine_dead`.
     #[tokio::test(flavor = "current_thread")]
     async fn health_of_an_audio_only_server_is_ok_with_no_engine() {
-        let Json(h) = health(State(test_app())).await;
+        let (code, Json(h)) = health(State(test_app())).await;
+        assert_eq!(code, StatusCode::OK);
         assert_eq!(h["status"], "ok");
         assert_eq!(h["engine_state"], "none");
     }

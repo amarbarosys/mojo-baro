@@ -10,7 +10,7 @@ from api import (
 )
 from fakes import (
     FakeText, FakeEngine, Probe, FAKE_EOS, M_NORMAL, M_ERR_BEFORE, M_ERR_AFTER, M_NO_TERMINAL, M_SLOW, M_DEAD_MID,
-    M_DEAD_IDLE, M_SUBMIT_FAIL, P_SUBMITS, P_CANCELS, P_LAST_CANCEL, P_LAST_N
+    M_DEAD_IDLE, M_SUBMIT_FAIL, M_FAIL_WORD, P_SUBMITS, P_CANCELS, P_LAST_CANCEL, P_LAST_N
 )
 from http import Front
 from bento.server import Server
@@ -569,9 +569,20 @@ def case_engine_failures(mut t: Tally) raises:
     t.eq(err_of(f1).text("message"), "engine: request line too long", "submit failure, engine up: message")
     t.eq(parse(call(r6.port, "GET", "/health", "").body).text("status"), "ok", "submit failure does not kill the front")
     r6^.close()
+    # a done line with a non-zero fail word: the tokens are invalid, never a 200 (serve/PROTOCOL.md, State words)
+    var r7 = Rig(M_FAIL_WORD)
+    var w1 = call(r7.port, "POST", "/v1/completions", '{"prompt":[1],"max_tokens":4}')
+    t.eqi(w1.status, 502, "fail word: status")
+    t.eq(err_of(w1).text("type"), "engine_invalid_tokens", "fail word: type")
+    t.check(err_of(w1).text("message").find("fail word 2") >= 0, "fail word: message names the word")
+    var w2 = call(r7.port, "POST", "/v1/completions", '{"prompt":[1],"max_tokens":4,"stream":true}')
+    t.check(w2.body.find("engine_invalid_tokens") >= 0 and w2.body.find("[DONE]") >= 0, "fail word, stream: error chunk then [DONE]")
+    t.check(w2.body.find("finish_reason\":\"length") < 0 and w2.body.find("finish_reason\":\"stop") < 0, "fail word, stream: no success finish chunk")
+    r7^.close()
     # dead before any request
     var r5 = Rig(M_DEAD_IDLE)
     t.eq(parse(call(r5.port, "GET", "/health", "").body).text("status"), "engine_dead", "idle death: health")
+    t.eqi(call(r5.port, "GET", "/health", "").status, 503, "idle death: /health is 503, so curl -sf and the router see it")
     t.eqi(call(r5.port, "POST", "/v1/chat/completions", chat_body()).status, 503, "idle death: 503")
     r5^.close()
 

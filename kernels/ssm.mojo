@@ -1,7 +1,7 @@
 from max.gpu import block_idx, global_idx, lane_id, thread_idx, WARP_SIZE
 from max.gpu.primitives import warp
-from std.math import log1p, rsqrt, sqrt
-from bexp import exp
+from std.math import log1p, sqrt
+from bexp import exp, rsqrt
 from std.sys import get_defined_int
 from std.utils import StaticTuple
 from max.gpu.memory import AddressSpace

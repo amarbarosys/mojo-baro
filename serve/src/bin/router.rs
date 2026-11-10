@@ -1165,10 +1165,24 @@ fn parse_args() -> Result<(String, String, u16), String> {
 /// that is merely unhealthy has no such route; that failure clears the
 /// cache (never leaves a stale hash believed resident) rather than erroring
 /// the probe loop itself.
+/// Is this engine able to take work? Its own `/health` decides: 2xx is yes, 503 (loading, warming, engine dead) is no.
+/// An upstream with no `/health` route (Ollama, LM Studio: 404 or 405) is judged by the open port, as before. A port
+/// that accepts a connection proves nothing about a baro-serve: it binds before the pack loads and stays open after
+/// its engine died.
+async fn probe_ok(http_client: &reqwest::Client, address: &str, url: &str) -> bool {
+    if TcpStream::connect(address).await.is_err() {
+        return false;
+    }
+    match tokio::time::timeout(Duration::from_secs(3), http_client.get(format!("{url}/health")).send()).await {
+        Ok(Ok(resp)) => resp.status().is_success() || resp.status() == StatusCode::NOT_FOUND || resp.status() == StatusCode::METHOD_NOT_ALLOWED,
+        _ => false,
+    }
+}
+
 async fn probe_loop(registry: EngineRegistry, http_client: reqwest::Client) {
     loop {
         for engine in registry.snapshot() {
-            let ok = TcpStream::connect(&engine.address).await.is_ok();
+            let ok = probe_ok(&http_client, &engine.address, &engine.url).await;
             registry.set_probe(&engine.id, ok);
             if !ok {
                 registry.set_resident(&engine.id, Vec::new(), None);
@@ -1299,6 +1313,29 @@ async fn shutdown_signal(state: Arc<RouterState>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A baro-serve binds its port before the pack loads and keeps it open after its engine died, so an open port
+    /// kept a node in rotation that answered every request with 503. The probe reads `/health`.
+    #[tokio::test]
+    async fn the_probe_reads_health_not_the_open_port() {
+        async fn up(code: u16) -> (String, String) {
+            let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let addr = l.local_addr().unwrap().to_string();
+            let app = Router::new().route("/health", get(move || async move { StatusCode::from_u16(code).unwrap() }));
+            tokio::spawn(async move {
+                let _ = axum::serve(l, app).await;
+            });
+            (addr.clone(), format!("http://{addr}"))
+        }
+        let c = reqwest::Client::new();
+        let (a, u) = up(200).await;
+        assert!(probe_ok(&c, &a, &u).await);
+        let (a, u) = up(503).await;
+        assert!(!probe_ok(&c, &a, &u).await, "a loading or dead node is not healthy");
+        let (a, u) = up(404).await;
+        assert!(probe_ok(&c, &a, &u).await, "an upstream with no /health route is judged by its open port");
+        assert!(!probe_ok(&c, "127.0.0.1:1", "http://127.0.0.1:1").await, "a closed port is down");
+    }
 
     #[test]
     fn health_requires_three_failures_and_two_passes() {

@@ -51,6 +51,7 @@ t .work/test_http "serve/front/test_http.mojo -I . -I serve/front" -- ./.work/te
 t .work/stub_engine "serve/front/stub_engine.mojo -I ." -- :
 t .work/test_engine_client "serve/front/test_engine_client.mojo -I ." .work/stub_engine -- ./.work/test_engine_client .work/stub_engine
 t .work/baro-front "serve/front/main.mojo -I . -I serve -I serve/front" -- :
+t .work/engine_cpu "cpu/engine_cpu.mojo -I . -I kernels -I cpu -I serve" -- :  # CPU tier engine builds without max (bench/check-cpu-engine.sh is its gate)
 if [ -f exchange/receipts/front/text-oracle.jsonl ] && [ -f .work/ailab/pack-kq/tokenizer.json ]; then
   t .work/test_text "serve/front/test_text.mojo -I . -I serve" exchange/receipts/front/text-oracle.jsonl -- MINJA_NOW=1700000000 ./.work/test_text
 else
@@ -69,6 +70,7 @@ t .work/test_freivalds "kernels/test_freivalds.mojo -I kernels" -- ./.work/test_
 pack=${BARO_PACK:-.work/engine-pack-q4}; skipped=""
 if [ -f "$pack/pack.bin" ]; then
   t .work/test_prefix "kernels/test_prefix.mojo -I . -I kernels -I serve" -- ": pack $(stat -c %s-%Y "$pack/pack.bin"); BARO_PACK=$pack ./.work/test_prefix"
+  t .work/test_cpu_layer "kernels/test_cpu_layer.mojo -D BARO_SHARED_EXP=1 -I . -I kernels -I cpu -I serve" -- ": pack $(stat -c %s-%Y "$pack/pack.bin"); ./.work/test_cpu_layer $pack"  # CPU tier ops bitwise vs GPU, 27 stages
 else
   skipped="test_prefix (no q4 pack at $pack)"
   echo "SKIP $skipped"

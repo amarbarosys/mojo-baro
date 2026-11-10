@@ -13,6 +13,7 @@ from bento.server import Server
 from engine_client import EngineClient, Request, Event
 from http import Front
 from json import Json, parse
+from posix import block_signals
 from text import Text, Detok
 
 
@@ -104,6 +105,9 @@ struct EngineA(EngineLike):
     def dead_reason(self) -> String:
         return self.c.dead_reason()
 
+    def shutdown(mut self, grace_ms: Int):
+        self.c.shutdown(grace_ms)
+
     def ready_info(self) -> Json:
         return self.c.ready_info()
 
@@ -117,6 +121,7 @@ def _pack_name(pack: String) -> String:
 
 
 def main() raises:
+    block_signals()  # before any thread: SIGTERM must reach the server's signal fd, not kill a worker
     var a = argv()
     if len(a) < 3:
         raise Error("FAIL usage: baro-front ENGINE PACK [--host H] [--port N] [--workers N] [--template FILE]")
@@ -143,6 +148,9 @@ def main() raises:
         i += 2
     if i < len(a):
         raise Error("FAIL usage: option without a value: " + String(a[i]))
+    # Same engine defaults as the Rust front (serve/src/main.rs `defaults`), only where unset.
+    for kv in [("BARO_MOE_DOT", "1"), ("BARO_TIER_ZC", "1"), ("BARO_TIER_PINNED", "1"), ("BARO_PREFILL", "1"), ("BARO_SPEC", "1"), ("BARO_TMAX", "32768")]:
+        _ = setenv(kv[0], kv[1], overwrite=False)
     _ = setenv("BARO_SERVE", "1")
     _ = setenv("BARO_PACK", pack)
     var text = TextA(Text(pack + "/tokenizer.json", template))

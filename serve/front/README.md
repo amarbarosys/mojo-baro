@@ -45,7 +45,7 @@ serve/front/engine_client.mojo                                   lane front-engi
       state(self) -> Int;  state_name(self) -> String;  dead_reason(self) -> String
       ready_info(self) -> Json                  # the ready line (tmax, mrows, kmax, spec_k, kv, pack)
       submit(mut self, req: Request) raises     # named error unless IDLE or BUSY
-      cancel(mut self, id: Int) -> Bool
+      cancel(mut self, id: Int) -> Bool         # True: written now; a queued id is cancelled when it reaches the head
       poll(mut self, mut out: List[Event], timeout_ms: Int) raises -> Int   # reads lines, sees child exit
       shutdown(mut self, grace_ms: Int)         # closes stdin first, then waits, then kills
   One writer for the state: a private `_set(new, why)` that logs `engine: OLD -> NEW (why)`.
@@ -55,7 +55,8 @@ serve/front/http.mojo + api.mojo                                 lane front-http
   trait DetokLike:  push / flush, signatures as Detok
   trait TextLike:   encode / decode / apply_chat_template / tool_xml / stop_ids, signatures as Text;
                     `comptime D: DetokLike` and `detok(self) -> Self.D`
-  trait EngineLike: submit / cancel / poll / state / state_name / ready_info, signatures as EngineClient
+  trait EngineLike: submit / cancel / poll / state / state_name / dead_reason / ready_info / shutdown,
+                    signatures as EngineClient
   struct Front[T: TextLike, E: EngineLike] is a bento.server.Handler.
   Handlers run on many worker threads; the engine has ONE owner, a dispatcher that holds the
   EngineLike and gives each request its own event queue (bento/sync.mojo). No handler touches
@@ -74,9 +75,9 @@ parity with the Rust front.
 | Rust today (report-A id) | Mojo front |
 |---|---|
 | M1: engine state inferred from 5 carriers; a death while idle is unseen; `/health` says ok with a dead engine | one `state()` tag; `poll` sees the child exit; `/health` returns `engine_state` and the exit reason |
-| M1: stop waits 30 s because stdin is never closed | `shutdown` closes stdin first |
+| M1: stop waits 30 s because stdin is never closed | SIGTERM or SIGINT drains, then `shutdown` closes stdin first; exit code 0 |
 | wire: a ready line with a missing field waits 600 s | named error `ready line: missing <field>` |
-| M2: a client disconnect does not cancel | disconnect mid-stream sends cancel; `/v1/cancel` answers `state: queued, running or unknown` |
+| M2: a client disconnect does not cancel | disconnect mid-stream sends cancel; a request still queued is cancelled the moment it starts; `/v1/cancel` answers `state: queued, running or unknown` |
 | M3: a stream that ends with no terminal event returns a partial answer as success | `502 engine stream ended without a terminal event`; SSE sends an error chunk before `[DONE]` |
 | M4: the length guard is repeated by hand in 4 places | one check at submit |
 

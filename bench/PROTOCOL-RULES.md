@@ -1,6 +1,6 @@
 # Protocol rules
 
-Rules that bind every protocol in this directory. P15 to P20 (GPU time, loud failure, minimal code); the plan to apply them to existing scripts is `docs/design/gpu-efficiency.md`. A protocol may add
+Rules that bind every protocol in this directory. P15 to P20 (GPU time, loud failure, minimal code); the plan to apply them to existing scripts is `docs/design/gpu-efficiency.md`. P27 to P34 (2026-11-10: what a run costs, what a result proves, what a stub cannot show) come from the fix round and the CPU tier. "P21" names two rules, the 16K floor and the wavewait capture; reports cite both by that number, so neither is renumbered. A protocol may add
 constraints; it may not relax these. Cited by `coldcache-protocol.md`,
 `decode-race-protocol.md`, `mtp-protocol.md`, `ssm-occupancy-protocol.md`.
 
@@ -382,3 +382,92 @@ shape, recorded as such; the kernel-level byte test against the reference kernel
 Why: on the 27B Turbo shape p03-story and p08-sql differed between the megakernel and launch arms (18/20); the megakernel run
 twice differed on p03 too (`.work/turbokernel/det-q4-mega/`). OrcaSAQ-27B sessions had seen the same prompts vary. Blaming the
 new kernel for those prompts would have been wrong twice; the 9B never shows this.
+
+## P27. The cheapest check that can fail runs first, and a full run is spent once per change of what it gates
+
+Order every verification by cost: `tools/ci-checks.sh` (minutes), the tests the change can affect, the full
+preflight, the GPU suite, the gates. A stage starts only when the cheaper one is green. A receipt is keyed by
+the tree hash of the paths its check reads; while that key stands the receipt is cited, never re-earned. A
+re-check after a commit, a rebase or a merge that did not touch the gated paths uses the gate's quick tier
+(P18), whose only question is "is the committed tree the tested tree".
+
+Why: on 2026-11-10 a preflight of about an hour failed in its first stage on a stale generated file that
+`ci-checks` alone shows in minutes. The same day the full CPU-engine gate (20 prompts x 64 ids, two engines
+on 13.5 cores) was started a second time to confirm a commit; the quick tier (3 x 8) answered that in 56 s.
+
+## P28. Each arm runs only as long as its question; an arm that must fail stops at its first failure
+
+An arm has one of three jobs, and its length follows from the job. The candidate arm supports the claim and
+runs the full set. The control arm (reference against itself) proves the instrument reads 100% and runs the
+full set once per reference binary, then is cached (P17). The mutant arm proves the gate can fail (P11): that
+is an existence proof, so it stops at the first item under the bar. Arms that share a scarce resource (the
+card, the CPU cores) run one after the other, never side by side.
+
+Why: the CPU-engine gate ran its mutant over all 1280 positions next to the candidate; 62 of 1280 agreed, and
+the first prompt alone (0 to 22% per prompt) had already proved the point. Both engines spin 8 threads, so the
+pair held a 16-thread box at load 20 for the length of the gate.
+
+## P29. A zero-miss result states the bound it supports
+
+"0 misses in n" bounds the true miss rate at about 3/n with 95% confidence, and only when the n items are
+independent. Twenty prompts with no miss allow a per-prompt miss rate up to 15%; 64 forced ids of one prompt
+are one draw, not 64. A report gives n, the unit that is independent (prompt, not token), and the bound. A
+claim stronger than the bound must rest on a different kind of evidence, named beside it: a byte test per
+operation against the reference kernel, or a dump diff of every layer.
+
+Why: "1280 of 1280" reads as a 0.2% bound and is a 15% one. The CPU tier's real strength is the 28-stage
+bitwise layer test and the per-layer dump diff; before those, a 3-prompt gate had passed with a wrong `exp`,
+because the ids agreed while the logits did not.
+
+## P30. A parity gate builds both sides with one set of defines and prints it
+
+When two binaries are compared for equality, the gate records the compile-time defines and the include paths
+of each, and reads the deciding one back from the artifact itself (a symbol or an instruction count in the
+ISA) when the program has no echo for it. The claim names the configuration it holds for and the default
+configuration it does not cover.
+
+Why: every CPU operation was bitwise against the GPU in a harness built with `-D BARO_SHARED_EXP=1`; the
+engine was built without it, linked the std `exp`, and failed at 1279 of 1280. Parity holds against the
+shared-math launch path. The megakernel, the default decode path, imports the std math and is outside the
+claim (`docs/lanes/2026-11-10-cpu-tier.md`, decision 6).
+
+## P31. A result on a stub proves the module; a claim names the engine that served
+
+Every result line says what answered: `stub`, `fake`, or `real` with the engine's sha. A fake refuses what
+the real component refuses, and each refusal in a contract ("returns False for a queued id") has one test on
+the real module and the same answer in the fake. A feature is "works" only after one run on `real`.
+
+Why: 562 assertions passed on the Mojo front while it spun a core on a dead engine, died on SIGTERM, let a
+queued request of a departed client decode in full and returned HTTP 200 for a run with a non-zero fail word.
+The HTTP tests' fake engine cancelled queued requests; the real client did not.
+
+## P32. Every poller and every server is tested in its terminal state
+
+A loop that polls gets one test with its peer dead, closed or stopped that measures elapsed time or CPU
+ticks, not only return values. A server binary's user-level check includes `kill -TERM`, its exit code and
+the fate of its child. A liveness answer is a status code: `curl -sf` must fail on a server that cannot serve.
+
+Why: `EngineClient.poll` returned at once on a closed child and its owner loop burned 299 of 300 CPU ticks in
+3 s; `baro-front` exited 143 with no shutdown; both fronts answered `/health` with 200 and `engine_dead` in
+the body.
+
+## P33. A change that moves a signal lists the readers of that signal
+
+When a change alters WHEN or WHETHER a port opens, a file appears, a log line prints or a status code is
+sent, the same commit greps every reader of that signal (connects, `curl -sf`, log greps, probes) and tests
+one. Rows of a fix plan are checked in pairs where they share a signal, not only one by one.
+
+Why: binding the port before the pack loads (one fix) met a router that judged a node by its open port
+(untouched): a loading node and a node with a dead engine stayed in rotation. Each fix had its own passing
+test.
+
+## P34. CPU is a budgeted resource: cores, minutes and heat are stated before a run
+
+A job that will hold more than half the cores, or run longer than 5 minutes, prints its cost first (cores x
+minutes) and runs under `systemd-run --user --scope -p CPUQuota=`. Builds read `Tctl` first and wait at 84 C
+or more. A CPU engine or pool is measured twice, on a quiet box and beside a second load, and both numbers are
+reported; a spinning pool's quiet-box number is not its speed.
+
+Why: the box reset on a CPU thermal limit on 2026-11-09 under 7 building lanes and lost 25 git objects; Tctl
+read 89.8 C at load 4.7 the same night. The CPU tier decodes 6 to 7 tok/s alone and 0.48 tok/s beside one
+9-core job.

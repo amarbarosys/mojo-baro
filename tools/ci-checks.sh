@@ -223,6 +223,12 @@ if "$MOJO" build serve/test_tune.mojo -I . -I serve -o .work/ci-tune >/dev/null 
 step "VRAM pool size default check"
 if python3 -c 'import sys, tomllib; d = tomllib.load(open("docs/settings-template.toml", "rb")); val = d["settings"]["MODULAR_DEVICE_CONTEXT_MEMORY_MANAGER_SIZE_PERCENT"]["default"]; sys.exit(0 if val == "2" or val == "10" else 1)'; then ok "MODULAR_DEVICE_CONTEXT_MEMORY_MANAGER_SIZE_PERCENT default is capped (<= 10)"; else bad "MODULAR_DEVICE_CONTEXT_MEMORY_MANAGER_SIZE_PERCENT default in settings-template.toml is uncapped (> 10)"; fi
 
+step "CPU tier imports no max and no gpu (cpu/, kernels/bexp.mojo)"
+if ! grep -nE '^ *(from|import) +(max|std\.gpu|gpu|layout)\b' cpu/*.mojo cpu/android/*.mojo kernels/bexp.mojo; then ok "cpu/ and bexp import neither max nor gpu"; else bad "a CPU tier file imports max or gpu (lines above)"; fi
+flagdep=$(awk '/^from bexp import/{sub(/^from bexp import */, ""); n = split($0, it, ","); for (i = 1; i <= n; i++) { split(it[i], w, " "); if (w[1] ~ /^(exp|log|rsqrt|sin|cos)$/) print FILENAME ": " w[1] } }' cpu/*.mojo)
+if [ -z "$flagdep" ]; then ok "cpu/ takes fexp32/flog32/frsq32/fsincos32, never bexp's BARO_SHARED_EXP-dependent names"
+else bad "cpu/ imports a bexp name whose meaning follows -D BARO_SHARED_EXP: $flagdep (use fexp32 / flog32 / frsq32 / fsincos32)"; fi
+
 printf '\n'
 if [ "$fails" = 0 ]; then echo "all non-GPU checks passed"; else echo "$fails check(s) failed"; fi
 exit $((fails > 0))

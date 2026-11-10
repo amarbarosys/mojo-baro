@@ -334,6 +334,10 @@ def t_idle_death(mut k: Check, stub: String) raises:
     k.ok(c.state() == ENG_DEAD and c.fd() == -1, "DEAD, fd closed")
     var again = List[Event]()
     k.ok(c.poll(again, 10) == 0, "poll after DEAD adds nothing")
+    var t_dead = perf_counter_ns()
+    _ = c.poll(again, 60)
+    _ = c.poll(again, 60)
+    k.ok((perf_counter_ns() - t_dead) // 1000000 >= 100, "poll on a dead engine waits its timeout (the owner loop does not spin)")
     try:
         c.submit(req(1, 1))
         k.ok(False, "submit when DEAD must raise")
@@ -394,7 +398,7 @@ def t_cancel(mut k: Check, stub: String) raises:
     until_ready(c, evs)
     c.submit(req(1, 50))
     c.submit(req(2, 4))
-    k.ok(not c.cancel(2), "a queued request is not cancelled")
+    k.ok(not c.cancel(2), "a queued request is not cancelled now (it is remembered)")
     k.ok(not c.cancel(99), "an unknown id is not cancelled")
     evs = List[Event]()
     var t0 = perf_counter_ns()
@@ -411,6 +415,15 @@ def t_cancel(mut k: Check, stub: String) raises:
     k.ok(c.state() == ENG_BUSY, "request 2 still in flight")
     pump(c, evs, 2, 5000)
     k.ok(kinds(evs, EV_DONE) == 2 and c.state() == ENG_IDLE, "request 2 finishes after the cancel")
+    var done2 = Event(-1, 0, 0, "")
+    var toks2 = 0
+    for i in range(len(evs)):
+        if evs[i].kind == EV_DONE and evs[i].id == 2:
+            done2 = evs[i].copy()
+        if evs[i].kind == EV_TOKEN and evs[i].id == 2:
+            toks2 += 1
+    k.ok('"finish":"cancelled"' in done2.text, "the queued request is cancelled when it reaches the head: " + done2.text)
+    k.ok(toks2 < 4, String("the queued request stopped early after ", toks2, " of 4 tokens"))
     k.ok(not c.cancel(1), "a finished request is not cancelled")
     c.shutdown(2000)
 
