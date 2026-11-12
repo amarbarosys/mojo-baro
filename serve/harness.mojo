@@ -332,6 +332,26 @@ def find_drm_dev() -> String:
     return best
 
 
+def cu_count() -> Int:
+    var best: Int = 0
+    for i in range(16):
+        try:
+            with open("/sys/class/kfd/kfd/topology/nodes/" + String(i) + "/properties", "r") as f:
+                var simd = 0
+                var per = 0
+                for line in f.read().split("\n"):
+                    var kv = line.split(" ")
+                    if len(kv) == 2 and kv[0] == "simd_count":
+                        simd = atol(kv[1])
+                    elif len(kv) == 2 and kv[0] == "simd_per_cu":
+                        per = atol(kv[1])
+                if per > 0 and simd // per > best:
+                    best = simd // per
+        except:
+            pass
+    return best
+
+
 def find_drm_vram_used() -> String:
     var dev = find_drm_dev()
     return dev + "mem_info_vram_used" if dev != "" else String("")

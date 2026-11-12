@@ -34,12 +34,18 @@ usage: q4x FIRST_SHARD N_GEN TOK...      env Q4X_DUMP=1 prints block sums
            fit; 1.5x slower at 8192 as 4 x 2048, each chunk refetches its experts); Q4X_SEQ=N splits the prompt into
            sequences of N tokens processed together in one forward (states per sequence, attention within a sequence)
        Q4X_ATTSPLIT=N decode attention (T = 1, dense) runs as three byte-exact kernels once the context has N tokens (default 512, 0 = the one-kernel path)
-       Q4X_STDIN=1 resident mode: one request per stdin line "TAG N_GEN TOK...", engine state reset between requests
-           (the expert cache stays warm); prints "out TAG ids id..." after each request's own report lines
+       Q4X_STDIN=1 resident mode: one request per stdin line "TAG N_GEN [@VEC] TOK...", engine state reset between requests
+           (the expert cache stays warm); prints "out TAG ids id..." after each request's own report lines and appends
+           "TAG hidden_rows att_rows" per request to Q4X_INDEX=path; @VEC = this request's Q4X_VEC file (ids from
+           Q4X_VEC_IDS, else VEC.ids, the Q4X_SOFT_OUT format); Q4X_SOFT_OUT is then a directory: each request writes
+           its soft rows to DIR/TAG (+ DIR/TAG.ids)
        BARO_SERVE=1 BARO_PACK=FIRST_SHARD serves the baro-serve line protocol (serve/PROTOCOL.md): ready line with tmax=Q4X_TMAX,
            per-token {"id","tok"} lines, a done line, stop sequences, greedy only (sampling fields answer an error line)
        Q4X_HIDDEN=path appends the final-norm hidden of every position as bf16 rows (2560 x 2 B), count in path.n;
-           Q4X_HIDDEN_F32=1 writes f32 rows instead
+           Q4X_HIDDEN_F32=1 writes f32 rows instead; Q4X_HIDDEN_TAIL=K writes only the last K positions of each forward
+       Q4X_DUMP_ATT=path appends, per forward, the last Q4X_DUMP_TAIL (default 12) positions of the last attention layer
+           (il 47): first their q rows after qk-norm and rope (NQ x HD f32), then their attn_output rows (H f32)
+       Q4X_STOP=id ends generation at that id once the forced ids are consumed (the id is still printed)
        Q4X_VEC=path Q4X_VEC_IDS=id,id,... after the prompt, one step per f32 row (2560 x 4 B) whose input is that
            vector in place of the token_embd row; the id is still appended for the per-layer n-gram embedding
        Q4X_SOFT=m after the prompt, m soft steps: input softmax(top-K logits) . token_embd rows (engine dequant),
@@ -63,7 +69,7 @@ from std.ffi import external_call, OwnedDLHandle
 from std.memory import bitcast, alloc
 from max.algorithm import parallelize
 from std.time import perf_counter_ns
-from max.gpu.host import DeviceContext, DeviceBuffer, HostBuffer
+from max.gpu.host import DeviceContext, DeviceBuffer, DeviceEvent, HostBuffer
 from layout import TileTensor, TensorLayout, row_major, Idx
 from shard_index import ShardIndex, TensorRef, ggml_row_bytes
 from q4x_cpu import cpu_experts
@@ -138,6 +144,8 @@ comptime STG_TAB = 3 * NE * 8
 comptime ATT_G_MIN = 8
 comptime AM_NB = 64
 comptime COUNT_DISPATCH = get_defined_int["Q4X_COUNT_DISPATCH", 0]() != 0
+comptime LOGDE = get_defined_int["Q4X_LOG_DRAFT_EXPERTS", 0]() != 0
+comptime DOV_W = 9
 
 comptime Vec = List[Float32]
 comptime FPtr = MutPointer[Scalar[f32], MutAnyOrigin]
@@ -180,6 +188,11 @@ struct Q4X:
     var ev: HostBuffer[u8]
     var ebase: Int
     var zc: Bool
+    var mpc: List[DeviceContext]
+    var mpe: List[DeviceEvent]
+    var mpu: List[Bool]
+    var mpn: Int
+    var devarg: Bool
     var ec: DeviceBuffer[u8]
     var ztab: DeviceBuffer[i64]
     var wtsb: DeviceBuffer[f32]
@@ -198,6 +211,11 @@ struct Q4X:
     var warmed: Int
     var tr: FileHandle
     var tron: Bool
+    var dov_d: List[Int]
+    var dov_p: List[Int]
+    var dov_s: List[Int]
+    var dov_v: Bool
+    var dov_live: Bool
     var mtr: FileHandle
     var mtron: Bool
     var mtround: Int
@@ -267,6 +285,11 @@ struct Q4X:
     var hidf32: Bool
     var hidpath: String
     var hidn: Int
+    var hidtail: Int
+    var att: FileHandle
+    var atton: Bool
+    var atttail: Int
+    var attn: Int
     var rw: Int
     var rc: Int
     var spec: Int
@@ -465,6 +488,12 @@ struct Q4X:
         ehi = (ehi + 4095) // 4096 * 4096
         self.ebase = elo
         self.zc = False
+        self.mpc = List[DeviceContext]()
+        self.mpe = List[DeviceEvent]()
+        self.mpu = List[Bool]()
+        self.mpn = 0
+        self.devarg = getenv("Q4X_DEVARG", "") != ""
+        print("q4x: devarg", 1 if self.devarg else 0)
         _ = external_call["madvise", Int32](elo, ehi - elo, Int32(22))
         if getenv("Q4X_ZC", "1") != "0":
             var lib = OwnedDLHandle("/opt/rocm/lib/libamdhip64.so")
@@ -472,6 +501,12 @@ struct Q4X:
             self.zc = rc == 0
             if rc != 0:
                 print("q4x: hipHostRegister of the expert region rc", rc, ": misses go through the staging memcpy")
+        for _ in range(Int(getenv("Q4X_MISSPAR", "0")) if self.zc else 0):
+            _ = self.ctx.create_stream()
+            self.mpc.append(self.ctx.select_stream(self.ctx.num_streams() - 1))
+            self.mpe.append(self.ctx.create_event())
+            self.mpu.append(False)
+        print("q4x: misspar", len(self.mpc), "streams")
         if self.zc:
             self.ev = HostBuffer[u8](self.ctx, MutPointer[Scalar[u8], MutUntrackedOrigin](unsafe_from_address=elo), ehi - elo, owning=False)
         else:
@@ -493,6 +528,11 @@ struct Q4X:
         self.ebytes = 0
         self.warmed = 0
         self.tron = getenv("Q4X_EXPERTS", "") != ""
+        self.dov_d = List[Int](length=NE if LOGDE else 0, fill=0)
+        self.dov_p = List[Int](length=NE if LOGDE else 0, fill=0)
+        self.dov_s = List[Int](length=(NL * DOV_W + 4) if LOGDE else 0, fill=0)
+        self.dov_v = False
+        self.dov_live = False
         self.tr = open(getenv("Q4X_EXPERTS", "/dev/null"), "w")
         self.mtron = getenv("Q4X_MTP_TRACE", "") != ""
         self.mtr = open(getenv("Q4X_MTP_TRACE", "/dev/null"), "w")
@@ -504,6 +544,11 @@ struct Q4X:
         self.hidf32 = getenv("Q4X_HIDDEN_F32", "") != ""
         self.hid = open(self.hidpath if self.hidon else "/dev/null", "w")
         self.hidn = 0
+        self.hidtail = Int(getenv("Q4X_HIDDEN_TAIL", "0"))
+        self.atton = getenv("Q4X_DUMP_ATT", "") != ""
+        self.att = open(getenv("Q4X_DUMP_ATT", "/dev/null"), "w")
+        self.atttail = Int(getenv("Q4X_DUMP_TAIL", "12"))
+        self.attn = 0
         self.keepon = getenv("Q4X_KEEP", "") != ""
         self.kbias = self.ctx.enqueue_create_buffer[f32](NL * NE)
         self.kbias.enqueue_fill(0)
@@ -1198,8 +1243,22 @@ struct Q4X:
             else:
                 self.cnt("attn")
                 self.ctx.enqueue_function[amar_q4x_attn](Self.da(self.qb, 0), Self.da(self.gb, 0), Int32(NQ * HD), kc, vc, Self.da(self.scd, 0), Int32(self.kvmax), self.visd.unsafe_ptr(), HPtr(unsafe_from_address=Int(self.xo.unsafe_ptr()) + 2 * q0 * OD), Int32(OD), Int32(self.kv0 + q0), sst, Int32(masked), Int32(NQ), Int32(NKV), 1 / sqrt(Float32(HD)), grid_dim=(NQ, Q), block_dim=HD)
+            var a0 = max(self.T - self.atttail, q0)
+            if self.atton and il == NL - 1 and a0 < q0 + Q:
+                self.dump_rows(True, (a0 - q0) * NQ * HD, (q0 + Q - a0) * NQ * HD)
         _ = self.gemv(p + "attn_output.weight", TileTensor(self.xo, row_major(self.cap, Idx[OD])), cur, H)
         self.dd("attn_output", il, self.curb, 0, H, H)
+        if self.atton and il == NL - 1:
+            var r0 = max(self.T - self.atttail, 0)
+            self.dump_rows(False, r0 * H, (self.T - r0) * H)
+            self.attn += self.T - r0
+
+    def dump_rows(mut self, q: Bool, off: Int, n: Int) raises:
+        if n > self.cap * H:
+            raise Error("q4x: Q4X_DUMP_ATT rows of " + String(n) + " floats exceed the host buffer; raise Q4X_TMAX or lower Q4X_DUMP_TAIL")
+        self.ctx.enqueue_copy(dst_buf=self.hh.create_sub_buffer[f32](0, n), src_buf=(self.qb if q else self.curb).create_sub_buffer[f32](off, n))
+        self.ctx.synchronize()
+        self.att.write_bytes(Span[UInt8](unsafe_ptr=BPtr(unsafe_from_address=Int(self.hh.unsafe_ptr())), length=n * 4))
 
     def fetch(mut self, il: Int, id: Int) raises -> Int:
         var p = "blk." + String(il) + "."
@@ -1215,12 +1274,35 @@ struct Q4X:
         self.slot_of[il * NE + id] = sl
         self.misses += 1
         self.ebytes += gs + us + ds
+        comptime if LOGDE:
+            if self.dov_v:
+                var b = il * DOV_W
+                var by = gs + us + ds
+                self.dov_s[b + 3] += 1
+                self.dov_s[b + 6] += by
+                if self.dov_d[id] != 0:
+                    self.dov_s[b + 4] += 1
+                    self.dov_s[b + 7] += by
+                if self.dov_p[id] != 0:
+                    self.dov_s[b + 5] += 1
+                    self.dov_s[b + 8] += by
         if self.mtron and self.mverify:
             self.mtr.write("M " + String(self.mtround) + " " + String(il) + " " + String(id) + " " + String(gs + us + ds) + "\n")
         if self.zc:
-            self.ctx.enqueue_copy(dst_buf=self.ec.create_sub_buffer[u8](sl * slot, gs), src_buf=self.ev.create_sub_buffer[u8](rg.addr + id * gs - self.ebase, gs))
-            self.ctx.enqueue_copy(dst_buf=self.ec.create_sub_buffer[u8](sl * slot + gs, us), src_buf=self.ev.create_sub_buffer[u8](ru.addr + id * us - self.ebase, us))
-            self.ctx.enqueue_copy(dst_buf=self.ec.create_sub_buffer[u8](sl * slot + gs + us, ds), src_buf=self.ev.create_sub_buffer[u8](rd.addr + id * ds - self.ebase, ds))
+            var n = len(self.mpc)
+            for i in range(3):
+                var off = 0 if i == 0 else (gs if i == 1 else gs + us)
+                var len_ = gs if i == 0 else (us if i == 1 else ds)
+                var src = (rg.addr + id * gs) if i == 0 else ((ru.addr + id * us) if i == 1 else (rd.addr + id * ds))
+                var dst = self.ec.create_sub_buffer[u8](sl * slot + off, len_)
+                var sb = self.ev.create_sub_buffer[u8](src - self.ebase, len_)
+                if n == 0:
+                    self.ctx.enqueue_copy(dst_buf=dst, src_buf=sb)
+                else:
+                    var j = self.mpn % n
+                    self.mpn += 1
+                    self.mpc[j].enqueue_copy(dst_buf=dst, src_buf=sb)
+                    self.mpu[j] = True
         else:
             var st = Int(self.eh.unsafe_ptr()) + (self.misses % TOPK) * slot
             _ = external_call["memcpy", Int](st, rg.addr + id * gs, gs)
@@ -1290,6 +1372,16 @@ struct Q4X:
                 gi[e] = nu
                 nu += 1
             cnt[e + 1] += cnt[e]
+        comptime if LOGDE:
+            if self.dov_v:
+                var b = il * DOV_W
+                for e in range(NE):
+                    if gi[e] >= 0:
+                        self.dov_s[b] += 1
+                        if self.dov_d[e] != 0:
+                            self.dov_s[b + 1] += 1
+                        if self.dov_p[e] != 0:
+                            self.dov_s[b + 2] += 1
         if nu + TOPK > len(self.slot_key):
             raise Error("q4x: layer " + String(il) + " routes to " + String(nu) + " experts, the cache has " + String(len(self.slot_key)) + " slots; raise Q4X_ECACHE_GB")
         var fillp = cnt.copy()
@@ -1342,6 +1434,11 @@ struct Q4X:
             tb[2 * gi[e]] = Int64(sl * self.slot)
             tb[2 * gi[e] + 1] = Int64(sl * self.slot + gs)
             tb[2 * NE + gi[e]] = Int64(sl * self.slot + gs + us)
+        for j in range(len(self.mpc)):
+            if self.mpu[j]:
+                self.mpc[j].stream().record_event(self.mpe[j])
+                self.ctx.stream().enqueue_wait_for(self.mpe[j])
+                self.mpu[j] = False
         var ec = Int(self.ec.unsafe_ptr())
         var used = STG_TAB + 8 * G + 16 * nt
         self.cnt("copy ffn_staging")
@@ -1511,17 +1608,19 @@ struct Q4X:
         self.hc_mix("output_hc_", -1)
         self.dd("result_norm", -1, self.curb, 0, H, H)
         if self.hidon:
-            self.ctx.enqueue_copy(dst_buf=self.hh.create_sub_buffer[f32](0, T * H), src_buf=self.curb.create_sub_buffer[f32](0, T * H))
+            var r0 = T - self.hidtail if 0 < self.hidtail < T else 0
+            var n = T - r0
+            self.ctx.enqueue_copy(dst_buf=self.hh.create_sub_buffer[f32](0, n * H), src_buf=self.curb.create_sub_buffer[f32](r0 * H, n * H))
             self.ctx.synchronize()
             var src = self.hh.unsafe_ptr()
             if self.hidf32:
-                self.hid.write_bytes(Span[UInt8](unsafe_ptr=BPtr(unsafe_from_address=Int(src)), length=T * H * 4))
+                self.hid.write_bytes(Span[UInt8](unsafe_ptr=BPtr(unsafe_from_address=Int(src)), length=n * H * 4))
             else:
                 var xp = self.xh.unsafe_ptr()
-                for i in range(T * H):
+                for i in range(n * H):
                     xp[i] = src[i].cast[bf16]()
-                self.hid.write_bytes(Span[UInt8](unsafe_ptr=BPtr(unsafe_from_address=Int(xp)), length=T * H * 2))
-            self.hidn += T
+                self.hid.write_bytes(Span[UInt8](unsafe_ptr=BPtr(unsafe_from_address=Int(xp)), length=n * H * 2))
+            self.hidn += n
             with open(self.hidpath + ".n", "w") as f:
                 f.write(String(self.hidn) + "\n")
 
@@ -1557,6 +1656,22 @@ struct Q4X:
         self.rc = (self.rc + 1) % self.rw
         return self.logits()
 
+    def step_id(mut self, tok: Int) raises -> Int:
+        var pos = len(self.toks)
+        if pos >= self.kvmax:
+            raise Error("q4x: position " + String(pos) + " exceeds Q4X_TMAX " + String(self.kvmax))
+        self.toks.append(tok)
+        self.kv0 = pos
+        var one = List[Int]()
+        one.append(tok)
+        self.forward(one, 1)
+        self.dn += 1
+        self.rc = (self.rc + 1) % self.rw
+        self.head(0, 1, Self.ia(self.vids), Self.da(self.vprob, 0))
+        self.ctx.enqueue_copy(dst_buf=self.vidh.create_sub_buffer[i32](0, 1), src_buf=self.vids.create_sub_buffer[i32](0, 1))
+        self.ctx.synchronize()
+        return Int(self.vidh.unsafe_ptr()[0])
+
     def step_vec(mut self, tok: Int, v: Vec) raises -> Vec:
         if len(v) != H:
             raise Error("q4x: input vector of " + String(len(v)) + " values, need " + String(H))
@@ -1580,15 +1695,15 @@ struct Q4X:
                 if lg[i] > cut:
                     cand.append(i)
             cut -= 30.0
+        var keys = List[Int]()
+        for i in cand:
+            var b = Int(bitcast[DType.uint32](lg[i]))
+            var ob = b ^ 0xFFFFFFFF if b >= 0x80000000 else b | 0x80000000
+            keys.append(((0xFFFFFFFF - ob) << 32) | i)
+        sort(keys)
         var top = List[Int]()
-        for _ in range(k):
-            var b = 0
-            for j in range(1, len(cand)):
-                if lg[cand[j]] > lg[cand[b]]:
-                    b = j
-            top.append(cand[b])
-            cand[b] = cand[len(cand) - 1]
-            _ = cand.pop()
+        for j in range(k):
+            top.append(keys[j] & 0xFFFFFFFF)
         var w = List[Float64]()
         var z = 0.0
         for j in range(k):
@@ -1656,6 +1771,12 @@ struct Q4X:
         self.misses = 0
         self.ebytes = 0
         self.cpun = 0
+        comptime if LOGDE:
+            for i in range(len(self.dov_s)):
+                self.dov_s[i] = 0
+            for e in range(NE):
+                self.dov_d[e] = 0
+                self.dov_p[e] = 0
         self.dc = Dict[String, Int]()
         self.dn = 0
         for i in range(len(self.prof)):
@@ -1689,7 +1810,17 @@ struct Q4X:
             self.toks.append(t)
         self.kv0 = pos
         self.mverify = self.mtron
+        comptime if LOGDE:
+            self.dov_v = self.dov_live
         self.forward(win, len(win))
+        comptime if LOGDE:
+            if self.dov_v:
+                self.dov_s[NL * DOV_W] += 1
+                for e in range(NE):
+                    self.dov_s[NL * DOV_W + 1] += self.dov_d[e]
+                    self.dov_s[NL * DOV_W + 2] += self.dov_p[e]
+            self.dov_v = False
+            self.dov_live = False
         self.mverify = False
         self.head(0, len(win), Self.ia(self.vids), Self.da(self.vprob, 0))
         self.ctx.enqueue_copy(dst_buf=self.vidh.create_sub_buffer[i32](0, len(win)), src_buf=self.vids.create_sub_buffer[i32](0, len(win)))
@@ -1713,6 +1844,13 @@ struct Q4X:
         self.fmv(p + "ffn_gate_inp.weight", cur, H, Self.da(self.yb, 0), YW, p + "ffn_gate_inp_shexp.weight")
         self.seq += 1
         self.ctx.enqueue_function[amar_q4x_router](Self.da(self.yb, 0), Int32(YW), Self.ia(self.selb), Self.da(self.wtsb, 0), self.seq, Int32(TOPK), Self.da(self.kbias, 0), Int32(0), grid_dim=T, block_dim=NE)
+        comptime if LOGDE:
+            self.ctx.enqueue_copy(dst_buf=self.selh.create_sub_buffer[i32](0, T * Q4X_SEL), src_buf=self.selb.create_sub_buffer[i32](0, T * Q4X_SEL))
+            self.ctx.synchronize()
+            var dsp = IPtr(unsafe_from_address=Int(self.selh.unsafe_ptr()))
+            for t in range(T):
+                for j in range(TOPK):
+                    self.dov_d[Int(dsp[unsafe_offset=t * Q4X_SEL + 1 + j])] = 1
         if self.mtron:
             self.ctx.enqueue_copy(dst_buf=self.selh.create_sub_buffer[i32](0, T * Q4X_SEL), src_buf=self.selb.create_sub_buffer[i32](0, T * Q4X_SEL))
             self.ctx.synchronize()
@@ -1763,6 +1901,10 @@ struct Q4X:
 
     def draft(mut self, ids: List[Int], pos0: Int, k: Int) raises -> Int:
         var n = len(ids)
+        comptime if LOGDE:
+            self.dov_p = self.dov_d.copy()
+            for e in range(NE):
+                self.dov_d[e] = 0
         if self.mtron:
             self.mtround += 1
             self.mstep = 0
@@ -1784,6 +1926,8 @@ struct Q4X:
         self.ctx.enqueue_copy(dst_buf=self.vidh.create_sub_buffer[i32](0, k), src_buf=self.vids.create_sub_buffer[i32](self.mcap, k))
         self.ctx.enqueue_copy(dst_buf=self.vprh.create_sub_buffer[f32](0, k), src_buf=self.vprob.create_sub_buffer[f32](self.mcap, k))
         self.ctx.synchronize()
+        comptime if LOGDE:
+            self.dov_live = True
         return k
 
 
@@ -1858,18 +2002,32 @@ def main() raises:
         return
     if eng.spec > 0:
         raise Error("q4x: Q4X_STDIN runs without Q4X_SPEC")
+    var idx = open(getenv("Q4X_INDEX", "/dev/null"), "w")
+    var sdir = getenv("Q4X_SOFT_OUT", "")
+    var vdef = getenv("Q4X_VEC", "")
     while True:
         var line = read_line(0)
         if not line:
             break
         var f = line.value().split(" ")
         if len(f) < 3:
-            raise Error("q4x: stdin request needs TAG N_GEN TOK..., got: " + line.value())
+            raise Error("q4x: stdin request needs TAG N_GEN [@VEC] TOK..., got: " + line.value())
+        var i0 = 2
+        _ = setenv("Q4X_VEC", vdef)
+        if f[2].startswith("@"):
+            _ = setenv("Q4X_VEC", String(f[2][byte=1:]))
+            i0 = 3
         var prompt = List[Int]()
-        for i in range(2, len(f)):
+        for i in range(i0, len(f)):
             prompt.append(Int(f[i]))
+        if sdir != "":
+            _ = setenv("Q4X_SOFT_OUT", sdir + "/" + String(f[0]))
         eng.reset()
+        var h0 = eng.hidn
+        var a0 = eng.attn
         run(eng, prompt, Int(f[1]), force, String(f[0]), -1, nostop, nostr)
+        idx.write(String(f[0]), " ", eng.hidn - h0, " ", eng.attn - a0, "\n")
+    idx.close()
 
 
 def stopped(gen: List[Int], stop: List[List[Int]]) -> Bool:
@@ -1926,7 +2084,11 @@ def run(mut eng: Q4X, prompt: List[Int], ngen: Int, force: List[Int], tag: Strin
     if vpath != "":
         if eng.spec > 0:
             raise Error("q4x: Q4X_VEC steps run without Q4X_SPEC")
-        var vids = getenv("Q4X_VEC_IDS", "").split(",")
+        var vs = getenv("Q4X_VEC_IDS", "")
+        if vs == "":
+            with open(vpath + ".ids", "r") as f:
+                vs = String(f.read().strip())
+        var vids = vs.split(",")
         var raw: List[UInt8]
         with open(vpath, "r") as f:
             raw = f.read_bytes()
@@ -2000,13 +2162,25 @@ def run(mut eng: Q4X, prompt: List[Int], ngen: Int, force: List[Int], tag: Strin
             hist.append(g)
             pos += n
         var t2 = perf_counter_ns()
-        print("spec rounds", rounds, "drafted", drafted, "accepted", accepted, "tokens/round", Float64(got - 1) / Float64(max(rounds, 1)), "draft ms/round", Float64(tdraft) / 1e6 / Float64(max(rounds, 1)), "verify ms/round", Float64(tver) / 1e6 / Float64(max(rounds, 1)), "verify misses/round", Float64(mver) / Float64(max(rounds, 1)), "gen ms/token", Float64(t2 - t1) / 1e6 / Float64(max(got - 1, 1)))
+        print("spec rounds", rounds, "k", eng.spec, "pmin", pmin, "drafted", drafted, "accepted", accepted, "tokens/round", Float64(got - 1) / Float64(max(rounds, 1)), "draft ms/round", Float64(tdraft) / 1e6 / Float64(max(rounds, 1)), "verify ms/round", Float64(tver) / 1e6 / Float64(max(rounds, 1)), "verify misses/round", Float64(mver) / Float64(max(rounds, 1)), "gen ms/token", Float64(t2 - t1) / 1e6 / Float64(max(got - 1, 1)))
+        comptime if LOGDE:
+            var t = List[Int](length=DOV_W, fill=0)
+            for il in range(NL):
+                for c in range(DOV_W):
+                    t[c] += eng.dov_s[il * DOV_W + c]
+            print("draftov windows", eng.dov_s[NL * DOV_W], "dsum", eng.dov_s[NL * DOV_W + 1], "dsum_prev", eng.dov_s[NL * DOV_W + 2], "v", t[0], "vhit", t[1], "vhit_c1", t[2], "miss", t[3], "misshit", t[4], "misshit_c1", t[5], "missB", t[6], "savedB", t[7], "savedB_c1", t[8])
+            for il in range(NL):
+                var b = il * DOV_W
+                print("draftov-layer", il, "v", eng.dov_s[b], "vhit", eng.dov_s[b + 1], "vhit_c1", eng.dov_s[b + 2], "miss", eng.dov_s[b + 3], "misshit", eng.dov_s[b + 4], "misshit_c1", eng.dov_s[b + 5])
     else:
+        var nxt = argmax(lg) if len(lg) > 0 else 0
+        var stopid = Int(getenv("Q4X_STOP", "-1"))
         for i in range(ngen):
             if len(lg) == 0:
                 break
-            var nxt = argmax(lg)
             out += " " + String(nxt)
+            if nxt == stopid and i >= len(force):
+                break
             if rid >= 0:
                 print("{\"id\":" + String(rid) + ",\"tok\":" + String(nxt) + "}")
                 gen.append(nxt)
@@ -2017,7 +2191,12 @@ def run(mut eng: Q4X, prompt: List[Int], ngen: Int, force: List[Int], tag: Strin
                     finish = "cancelled"
                     break
             if i + 1 < ngen:
-                lg = eng.step(force[i] if i < len(force) else nxt)
+                var fin = force[i] if i < len(force) else nxt
+                if eng.devarg:
+                    nxt = eng.step_id(fin)
+                else:
+                    lg = eng.step(fin)
+                    nxt = argmax(lg)
         dt = Float64(perf_counter_ns() - t1) / 1e9
         print("gen ms/token", dt * 1e3 / Float64(max(ngen - 1, 1)))
     print(out if tag == "" else "out " + tag + " " + out)

@@ -1,3 +1,5 @@
+from arch import readlane
+from max.gpu import MAX_THREADS_PER_BLOCK_METADATA
 from std.bit import log2_floor
 from max.gpu import block_idx, thread_idx, lane_id, WARP_SIZE
 from max.gpu.primitives import warp
@@ -232,7 +234,7 @@ def dattn_load_span[
 @always_inline
 def dattn_bcast[RPL: Int, LPR: Int, DUP: Int, I: Int](p: Float32, lr: Int) -> Float32:
     comptime if RPL == 1:
-        return llvm_intrinsic["llvm.amdgcn.readlane", Float32](p, Int32(I * DUP))
+        return readlane(p, Int32(I * DUP))
     else:
         return warp.shuffle_idx(p, UInt32(lr * LPR + I * DUP))
 
@@ -477,7 +479,7 @@ def dattn_combine_body[
     barrier()
 
 
-@__llvm_metadata(`rocdl.flat_work_group_size`=StaticTuple[Int32, 1](Int32(HD)))
+@__llvm_metadata(MAX_THREADS_PER_BLOCK_METADATA=StaticTuple[Int32, 1](Int32(HD)))
 def amar_dattn_split[
     HD: Int, NQH: Int, NKVH: Int, KVT: DType, NAT: Int, NLD: Int, ROT: Bool,
     QLayout: TensorLayout, KLayout: TensorLayout, OLayout: TensorLayout, PLayout: TensorLayout,

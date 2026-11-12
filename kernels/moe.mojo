@@ -1,3 +1,4 @@
+from arch import perm, sdot4, sudot4
 from max.gpu import block_idx, global_idx, lane_id, thread_idx, WARP_SIZE
 from max.gpu.primitives import warp
 from std.memory import bitcast
@@ -577,8 +578,8 @@ def iq4nl_i8(n: SIMD[u8, 16]) -> SIMD[i8, 16]:
     var m = ((w >> 3) & 0x01010101) * 0xFF
     var o = SIMD[DType.uint32, 4](0)
     comptime for i in range(4):
-        var lo = llvm_intrinsic["llvm.amdgcn.perm", UInt32](UInt32(0xF6EADDCF), UInt32(0xBFAD9881), sel[i])
-        var hi = llvm_intrinsic["llvm.amdgcn.perm", UInt32](UInt32(0x71594535), UInt32(0x26190D01), sel[i])
+        var lo = perm(UInt32(0xF6EADDCF), UInt32(0xBFAD9881), sel[i])
+        var hi = perm(UInt32(0x71594535), UInt32(0x26190D01), sel[i])
         o[i] = (hi & m[i]) | (lo & ~m[i])
     return bitcast[i8, 16](o)
 
@@ -1409,11 +1410,11 @@ def kq_q8_row_dot[
         var s0 = Int32(0)
         var s1 = Int32(0)
         comptime for i in range(4):
-            d0 = llvm_intrinsic["llvm.amdgcn.sdot4", Int32](w0[i], x0[i], d0, False)
-            d1 = llvm_intrinsic["llvm.amdgcn.sdot4", Int32](w1[i], x1[i], d1, False)
+            d0 = sdot4(w0[i], x0[i], d0, False)
+            d1 = sdot4(w1[i], x1[i], d1, False)
             comptime if HAS_MIN:
-                s0 = llvm_intrinsic["llvm.amdgcn.sdot4", Int32](ones, x0[i], s0, False)
-                s1 = llvm_intrinsic["llvm.amdgcn.sdot4", Int32](ones, x1[i], s1, False)
+                s0 = sdot4(ones, x0[i], s0, False)
+                s1 = sdot4(ones, x1[i], s1, False)
         var t0 = r[2] * Scalar[f32](d0) - r[4] * Scalar[f32](s0)
         var t1 = r[3] * Scalar[f32](d1) - r[5] * Scalar[f32](s1)
         acc = fma(As[unsafe_offset=k0 // 32].cast[f32](), t0, fma(As[unsafe_offset=k1 // 32].cast[f32](), t1, acc))
@@ -1845,10 +1846,10 @@ def q4k_q8_visit(
     var s0 = Int32(0)
     var s1 = Int32(0)
     comptime for i in range(4):
-        dot0 = llvm_intrinsic["llvm.amdgcn.sdot4", Int32](lo[i], ai0[i], dot0, False)
-        dot1 = llvm_intrinsic["llvm.amdgcn.sudot4", Int32](False, hi[i], True, ai1[i], dot1, False)
-        s0 = llvm_intrinsic["llvm.amdgcn.sdot4", Int32](ones, ai0[i], s0, False)
-        s1 = llvm_intrinsic["llvm.amdgcn.sdot4", Int32](ones, ai1[i], s1, False)
+        dot0 = sdot4(lo[i], ai0[i], dot0, False)
+        dot1 = sudot4(False, hi[i], True, ai1[i], dot1, False)
+        s0 = sdot4(ones, ai0[i], s0, False)
+        s1 = sdot4(ones, ai1[i], s1, False)
     var t0 = d * Scalar[f32](sc0 * Int(dot0)) - dm * Scalar[f32](mn0 * Int(s0))
     dot1 = dot1 >> 4
     var t1 = d * Scalar[f32](sc1 * Int(dot1)) - dm * Scalar[f32](mn1 * Int(s1))

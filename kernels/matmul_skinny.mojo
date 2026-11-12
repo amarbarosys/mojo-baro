@@ -1,4 +1,6 @@
 
+from arch import sdot4
+from max.gpu import MAX_THREADS_PER_BLOCK_METADATA
 from max.gpu import block_idx, global_idx, lane_id, thread_idx, WARP_SIZE
 from max.gpu.primitives import warp
 from std.memory import bitcast
@@ -22,7 +24,7 @@ comptime ROW_THREADS = ROW_WAVES * WARP_SIZE
 comptime ROW_VEC = 8
 
 
-@__llvm_metadata(`rocdl.flat_work_group_size`=StaticTuple[Int32, 1](Int32(ROW_THREADS)))
+@__llvm_metadata(MAX_THREADS_PER_BLOCK_METADATA=StaticTuple[Int32, 1](Int32(ROW_THREADS)))
 def amar_matmul_skinny[
     in_dtype: DType,
     ALayout: TensorLayout, BLayout: TensorLayout, PLayout: TensorLayout
@@ -86,7 +88,7 @@ def amar_matmul_skinny[
             Cp[block_idx.y, i, col] = rebind[Cp.ElementType](acc[i])
 
 
-@__llvm_metadata(`rocdl.flat_work_group_size`=StaticTuple[Int32, 1](Int32(ROW_THREADS)))
+@__llvm_metadata(MAX_THREADS_PER_BLOCK_METADATA=StaticTuple[Int32, 1](Int32(ROW_THREADS)))
 def amar_matmul_skinny_v2[
     in_dtype: DType, CPT: Int,
     ALayout: TensorLayout, BLayout: TensorLayout, PLayout: TensorLayout
@@ -155,7 +157,7 @@ def amar_matmul_skinny_v2[
                 )
 
 
-@__llvm_metadata(`rocdl.flat_work_group_size`=StaticTuple[Int32, 1](Int32(ROW_THREADS)))
+@__llvm_metadata(MAX_THREADS_PER_BLOCK_METADATA=StaticTuple[Int32, 1](Int32(ROW_THREADS)))
 def amar_matmul_skinny_m1[
     in_dtype: DType, CPT: Int,
     ALayout: TensorLayout, BLayout: TensorLayout, PLayout: TensorLayout
@@ -213,7 +215,7 @@ def amar_matmul_skinny_m1[
             Cp[block_idx.y, 0, c0 + j] = rebind[Cp.ElementType](acc[j])
 
 
-@__llvm_metadata(`rocdl.flat_work_group_size`=StaticTuple[Int32, 1](Int32(ROW_THREADS)))
+@__llvm_metadata(MAX_THREADS_PER_BLOCK_METADATA=StaticTuple[Int32, 1](Int32(ROW_THREADS)))
 def amar_matmul_skinny_m1_row[
     in_dtype: DType, UNROLL: Int,
     ALayout: TensorLayout, WLayout: TensorLayout, OLayout: TensorLayout
@@ -260,7 +262,7 @@ def amar_matmul_skinny_m1_row[
         O[row] = rebind[O.ElementType](total)
 
 
-@__llvm_metadata(`rocdl.flat_work_group_size`=StaticTuple[Int32, 1](Int32(ROW_THREADS)))
+@__llvm_metadata(MAX_THREADS_PER_BLOCK_METADATA=StaticTuple[Int32, 1](Int32(ROW_THREADS)))
 def amar_matmul_skinny_m1_row2[
     in_dtype: DType, UNROLL: Int,
     ALayout: TensorLayout, WLayout: TensorLayout, OLayout: TensorLayout
@@ -315,7 +317,7 @@ def amar_matmul_skinny_m1_row2[
             O1[row] = rebind[O1.ElementType](total)
 
 
-@__llvm_metadata(`rocdl.flat_work_group_size`=StaticTuple[Int32, 1](Int32(ROW_THREADS)))
+@__llvm_metadata(MAX_THREADS_PER_BLOCK_METADATA=StaticTuple[Int32, 1](Int32(ROW_THREADS)))
 def amar_matmul_skinny_q8row[
     UNROLL: Int, MR: Int,
     ALayout: TensorLayout, QLayout: TensorLayout, SLayout: TensorLayout,
@@ -381,7 +383,7 @@ def amar_matmul_skinny_q8row[
                 Cp[0, r, row] = rebind[Cp.ElementType](total)
 
 
-@__llvm_metadata(`rocdl.flat_work_group_size`=StaticTuple[Int32, 1](Int32(ROW_THREADS)))
+@__llvm_metadata(MAX_THREADS_PER_BLOCK_METADATA=StaticTuple[Int32, 1](Int32(ROW_THREADS)))
 def amar_matmul_skinny_q4row[
     UNROLL: Int, MR: Int,
     ALayout: TensorLayout, QLayout: TensorLayout, SLayout: TensorLayout,
@@ -534,7 +536,7 @@ def q4_dot_blocks[
     return out^
 
 
-@__llvm_metadata(`rocdl.flat_work_group_size`=StaticTuple[Int32, 1](Int32(ROW_THREADS)))
+@__llvm_metadata(MAX_THREADS_PER_BLOCK_METADATA=StaticTuple[Int32, 1](Int32(ROW_THREADS)))
 def amar_matmul_skinny_q4rowb[
     UNROLL: Int, MR: Int,
     ALayout: TensorLayout, QLayout: TensorLayout, SLayout: TensorLayout,
@@ -573,7 +575,7 @@ def amar_matmul_skinny_q4rowb[
                 Cp[part, r, row] = rebind[Cp.ElementType](t[r])
 
 
-@__llvm_metadata(`rocdl.flat_work_group_size`=StaticTuple[Int32, 1](Int32(ROW_THREADS)))
+@__llvm_metadata(MAX_THREADS_PER_BLOCK_METADATA=StaticTuple[Int32, 1](Int32(ROW_THREADS)))
 def amar_matmul_skinny_q8dot[
     UNROLL: Int, MR: Int,
     AQLayout: TensorLayout, ASLayout: TensorLayout,
@@ -628,7 +630,7 @@ def amar_matmul_skinny_q8dot[
                     var av4 = bitcast[DType.int32, DOTN](aq)
                     var dot = Int32(0)
                     comptime for d in range(DOTN):
-                        dot = llvm_intrinsic["llvm.amdgcn.sdot4", Int32](wv4[d], av4[d], dot, False)
+                        dot = sdot4(wv4[d], av4[d], dot, False)
                     acc[r] += Float32(dot) * ws * as_r
         kk += UNROLL * STEP
     while kk < K:
@@ -642,7 +644,7 @@ def amar_matmul_skinny_q8dot[
                 var av4 = bitcast[DType.int32, DOTN](aq)
                 var dot = Int32(0)
                 comptime for d in range(DOTN):
-                    dot = llvm_intrinsic["llvm.amdgcn.sdot4", Int32](wv4[d], av4[d], dot, False)
+                    dot = sdot4(wv4[d], av4[d], dot, False)
                 acc[r] += Float32(dot) * ws * as_r
         kk += STEP
 
@@ -656,7 +658,7 @@ def amar_matmul_skinny_q8dot[
 comptime Q8_BLOCK = 32
 
 
-@__llvm_metadata(`rocdl.flat_work_group_size`=StaticTuple[Int32, 1](Int32(ROW_THREADS)))
+@__llvm_metadata(MAX_THREADS_PER_BLOCK_METADATA=StaticTuple[Int32, 1](Int32(ROW_THREADS)))
 def amar_matmul_skinny_q8b[
     ALayout: TensorLayout, QLayout: TensorLayout, SLayout: TensorLayout,
     PLayout: TensorLayout
@@ -829,7 +831,7 @@ def amar_skinny_reduce[
     C[r, c] = rebind[C.ElementType](acc)
 
 
-@__llvm_metadata(`rocdl.flat_work_group_size`=StaticTuple[Int32, 1](Int32(ROW_THREADS)))
+@__llvm_metadata(MAX_THREADS_PER_BLOCK_METADATA=StaticTuple[Int32, 1](Int32(ROW_THREADS)))
 def amar_matmul_skinny_q4dot[
     UNROLL: Int, MR: Int,
     AQLayout: TensorLayout, ASLayout: TensorLayout,
@@ -882,10 +884,10 @@ def amar_matmul_skinny_q4dot[
                     var dot = Int32(0)
                     var sa = Int32(0)
                     comptime for i in range(4):
-                        dot = llvm_intrinsic["llvm.amdgcn.sdot4", Int32](lo4[i], alo[i], dot, False)
-                        dot = llvm_intrinsic["llvm.amdgcn.sdot4", Int32](hi4[i], ahi[i], dot, False)
-                        sa = llvm_intrinsic["llvm.amdgcn.sdot4", Int32](ones, alo[i], sa, False)
-                        sa = llvm_intrinsic["llvm.amdgcn.sdot4", Int32](ones, ahi[i], sa, False)
+                        dot = sdot4(lo4[i], alo[i], dot, False)
+                        dot = sdot4(hi4[i], ahi[i], dot, False)
+                        sa = sdot4(ones, alo[i], sa, False)
+                        sa = sdot4(ones, ahi[i], sa, False)
                     acc[r] += Float32(dot - 8 * sa) * d * d8
         kk += UNROLL * STEP
     while kk < nb:
@@ -904,10 +906,10 @@ def amar_matmul_skinny_q4dot[
                     var dot = Int32(0)
                     var sa = Int32(0)
                     comptime for i in range(4):
-                        dot = llvm_intrinsic["llvm.amdgcn.sdot4", Int32](lo4[i], alo[i], dot, False)
-                        dot = llvm_intrinsic["llvm.amdgcn.sdot4", Int32](hi4[i], ahi[i], dot, False)
-                        sa = llvm_intrinsic["llvm.amdgcn.sdot4", Int32](ones, alo[i], sa, False)
-                        sa = llvm_intrinsic["llvm.amdgcn.sdot4", Int32](ones, ahi[i], sa, False)
+                        dot = sdot4(lo4[i], alo[i], dot, False)
+                        dot = sdot4(hi4[i], ahi[i], dot, False)
+                        sa = sdot4(ones, alo[i], sa, False)
+                        sa = sdot4(ones, ahi[i], sa, False)
                     acc[r] += Float32(dot - 8 * sa) * d * d8
         kk += STEP
     comptime for r in range(MR):

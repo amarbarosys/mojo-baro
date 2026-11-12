@@ -9,7 +9,7 @@
 # Value per prompt = median of that arm's two runs of `gen ms/token`; arm figure = median over prompts with the min-max range (P4).
 set -euo pipefail
 OUT=${1:?usage: q4x-ab.sh OUT_DIR ENV_A ENV_B}; EA=${2:-}; EB=${3:-}
-REPO=$(cd "$(dirname "$0")/.." && pwd); . "$REPO/bench/min16k.sh"
+REPO=$(cd "$(dirname "$0")/.." && pwd); . "$REPO/bench/min16k.sh"; . "$REPO/bench/pcie-link.sh"
 GGUF=${Q4X_GGUF:-$HOME/Models/qwen3.8-flash-next-gsq/Q2_0/Qwen3.8-Flash-Next-GSQ-RCO-Q2_0-00001-of-00002.gguf}
 ENGINE=${ENGINE:?ENGINE}; ENGINE_A=${ENGINE_A:-$ENGINE}; NG=${NG:-64}; TMAX=${TMAX:-16384}; EXTRA=${EXTRA:-}; PROMPTS=${PROMPTS:-bench/q4x-prompts/*.prompt}
 min16k "$TMAX" 16000
@@ -25,7 +25,7 @@ fail() { echo "FAIL $1: $2 (receipt $R)" | tee -a "$R"; exit 1; }
 { echo "date $(date -Is) commit $(git rev-parse --short HEAD) dirty=$(git status --porcelain -- serve kernels | wc -l)"
   echo "engineA=$ENGINE_A sha256 $(sha256sum "$ENGINE_A" | cut -c1-16)"
   echo "engine=$ENGINE sha256 $(sha256sum "$ENGINE" | cut -c1-16) tmax=$TMAX ng=$NG extra='$EXTRA'"
-  echo "armA='$EA' armB='$EB' order A B B A"; } | tee "$R"
+  echo "armA='$EA' armB='$EB' order A B B A"; pcie_link; } | tee "$R"
 P=$(ls $PROMPTS); NP=$(echo "$P" | wc -l)
 for pf in $P; do echo "prompt $(basename "$pf") sha256 $(sha256sum "$pf" | cut -c1-16) ids $(jq length "$pf")" >> "$R"; done
 for pf in $P; do echo "$(basename "$pf" .prompt) $NG $(jq -r 'join(" ")' "$pf")"; done > "$OUT/requests.txt"
@@ -36,6 +36,7 @@ run() {  # label envstring
   [ "$(grep -c '^out ' "$log")" = "$NP" ] || fail "$1" "$(grep -c '^out ' "$log") of $NP answers"
   local want; want=$(sed -n 's/.*Q4X_ATTSPLIT=\([0-9]*\).*/\1/p' <<< "$2")
   if [ -n "$want" ]; then [ "$(grep -m1 '^q4x: attsplit' "$log" | awk '{print $3}')" = "$want" ] || fail "$1" "read-back attsplit $(grep -m1 '^q4x: attsplit' "$log") != $want"; fi
+  for k in misspar devarg; do want=$(sed -n "s/.*Q4X_$(tr a-z A-Z <<< $k)=\([0-9]*\).*/\1/p" <<< "$2"); [ -z "$want" ] || [ "$(grep -m1 "^q4x: $k" "$log" | awk '{print $3}')" = "$want" ] || fail "$1" "read-back $k $(grep -m1 "^q4x: $k" "$log") != $want"; done
   grep -q "kv $TMAX" "$log" || fail "$1" "read-back kv not $TMAX: $(grep -m1 'expert cache' "$log" | cut -c1-120)"
   echo "read-back $1 '$2': $(grep -m1 '^q4x: attsplit' "$log") | $(grep -m1 'expert cache' "$log" | sed 's/^q4x: //' | cut -c1-110) | gtt_gb $(awk '{printf "%.2f", $1/2^30}' /sys/class/drm/card1/device/mem_info_gtt_used 2>/dev/null || echo ?)" | tee -a "$R"
   grep '^gen ms/token' "$log" | awk '{print $3}' > "$OUT/$1.ms"
@@ -56,4 +57,4 @@ run_spread = {k: sp(ms[k]) for k in ms}
 print("per-run spread %: " + " ".join(f"{k} {v:.1f}" for k, v in run_spread.items()) + f" | A1/A2 medians {st.median(ms['A1']):.3f}/{st.median(ms['A2']):.3f} B1/B2 {st.median(ms['B1']):.3f}/{st.median(ms['B2']):.3f}")
 sys.exit(1 if bad else 0)
 PY
-echo "job PASS" | tee -a "$R"
+echo "job PASS$(pcie_flag)" | tee -a "$R"

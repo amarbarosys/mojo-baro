@@ -1,0 +1,9 @@
+n 20  nowin median 142.13  win median 142.82  median of paired ratios 1.006  prompts below 0.95: 1
+1 nowin vram_max 14750 gtt_max 1084 load_max 6.07
+1 nowin vram_max 14750 gtt_max 1084 load_max 6.96
+1 nowin vram_max 14751 gtt_max 1102 load_max 4.88
+1 nowin vram_max 14754 gtt_max 1086 load_max 6.08
+1 win vram_max 15462 gtt_max 1092 load_max 6.26
+1 win vram_max 15466 gtt_max 1090 load_max 5.83
+1 win vram_max 15466 gtt_max 1090 load_max 6.00
+1 win vram_max 15466 gtt_max 1102 load_max 6.26

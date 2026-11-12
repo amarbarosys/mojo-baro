@@ -1,6 +1,6 @@
 from max.gpu import block_idx, thread_idx
 from layout import TileTensor, TensorLayout
-from layout.tensor_core import mma
+from arch import mma
 
 comptime NACC = 8
 comptime ITERS = 4096

@@ -22,11 +22,15 @@ st0=$(stamp) || { echo "FAIL preflight stamp: file hashing failed" >&2; exit 1; 
 step() { echo "== $1"; }
 fail() { echo "FAIL preflight $1: see $2" >&2; exit 1; }
 step ci-checks;  tools/ci-checks.sh > .work/preflight/ci.log 2>&1 || fail ci-checks .work/preflight/ci.log
+step rdna4-probe
+tools/rdna4-probe/rdna4-probe.sh > .work/preflight/rdna4-probe.log 2>&1 || fail rdna4-probe .work/preflight/rdna4-probe.log
+diff <(sed -n '/^probe /,$p' .work/preflight/rdna4-probe.log | head -13) <(head -13 docs/rdna4/probe-2026-11-12.txt) > /dev/null || fail rdna4-probe-drift .work/preflight/rdna4-probe.log
 step builds
 export S="$PWD/.work/shim-build"
 { sed -nE 's#^ *t ([^ ]+) "([^"]+)".*#./.venv/bin/mojo build \2 -o \1#p' run-tests.sh | envsubst '$S' | sed "s#\$#  --target-accelerator $accel#"
   grep -E '^\./\.venv/bin/mojo build ' run-tests.sh | sed "s#\$#  --target-accelerator $accel#"
   echo "./.venv/bin/mojo build --target-accelerator $accel serve/engine.mojo -I . -I kernels -o .work/preflight/engine-dense"
+  echo "./.venv/bin/mojo build --target-accelerator gfx1201 serve/engine.mojo -I . -I kernels -o .work/preflight/engine-dense-gfx1201"
   echo "./.venv/bin/mojo build --target-accelerator $accel serve/engine.mojo -I . -I kernels -D BARO_MODEL=qwen35moe -o .work/preflight/engine-moe"
   echo "./.venv/bin/mojo build --target-accelerator $accel serve/engine.mojo -I . -I kernels -D BARO_MODEL=qwen35moe -D BARO_KVQ=f32 -o .work/preflight/engine-moe-f32"
 } | tools/build-many.sh preflight > .work/preflight/build.log 2>&1 || fail builds .work/preflight/build.log

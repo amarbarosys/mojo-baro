@@ -1,3 +1,4 @@
+from max.gpu import MAX_THREADS_PER_BLOCK_METADATA
 from max.gpu import block_idx, global_idx, lane_id, thread_idx, WARP_SIZE
 from max.gpu.primitives import warp
 from max.gpu.memory import AddressSpace
@@ -520,7 +521,7 @@ def q4k_dot_blocks_shared[
     return out^
 
 
-@__llvm_metadata(`rocdl.flat_work_group_size`=StaticTuple[Int32, 1](Int32(MOE_THREADS)))
+@__llvm_metadata(MAX_THREADS_PER_BLOCK_METADATA=StaticTuple[Int32, 1](Int32(MOE_THREADS)))
 def moe_gate_up_q4k_grouped[
     MR: Int, FFN: Int,
     XLayout: TensorLayout, GLayout: TensorLayout, PLayout: TensorLayout, HLayout: TensorLayout,
@@ -602,7 +603,7 @@ def moe_down_combine[
     O[t, c] = rebind[O.ElementType](out)
 
 
-@__llvm_metadata(`rocdl.flat_work_group_size`=StaticTuple[Int32, 1](Int32(MOE_THREADS)))
+@__llvm_metadata(MAX_THREADS_PER_BLOCK_METADATA=StaticTuple[Int32, 1](Int32(MOE_THREADS)))
 def moe_down_q6k_grouped[
     MR: Int, FFN: Int,
     HLayout: TensorLayout, GLayout: TensorLayout, PLayout: TensorLayout, DLayout: TensorLayout,

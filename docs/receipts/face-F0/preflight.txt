@@ -1,0 +1,7 @@
+== ci-checks
+== rdna4-probe
+== builds
+OK build-many preflight: 38 builds, 32 cached, jobs 2 x 8 threads
+== baro-serve
+PASS preflight 747c9bf5401b
+exit 0

@@ -1,3 +1,4 @@
+from max.gpu import MAX_THREADS_PER_BLOCK_METADATA
 from max.gpu import block_idx, global_idx, lane_id, thread_idx, WARP_SIZE
 from max.gpu.primitives import warp
 from std.math import log1p, sqrt
@@ -314,7 +315,7 @@ def amar_ssm_qk_l2norm_gates[
         barrier()
 
 
-@__llvm_metadata(`rocdl.flat_work_group_size`=StaticTuple[Int32, 1](Int32(SSTATE)))
+@__llvm_metadata(MAX_THREADS_PER_BLOCK_METADATA=StaticTuple[Int32, 1](Int32(SSTATE)))
 def amar_ssm_delta_step[
     MR: Int,
     S0Layout: TensorLayout, CLayout: TensorLayout, GLayout: TensorLayout,
@@ -368,7 +369,7 @@ def amar_ssm_delta_step[
         barrier()
 
 
-@__llvm_metadata(`rocdl.flat_work_group_size`=StaticTuple[Int32, 1](Int32(SSTATE)))
+@__llvm_metadata(MAX_THREADS_PER_BLOCK_METADATA=StaticTuple[Int32, 1](Int32(SSTATE)))
 def amar_ssm_delta_rows[
     S0Layout: TensorLayout, CLayout: TensorLayout, GLayout: TensorLayout,
     OLayout: TensorLayout

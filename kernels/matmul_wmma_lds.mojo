@@ -27,7 +27,7 @@ from max.gpu.sync import barrier
 from max.gpu import block_idx, thread_idx
 from std.math import ceildiv
 from layout import TileTensor, TensorLayout, row_major, stack_allocation
-from layout.tensor_core import mma
+from arch import mma
 
 comptime WMMA_M = 16
 comptime WMMA_N = 16

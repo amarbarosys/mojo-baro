@@ -1,3 +1,4 @@
+from max.gpu import MAX_THREADS_PER_BLOCK_METADATA
 from max.gpu import block_idx, global_idx, lane_id, thread_idx, WARP_SIZE
 from max.gpu.primitives import warp
 from std.math import fma
@@ -6,7 +7,7 @@ from std.sys import get_defined_string
 from max.gpu.memory import AddressSpace
 from max.gpu.sync import barrier
 from layout import TileTensor, TensorLayout, row_major, stack_allocation
-from layout.tensor_core import mma
+from arch import mma
 from dattn import dkv_sc, dkv_sc_off, dkv_dq, dkv_q
 from model import HD, NQH, NKVH, NROT, YARN_LOW, YARN_HIGH, FREQ_BASE, FREQ_SCALE, MSCALE, IS_MOE
 from std.utils import StaticTuple
@@ -633,7 +634,7 @@ comptime PW_VS = PW_TK + 8
 comptime PW_PS = Float32(32768.0)
 
 
-@__llvm_metadata(`rocdl.flat_work_group_size`=StaticTuple[Int32, 1](Int32(PW_THREADS)))
+@__llvm_metadata(MAX_THREADS_PER_BLOCK_METADATA=StaticTuple[Int32, 1](Int32(PW_THREADS)))
 def amar_attn_prefill_wmma[
     QLayout: TensorLayout, KLayout: TensorLayout, OLayout: TensorLayout, NAT: Int
 ](

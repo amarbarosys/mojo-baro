@@ -1,10 +1,11 @@
+from arch import perm
 from max.gpu import block_idx, global_idx, thread_idx, WARP_SIZE
 from std.math import fma
 from bexp import exp
 from std.memory import bitcast
 from std.sys.intrinsics import llvm_intrinsic
 from layout import TileTensor, TensorLayout, row_major
-from layout.tensor_core import mma
+from arch import mma
 
 comptime f32 = DType.float32
 comptime bf16 = DType.bfloat16
@@ -17,7 +18,7 @@ def f32x16_to_bf16_trunc(x: SIMD[f32, 16]) -> SIMD[bf16, 16]:
     var u = bitcast[DType.uint32, 16](x)
     var packed = SIMD[DType.uint32, 8](0)
     comptime for i in range(8):
-        packed[i] = llvm_intrinsic["llvm.amdgcn.perm", UInt32](u[2 * i + 1], u[2 * i], UInt32(0x07060302))
+        packed[i] = perm(u[2 * i + 1], u[2 * i], UInt32(0x07060302))
     return bitcast[bf16, 16](packed)
 
 

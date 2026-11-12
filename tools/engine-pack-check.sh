@@ -2,8 +2,8 @@
 # tools/engine-pack.mojo against its oracle tools/engine-pack.py: byte-identical pack.bin and index.txt, the same
 # identity.json apart from pack_mtime_ns, the same stdout summary lines (numpy's divide-by-zero warnings go to
 # stderr), all built strict IEEE (--fp-mode contract=off: a fused x * id + 8.5 moved q4 nibbles), on
-#   1. tiny GGUFs from tools/engine-pack-fixture.py: the qwen35 trunk with --q8, --q4, --q8 --q4-draft and no flag
-#      (bf16 transposed), three --dense shapes, --arch qwen35moe; then --identity after a tokenizer.json lands,
+#   1. tiny GGUFs from tools/engine-pack-fixture.py: the qwen35 trunk with --q8, --q4, --q2b3, --tq1, --tq2,
+#      --q8 --q4-draft and no flag (bf16 transposed), three --dense shapes, --arch qwen35moe; then --identity after a tokenizer.json lands,
 #      fresh and cached,
 #   2. real models when given: tools/engine-pack-check.sh [MODEL.gguf "FLAGS"]...   (CPU only; wall s and peak RSS
 #      of both tools go to $w/<label>/time.txt)
@@ -33,6 +33,9 @@ for seed in 7 11 12; do
   ./.venv/bin/python3 tools/engine-pack-fixture.py "$w/trunk$seed.gguf" trunk "$seed" > /dev/null
   run "trunk-$seed-q8" "$w/trunk$seed.gguf" --q8
   run "trunk-$seed-q4" "$w/trunk$seed.gguf" --q4
+  run "trunk-$seed-q2b3" "$w/trunk$seed.gguf" --q2b3
+  run "trunk-$seed-tq1" "$w/trunk$seed.gguf" --tq1
+  run "trunk-$seed-tq2" "$w/trunk$seed.gguf" --tq2
   run "trunk-$seed-q8-draft" "$w/trunk$seed.gguf" --q8 --q4-draft
   run "trunk-$seed-bf16" "$w/trunk$seed.gguf"
 done

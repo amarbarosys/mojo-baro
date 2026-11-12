@@ -15,10 +15,10 @@ GGUF=${Q4X_GGUF:-$HOME/Models/qwen3.8-flash-next/UD-IQ1_M/Qwen3.8-Flash-Next-UD-
 SRV=$HOME/Projects/imports/llama.cpp-master/build/bin/llama-server
 if [ -z "${Q4X_GATE_INNER:-}" ]; then
   mkdir -p "$OUT"
-  exec gpu-wait run --vram 16 --timeout 5400 -- env Q4X_GATE_INNER=1 Q4X_GATE_REUSE="${Q4X_GATE_REUSE:-}" Q4X_PROMPT_DIR="${Q4X_PROMPT_DIR:-}" Q4X_DENSE="${Q4X_DENSE:-}" Q4X_WARM="${Q4X_WARM:-}" Q4X_PROMPT_TOK="${Q4X_PROMPT_TOK:-}" Q4X_CTX="${Q4X_CTX:-}" Q4X_TMAX="${Q4X_TMAX:-}" Q4X_PREFILL="${Q4X_PREFILL:-}" Q4X_CHUNK="${Q4X_CHUNK:-}" Q4X_BIN="${Q4X_BIN:-}" Q4X_SELF="${Q4X_SELF:-}" Q4X_GGUF="$GGUF" HOME="$HOME" bash "$REPO/bench/q4x-gate.sh" "$OUT" "$NP" "$NT"
+  exec gpu-wait run --vram 16 --timeout 5400 -- env Q4X_GATE_INNER=1 Q4X_GATE_REUSE="${Q4X_GATE_REUSE:-}" Q4X_PROMPT_DIR="${Q4X_PROMPT_DIR:-}" Q4X_DENSE="${Q4X_DENSE:-}" Q4X_WARM="${Q4X_WARM:-}" Q4X_PROMPT_TOK="${Q4X_PROMPT_TOK:-}" Q4X_CTX="${Q4X_CTX:-}" Q4X_TMAX="${Q4X_TMAX:-}" Q4X_PREFILL="${Q4X_PREFILL:-}" Q4X_CHUNK="${Q4X_CHUNK:-}" Q4X_BIN="${Q4X_BIN:-}" Q4X_SELF="${Q4X_SELF:-}" Q4X_DEVARG="${Q4X_DEVARG:-}" Q4X_GGUF="$GGUF" HOME="$HOME" bash "$REPO/bench/q4x-gate.sh" "$OUT" "$NP" "$NT"
 fi
 cd "$REPO"
-for v in Q4X_CHUNK Q4X_TMAX Q4X_PREFILL Q4X_CTX Q4X_PROMPT_TOK Q4X_SELF Q4X_BIN Q4X_REUSE; do [ -n "${!v:-}" ] || unset "$v"; done
+for v in Q4X_CHUNK Q4X_TMAX Q4X_PREFILL Q4X_CTX Q4X_PROMPT_TOK Q4X_SELF Q4X_BIN Q4X_REUSE Q4X_DEVARG; do [ -n "${!v:-}" ] || unset "$v"; done
 PROMPTS=$(ls ${Q4X_PROMPT_DIR:-bench/mtp-prompts}/*.txt | head -n "$NP")
 serve() {  # $1 = extra flags, $2 = log
   "$SRV" -m "$GGUF" $1 -c ${Q4X_CTX:-8192} -np 1 --port 8091 > "$2" 2>&1 &
@@ -58,7 +58,7 @@ BIN=${Q4X_BIN:-.work/p8/q4x}
 ours() {  # $1 prompt base, $2 comma ids to force, $3 out ids file, $4 log
   MC="$OUT/mem.$1.$(basename "$4" .log).cur"; : > "$MC"
   ( while :; do for d in /sys/class/drm/card*/device; do [ -f $d/mem_info_vram_total ] && [ "$(cat $d/mem_info_vram_total)" -gt 20000000000 ] && echo "$(cat $d/mem_info_vram_used) $(cat $d/mem_info_gtt_used)" >> "$MC"; done; sleep 1; done ) & MPID=$!
-  env ${2:+Q4X_FORCE="$2"} MODULAR_DEVICE_CONTEXT_MEMORY_MANAGER_SIZE_PERCENT=2 ${Q4X_TMAX:+Q4X_TMAX=$Q4X_TMAX} ${Q4X_PREFILL:+Q4X_PREFILL=$Q4X_PREFILL} ${Q4X_CHUNK:+Q4X_CHUNK=$Q4X_CHUNK} \
+  env ${2:+Q4X_FORCE="$2"} MODULAR_DEVICE_CONTEXT_MEMORY_MANAGER_SIZE_PERCENT=2 ${Q4X_TMAX:+Q4X_TMAX=$Q4X_TMAX} ${Q4X_PREFILL:+Q4X_PREFILL=$Q4X_PREFILL} ${Q4X_CHUNK:+Q4X_CHUNK=$Q4X_CHUNK} ${Q4X_DEVARG:+Q4X_DEVARG=$Q4X_DEVARG} \
     /usr/bin/time -f '%e s %M KB' "$BIN" "$GGUF" "$NT" $(jq -r 'join(" ")' "$OUT/$1.prompt") > "$4" 2>&1 \
     || { kill $MPID; echo "FAIL ours: $1, log $4"; exit 1; }
   kill $MPID; wait $MPID 2>/dev/null || true

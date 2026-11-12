@@ -1709,6 +1709,15 @@ def main() raises:
             raise Error("kq pack: the MTP draft reads q4/q8 only; set BARO_SPEC=0")
         if getenv("BARO_MEGA_WIN", "0") == "1":
             raise Error("kq pack: the window megakernel reads q4/q8 only; unset BARO_MEGA_WIN")
+    var cus = cu_count()
+    var mega_grid = MEGA_G if MEGA_ALLOWED else MOE_G
+    print("compute units:", cus, " megakernel grid:", mega_grid)
+    if mega and 0 < cus < mega_grid:
+        if getenv("BARO_MEGA", "") == "1":
+            print("WARNING BARO_MEGA=1 with", cus, "CUs <", mega_grid, "blocks: the grid barrier may not be co-resident; read the fail word")
+        else:
+            print("BARO_MEGA forced off: card has", cus, "CUs, megakernel grid needs", mega_grid)
+            mega = False
     print("BARO_MEGA:", mega)
     print("BARO_TURBO:", TURBO)
     var kvtab_mode = getenv("BARO_KVTAB", "identity")

@@ -1,3 +1,5 @@
+from arch import GPU_SCOPE
+from max.gpu import MAX_THREADS_PER_BLOCK_METADATA
 from std.atomic import Atomic, Ordering
 from max.gpu import block_idx, grid_dim, lane_id, thread_idx, WARP_SIZE
 from max.gpu.primitives import warp
@@ -396,7 +398,7 @@ def mega_moe_body[
     var qs = stack_allocation[f32, address_space = AddressSpace.SHARED](row_major[HD]())
     var scores = stack_allocation[f32, address_space = AddressSpace.SHARED](row_major[HD]())
 
-    if Atomic[Scalar[u32], scope="agent"].load[ordering=Ordering.ACQUIRE](fail) != 0:
+    if Atomic[Scalar[u32], scope=GPU_SCOPE].load[ordering=Ordering.ACQUIRE](fail) != 0:
         return
     var w = 1
     for layer in range(NL):
@@ -837,7 +839,7 @@ def og_up(a: Int, b: Int) -> Int:
     return b - a
 
 
-@__llvm_metadata(`rocdl.flat_work_group_size`=StaticTuple[Int32, 1](Int32(ROW_THREADS)))
+@__llvm_metadata(MAX_THREADS_PER_BLOCK_METADATA=StaticTuple[Int32, 1](Int32(ROW_THREADS)))
 def amar_mega_moe_token[
     CsL: TensorLayout, SsL: TensorLayout, NL: Int, NAT: Int,
 ](

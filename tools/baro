@@ -8,6 +8,7 @@
 #   tools/baro eval    MODEL-KEY [--quick N] [--dry-run]
 #   tools/baro eval-all [MODEL-KEY ...]
 #   tools/baro multi-serve MODEL.gguf [--devices 0,1] [--port N]
+#   tools/baro gui     [--model MODEL.gguf] [--port N] [--fps N] [--shots DIR]   the face (face/app.mojo): one window, chat left, engine panel right
 #
 # THREE MODES.
 #
@@ -87,6 +88,36 @@ chat)
   ;;
 swarm)
   exec "$here/.venv/bin/mojo" "$here/tools/gpu_512_persona_swarm.mojo" "$@"
+  ;;
+gui)
+  # Needs system libSDL3.so.0 and libfreetype.so.6 (the face checks them at start and names the missing one).
+  # A front already answering /health on the port is used as is; otherwise --model starts `baro serve` and waits for 200.
+  gport=8080; gmodel=""; gargs=()
+  while [ $# -gt 0 ]; do
+    case $1 in
+      --port) gport=$2; shift 2;;
+      --model) gmodel=$2; shift 2;;
+      --fps|--shots) gargs+=("$1" "$2"); shift 2;;
+      *) die "unknown gui option $1";;
+    esac
+  done
+  hc() { curl -s -o /dev/null -w '%{http_code}' --max-time 2 "http://127.0.0.1:$gport/health" 2>/dev/null || true; }
+  mkdir -p "$here/.work"
+  echo "$here/.venv/bin/mojo build --target-accelerator amdgpu:gfx1100 -I $here -I $here/face $here/face/app.mojo -o $here/.work/face" | "$here/tools/build-many.sh" face > "$here/.work/face.build.log" 2>&1 \
+    || die "face build FAILED, see $here/.work/face.build.log"
+  if [ -z "$(hc | tr -d 0)" ]; then
+    [ -n "$gmodel" ] || die "no front on port $gport; start one (baro serve MODEL.gguf --port $gport) or pass --model MODEL.gguf"
+    echo "gui: no front on port $gport, starting baro serve for $gmodel (log .work/gui-front.log)"
+    nohup "$0" serve "$gmodel" --port "$gport" > "$here/.work/gui-front.log" 2>&1 &
+    fpid=$!
+    for _ in $(seq 900); do
+      [ "$(hc)" = 200 ] && break
+      kill -0 "$fpid" 2>/dev/null || die "front exited before /health answered, see $here/.work/gui-front.log"
+      sleep 1
+    done
+    [ "$(hc)" = 200 ] || die "front gave no 200 on /health after 900 s, see $here/.work/gui-front.log"
+  fi
+  exec "$here/.work/face" --front "127.0.0.1:$gport" "${gargs[@]}"
   ;;
 esac
 

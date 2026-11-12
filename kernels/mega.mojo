@@ -1,3 +1,6 @@
+from arch import realtime, sleep1
+from arch import GPU_SCOPE
+from max.gpu import MAX_THREADS_PER_BLOCK_METADATA
 from std.atomic import Atomic, Ordering
 from max.gpu import block_idx, grid_dim, lane_id, thread_idx, WARP_SIZE
 from max.gpu.primitives import warp
@@ -52,26 +55,26 @@ def grid_barrier(
     barrier()
     if thread_idx.x == 0:
         var nb = UInt32(grid_dim.x)
-        var g = Atomic[Scalar[u32], scope="agent"].load[ordering=Ordering.ACQUIRE](gen)
-        if Atomic[Scalar[u32], scope="agent"].fetch_add[ordering=Ordering.ACQUIRE_RELEASE](ctr, 1) == nb - 1:
-            Atomic[Scalar[u32], scope="agent"].store[ordering=Ordering.RELAXED](ctr, 0)
-            Atomic[Scalar[u32], scope="agent"].store[ordering=Ordering.RELEASE](gen, g + 1)
+        var g = Atomic[Scalar[u32], scope=GPU_SCOPE].load[ordering=Ordering.ACQUIRE](gen)
+        if Atomic[Scalar[u32], scope=GPU_SCOPE].fetch_add[ordering=Ordering.ACQUIRE_RELEASE](ctr, 1) == nb - 1:
+            Atomic[Scalar[u32], scope=GPU_SCOPE].store[ordering=Ordering.RELAXED](ctr, 0)
+            Atomic[Scalar[u32], scope=GPU_SCOPE].store[ordering=Ordering.RELEASE](gen, g + 1)
         else:
             var spins = 0
-            while Atomic[Scalar[u32], scope="agent"].load[ordering=Ordering.ACQUIRE](gen) == g:
-                llvm_intrinsic["llvm.amdgcn.s.sleep", NoneType](Int32(1))
+            while Atomic[Scalar[u32], scope=GPU_SCOPE].load[ordering=Ordering.ACQUIRE](gen) == g:
+                sleep1()
                 spins += 1
-                if spins > SPIN_LIMIT or Atomic[Scalar[u32], scope="agent"].load[ordering=Ordering.RELAXED](fail) != 0:
-                    Atomic[Scalar[u32], scope="agent"].store[ordering=Ordering.RELEASE](fail, 1)
+                if spins > SPIN_LIMIT or Atomic[Scalar[u32], scope=GPU_SCOPE].load[ordering=Ordering.RELAXED](fail) != 0:
+                    Atomic[Scalar[u32], scope=GPU_SCOPE].store[ordering=Ordering.RELEASE](fail, 1)
                     break
     barrier()
-    return Atomic[Scalar[u32], scope="agent"].load[ordering=Ordering.ACQUIRE](fail) == 0
+    return Atomic[Scalar[u32], scope=GPU_SCOPE].load[ordering=Ordering.ACQUIRE](fail) == 0
 
 
 @always_inline
 def stamp(prof: MutPointer[Scalar[i64], MutAnyOrigin], idx: Int):
     if block_idx.x == 0 and thread_idx.x == 0:
-        prof[unsafe_offset=idx] = llvm_intrinsic["llvm.amdgcn.s.sendmsg.rtn", Int64](Int32(131))
+        prof[unsafe_offset=idx] = realtime()
 
 
 @always_inline
@@ -1404,7 +1407,7 @@ def mega_body[
     var Af = stack_allocation[f32, address_space = AddressSpace.SHARED](row_major[(FFN // 2) if ((MR == 1) and Q4) else ((H // 2) if KQ else 4)]())
     var M = Int(m)
     var fail = Ctr_.ptr.unsafe_offset(2)
-    if Atomic[Scalar[u32], scope="agent"].load[ordering=Ordering.ACQUIRE](fail) != 0:
+    if Atomic[Scalar[u32], scope=GPU_SCOPE].load[ordering=Ordering.ACQUIRE](fail) != 0:
         return
     var w = 1
     var ssm_i = 0
@@ -1601,7 +1604,7 @@ def mega_body[
     stamp(prof, 16 * NL + 3)
 
 
-@__llvm_metadata(`rocdl.flat_work_group_size`=StaticTuple[Int32, 1](Int32(ROW_THREADS)))
+@__llvm_metadata(MAX_THREADS_PER_BLOCK_METADATA=StaticTuple[Int32, 1](Int32(ROW_THREADS)))
 def amar_mega_token[
     MR: Int, RELOAD: Bool, Q4: Bool,
     XL: TensorLayout, CBL: TensorLayout, ZL: TensorLayout, RBL: TensorLayout,

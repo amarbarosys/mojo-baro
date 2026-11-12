@@ -1,9 +1,11 @@
+from arch import setprio
+from max.gpu import MAX_THREADS_PER_BLOCK_METADATA
 from max.gpu.memory import AddressSpace
 from max.gpu.sync import barrier, schedule_group_barrier, AMDScheduleBarrierMask
 from max.gpu import block_idx, thread_idx
 from std.math import ceildiv
 from layout import TileTensor, TensorLayout, row_major, stack_allocation
-from layout.tensor_core import mma
+from arch import mma
 from std.sys import get_defined_int
 from std.sys.intrinsics import llvm_intrinsic
 from std.utils import StaticTuple
@@ -48,7 +50,7 @@ comptime SB_H = BLK_K if TRANS_B == 0 else BLK_N
 comptime KSTEPS = BLK_K // WMMA_K
 
 
-@__llvm_metadata(`rocdl.flat_work_group_size`=StaticTuple[Int32, 1](Int32(LB_MAX)))
+@__llvm_metadata(MAX_THREADS_PER_BLOCK_METADATA=StaticTuple[Int32, 1](Int32(LB_MAX)))
 def amar_matmul_wmma_pipe[
     ALayout: TensorLayout,
     BLayout: TensorLayout,
@@ -371,7 +373,7 @@ def amar_matmul_wmma_pipe[
                                 bfr[tn * 16 + i] = lo[i]
                                 bfr[tn * 16 + VEC + i] = hi[i]
                 comptime if PRIO == 1:
-                    llvm_intrinsic["llvm.amdgcn.s.setprio", NoneType](Int16(3))
+                    setprio[3]()
                 comptime for tm in range(WTILE_M):
                     var a = SIMD[DType.float16, 16](0)
                     comptime if ABL == 3:
@@ -417,7 +419,7 @@ def amar_matmul_wmma_pipe[
                             comptime for i in range(8):
                                 acc[(tm * WTILE_N + tn) * 8 + i] = d[i]
             comptime if PRIO == 1:
-                llvm_intrinsic["llvm.amdgcn.s.setprio", NoneType](Int16(0))
+                setprio[0]()
             comptime if ABL == 3:
                 cached3 = True
 
@@ -730,7 +732,7 @@ def amar_matmul_wmma_pipe[
                                         bfr[tn * 16 + i] = lo[i]
                                         bfr[tn * 16 + VEC + i] = hi[i]
                         comptime if PRIO == 1:
-                            llvm_intrinsic["llvm.amdgcn.s.setprio", NoneType](Int16(3))
+                            setprio[3]()
                         comptime for tm in range(WTILE_M):
                             var a = SIMD[DType.float16, 16](0)
                             comptime if ABL == 3:
@@ -776,7 +778,7 @@ def amar_matmul_wmma_pipe[
                                     comptime for i in range(8):
                                         acc[(tm * WTILE_N + tn) * 8 + i] = d[i]
                     comptime if PRIO == 1:
-                        llvm_intrinsic["llvm.amdgcn.s.setprio", NoneType](Int16(0))
+                        setprio[0]()
                     comptime if ABL == 3:
                         cached3_2 = True
 

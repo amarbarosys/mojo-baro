@@ -1,0 +1,16 @@
+from std.sys import llvm_intrinsic
+from max.gpu import lane_id
+from max.gpu.host import DeviceContext
+from arch import sdot4, sudot4, perm, setprio, realtime, readlane
+
+
+def k(o: UnsafePointer[Int32, MutAnyOrigin]):
+    var x = Int32(Int(lane_id()))
+    var r = Int32(0)
+    @@BODY@@
+    o.store(Int(lane_id()), r)
+
+
+def main() raises:
+    var ctx = DeviceContext()
+    _ = ctx.compile_function[k]()

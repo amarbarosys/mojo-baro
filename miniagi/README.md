@@ -15,6 +15,10 @@ analysis `~/Brain/research/mini-AGI/2026-10-09-analysis.md`.
 | M4 | CL harness: matched-LR control, replay, EWC, 3 seeds | | |
 | M5 | serve via baro-serve, live learning with measured self-drift | | |
 
+## bridge/: latent-bridge trainer
+
+Translator block + readers over frozen-model dumps (`miniagi/bridge/README.md`); data from `tools/latent-data.mojo`, dumps from `bench/latent-bridge-dump.sh` (needs `Q4X_STDIN`, `Q4X_DUMP_ATT`, `@VEC` in `serve/q4x.mojo`), checks `miniagi/bridge/checks.sh`.
+
 ## latent/: continuous-thought training
 
 A 2-layer, 8-head model (1.59M params) trained as text chain of thought solves 8-hop pointer chasing at

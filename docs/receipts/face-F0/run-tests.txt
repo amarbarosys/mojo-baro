@@ -1,0 +1,179 @@
+CACHED PASS f304386feeb9e910848b3cb9e1dd7e2c
+CACHED PASS 59dd44d325a0eb3f2f46a40394f2a917
+CACHED PASS 6102da00bd49b80b7fbbedff93062b5f
+CACHED PASS 72aa2c437d5efc8691e33b1ffed0072c
+CACHED PASS 779720956cb163b54499d110ae6a16bc
+CACHED PASS 1564820f6afd9afe22c17cd72b435d72
+CACHED PASS 2051dec9615223b8ab01a845026659cd
+CACHED PASS a0d1151e065103fc8782b5e67971d4f7
+CACHED PASS b72b78f946a1bf0ac06d075b9ca2dc6a
+CACHED PASS a43055d4d37208f14a0d0208a12327be
+CACHED PASS 6809f49f0bdfa2e09cadd3d81674407e
+SKIP test_kq_prefill_gemm (no kq pack at ~/Projects/mojo/mojo-baro/.work/ornith-stint/pack-kq)
+CACHED PASS b1d03f5311d2e30870790f8005b14a17
+CACHED PASS 3ac9b83e85dad59f5489de67681a51b1
+CACHED PASS e61511a229ea2ebbe437124f1669abe6
+CACHED PASS 9beb7b61700c9764095946865304fb27
+CACHED PASS fd525c220615b5da4a8049afd9f8f75f
+CACHED PASS bde1172d119c6af60200a69e53c4f77d
+CACHED PASS 2870191478db1cd64f4c6cba177ac31b
+CACHED PASS 91e0592d44958f9f89c39799fed2c31f
+CACHED PASS 95ec121d9e088b8d1ec5bc437ddd9c93
+CACHED PASS 1bf8a9cf1a25e8962b895ed9464ad87c
+CACHED PASS 421de31a039ad5b3e83edea681fed38f
+CACHED PASS 8779d164f4e7069d63a71255a0b9295b
+CACHED PASS e97585b3f31be330c289888c6f2f4272
+CACHED PASS 4da5538a365374eec017584db890f280
+CACHED PASS b3d3e60c1004d7db75d11dcadfb8c841
+CACHED PASS d6beb81b145a41086d8fc6e83888e72f
+CACHED PASS f2b7dc9da267a65beed8f63f1d0ace29
+CACHED PASS 64b78bd40945245dfa993dabf44ae06b
+CACHED PASS e32f4d89bcf7ebfb5be186dc15ce2a6c
+CACHED PASS c8e06ff4b50ab78632f2a4a6d1c8a3ef
+CACHED PASS 3c3b8256ef649281740923e9cda441d7
+167 kernels, 71 in registry, 0 orphans
+commit=bc9d736 dirty='' engine=~/Projects/mojo/mojo-baro-lanes/F0/.work/preflight/engine-dense sha=0e97e7249c132474 pack=~/Projects/mojo/mojo-baro/.work/e11b-qwythos-pack port=8300 job=mwd22b4yqebx
+PASS checkpoint-api: 6 s, log ~/Projects/mojo/mojo-baro-lanes/F0/.work/run-tests-state-gates/checkpoint-api.log
+PASS ckpt-share: 9 s, log ~/Projects/mojo/mojo-baro-lanes/F0/.work/run-tests-state-gates/ckpt-share.log
+PASS ckpt-s4: 17 s, log ~/Projects/mojo/mojo-baro-lanes/F0/.work/run-tests-state-gates/ckpt-s4.log
+PASS state-gates: checkpoint-api, ckpt-share, ckpt-s4
+PASS create 8k checkpoint 200 (got 200 {'created': True, 'checkpoint': {'id': 'lat:state@pos7999:0ea1877791c22a14', 'object': 'checkpoint', 'pos': 7999, 'bytes': 581205316, 'created': 1794458215, 'tt)
+PASS fork reference for suffix 0 200
+PASS fork reference for suffix 1 200
+PASS fork reference for suffix 2 200
+PASS fork reference for suffix 3 200
+PASS fork reference for suffix 4 200
+PASS fresh15: 20/20 turns ok (cached_tokens 7999, ttft present); first bad: []
+PASS fresh15: ids == fork reference for the same suffix
+INFO fresh15: median ttft_s 0.0683, max 0.0770, tiers ['hot']
+PASS fresh15: every turn hit the hot tier
+PASS fresh8: 20/20 turns ok (cached_tokens 7999, ttft present); first bad: []
+PASS fresh8: ids == fork reference for the same suffix
+INFO fresh8: median ttft_s 0.0414, max 0.0462, tiers ['hot']
+PASS fresh8 (hot prefix): median ttft_s 0.0414 < 0.060 (QS bar)
+PASS fresh8: every turn hit the hot tier
+PASS repeat: 20/20 turns ok (cached_tokens 7999, ttft present); first bad: []
+PASS repeat: ids == fork reference for the same suffix
+INFO repeat: median ttft_s 0.0114, max 0.0697, tiers ['hot']
+PASS repeat: median ttft_s 0.0114 < 0.035
+PASS file: 5/5 turns ok (cached_tokens 7999, ttft present); first bad: []
+PASS file: ids == fork reference for the same suffix
+INFO file: median ttft_s 0.1498, max 0.1647, tiers ['file']
+PASS metrics: scrape parses
+PASS metrics: baro_turns_total 65 == turns made 65
+PASS metrics: forks total 70 == turns + reference forks 70
+INFO chat section skipped: TOKENIZER not set
+PASS file pull 200 (581205316 bytes)
+PASS X-Baro-Meta carries no token ids (curl 100 KB header cap)
+PASS pulled file sha256 == X-Baro-Sha256
+PASS import on server B 200 created (got 200 {'created': True, 'checkpoint': {'id': 'lat:state@pos7999:0ea1877791c22a14', 'object': 'checkpoint', 'pos': 7999, 'bytes)
+PASS server B fork suffix 0: ids == server A's, cached 7999
+PASS server B fork suffix 1: ids == server A's, cached 7999
+PASS server B fork suffix 2: ids == server A's, cached 7999
+PASS turn-api: receipt=~/Projects/mojo/mojo-baro-lanes/F0/.work/run-tests-turn/receipt.md
+=== test_liblatentos.mojo (memfd seal/map + LatentHeader round trip) ===
+~/Projects/mojo/mojo-baro/amdhq/tests/test_liblatentos.mojo:65:18: error: 'LatentHeader' value has no attribute 'dtype_name'
+    assert_true(h.dtype_name() == "f32", "DType name matches f32")
+                ~^
+~/Projects/mojo/mojo-baro/amdhq/tests/test_liblatentos.mojo:66:18: error: 'LatentHeader' value has no attribute 'batch_class_name'
+    assert_true(h.batch_class_name() == "M1", "Batch class matches M1")
+                ~^
+~/Projects/mojo/mojo-baro/.venv/bin/mojo: error: failed to parse the provided Mojo source module
+==================================================
+      LatentOS liblatentos Verification Suite     
+==================================================
+
+--- Test Suite 1: Systems Capabilities (sys.mojo) ---
+PASS: clock_monotonic_ns returns positive timestamp
+PASS: clock_monotonic_s returns positive timestamp
+PASS: read_meminfo_hugepages returns valid hugepage size
+PASS: posix_spawn successfully launched /bin/true
+PASS: waitpid reaped child with exit status 0
+PASS: sd_notify executes safely
+
+--- Test Suite 2: Protocol & Wire Contract (proto.mojo) ---
+PASS: LatentHeader default magic == LAT1
+PASS: LatentHeader default version == 1
+PASS: LatentHeader size is exactly 256 bytes
+PASS: Configured LatentHeader is valid
+PASS: Kind name matches SSM_CKPT
+PASS: DType name matches f32
+PASS: Batch class matches M1
+PASS: Deserialized magic matches
+PASS: Deserialized kind matches
+PASS: Deserialized payload_len matches
+PASS: Deserialized pos_hi matches
+PASS: Deserialized prefix_hash matches
+PASS: Deserialized weights_uuid matches
+PASS: Deserialized role_sha matches
+PASS: Deserialized payload_sha matches
+
+--- Test Suite 3: IPC Transport & Memfd Lifecycle (ipc.mojo) ---
+PASS: create_ipc_pair returned valid socket descriptors
+PASS: mint_memfd_rw created valid descriptor
+PASS: seal_and_finalize unmapped and applied all seals
+PASS: fcntl(F_GET_SEALS) confirms all 4 seals active
+PASS: send_handle transmitted 256-byte header + descriptor atomically
+PASS: recv_handle received new valid descriptor in receiver domain
+PASS: Received header kind matches
+PASS: Received header payload_len matches
+PASS: Received header prefix_hash matches
+PASS: map_readonly mapped received descriptor
+PASS: Receiver zero-copy touch matches minted bytes exactly
+PASS: LatentStore successfully registered handle
+PASS: LatentStore retrieved correct descriptor for handle
+
+==================================================
+  ALL LIBLATENTOS TESTS PASSED WITH ZERO WARNINGS 
+==================================================
+--- test_liblatentos.mojo (memfd seal/map + LatentHeader round trip): PASS ---
+=== test_latent_engine.mojo (checkpoint + KV page mint/seal/ingest) ===
+Testing 50.25 MiB engine checkpoint mint -> seal -> ingest...
+  -> Minted & sealed 50.25 MiB memfd (fd=3)
+  -> Ingested and restored bit-exact float32 state successfully
+  -> Boundary check: conv0=3.14159, ssm_end=1.73205
+Testing 8 MiB KV page mint -> seal -> ingest (128 tokens = 64 KiB/token)...
+  -> Minted & sealed 8 MiB KV page memfd (fd=3)
+  -> Ingested and restored bit-exact KV float32 page successfully
+  -> Boundary check: k0=42.125, v_end=1024.5
+ALL ENGINE LATENT SIDECAR VERIFICATIONS PASSED (0 warnings)
+--- test_latent_engine.mojo (checkpoint + KV page mint/seal/ingest): PASS ---
+=== test_identity.mojo (U3: identity refusal, one negative control per field) ===
+
+=== test_identity.mojo: U3 identity refusal ===
+PASS: matching header on all four fields ingests (no raise)
+PASS: flipped weights_uuid is refused (raised)
+PASS: refusal names the field: weights_uuid (got: IDENTITY_MISMATCH:weights_uuid)
+PASS: flipped runtime is refused (raised)
+PASS: refusal names the field: runtime (got: IDENTITY_MISMATCH:runtime)
+PASS: flipped sigma_id is refused (raised)
+PASS: refusal names the field: sigma_id (got: IDENTITY_MISMATCH:sigma_id)
+PASS: flipped tokenizer_sha is refused (raised)
+PASS: refusal names the field: tokenizer_sha (got: IDENTITY_MISMATCH:tokenizer_sha)
+
+All identity tests PASSED.
+--- test_identity.mojo (U3: identity refusal, one negative control per field): PASS ---
+=== test_latent_c_abi.c (C/NDK ABI contract) ===
+==================================================
+      LatentOS C ABI / Android NDK Test Suite     
+==================================================
+PASS: LatentHeader size is exactly 256 bytes (expected 256)
+PASS: LatentHeader field offsets match proto.mojo serialize()
+PASS: LatentHeader initialized and valid
+PASS: Sealed memfd created with all 4 seals active (seals=15)
+PASS: Atomic SCM_RIGHTS handle passing verified
+PASS: Received descriptor mapped read-only and data verified bit-exact
+==================================================
+  ALL C ABI / ANDROID NDK TESTS PASSED (0 ERRORS) 
+==================================================
+--- test_latent_c_abi.c (C/NDK ABI contract): PASS ---
+=== gpt.mojo vs Python oracle ===
+PASS: partition 0 matches: {'gpt_name': 'PARTONE', 'fs_label': 'FIXTUREA', 'fs_kind': 'ext4', 'first_lba': 2048, 'last_lba': 67583}
+PASS: partition 1 matches: {'gpt_name': 'PARTTWO', 'fs_label': 'FIXTUREB', 'fs_kind': 'ext4', 'first_lba': 67584, 'last_lba': 133119}
+gpt_oracle: PASS, 2 partitions match
+--- gpt.mojo vs Python oracle: PASS ---
+
+===== latentos-check summary =====
+PASS: 5 (test_liblatentos.mojo (memfd seal/map + LatentHeader round trip) test_latent_engine.mojo (checkpoint + KV page mint/seal/ingest) test_identity.mojo (U3: identity refusal, one negative control per field) test_latent_c_abi.c (C/NDK ABI contract) gpt.mojo vs Python oracle)
+FAIL: 0 (none)
+PASS run-tests: all tests, pack .work/engine-pack-q4

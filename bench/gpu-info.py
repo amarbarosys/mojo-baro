@@ -36,6 +36,9 @@ def agents():
         m = re.search(r"^\s*Compute Unit:\s+(\d+)", line)
         if m and "gfx" in cur:
             cur["cu"] = int(m.group(1))
+        m = re.search(r"^\s*L3:\s+(\d+)", line)
+        if m and "gfx" in cur:
+            cur["l3_kb"] = int(m.group(1))
         m = re.search(r"^\s*Wavefront Size:\s+(\d+)", line)
         if m and "gfx" in cur:
             cur["wavefront"] = int(m.group(1))
@@ -111,6 +114,7 @@ info = {
     "gfx": gpu["gfx"],
     "compute_units": gpu.get("cu"),
     "wavefront": gpu.get("wavefront"),
+    "infinity_cache_kb": gpu.get("l3_kb"),
     "max_clock_mhz": gpu.get("max_clock_mhz"),
     "gpu_count": len(gpus),
     "rocm": rocm_version(),

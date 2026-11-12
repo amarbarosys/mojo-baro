@@ -5,7 +5,7 @@ from std.math import ceildiv
 from bexp import exp
 from std.memory import bitcast
 from layout import TileTensor, TensorLayout, row_major, stack_allocation
-from layout.tensor_core import mma
+from arch import mma
 from matmul_prefill_lds import lds_chunk
 from moe import q4k_sm_w, TOPK, Q4K, Q4K_BYTES
 

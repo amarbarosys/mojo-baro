@@ -1,0 +1,14 @@
+probe                 gfx1100   gfx1200   gfx1201   
+perm                  OK        OK        OK        
+readlane              OK        OK        OK        
+sdot4                 OK        OK        OK        
+sendmsg_rtn_realtime  OK        OK        OK        
+setprio               OK        OK        OK        
+sudot4                OK        OK        OK        
+wmma_bf16_w16         OK        FAIL isel FAIL isel 
+wmma_bf16_w8          FAIL isel OK        OK        
+wmma_f16_w16          OK        FAIL isel FAIL isel 
+wmma_f16_w8           FAIL isel OK        OK        
+wmma_iu8_w2           FAIL isel OK        OK        
+wmma_iu8_w4           OK        FAIL isel FAIL isel 
+toolchain: Mojo 1.2.0 (2016d0cd)  commit: fd80f86

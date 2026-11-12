@@ -1,0 +1,45 @@
+engA=~/Projects/mojo/mojo-baro-lanes/F0/.work/engine-9b sha256 59abf5b0f9edabbc
+engB=~/Projects/mojo/mojo-baro-lanes/F0/face/engine-with-window.sh sha256 ee216d288428e97d
+pack ~/Projects/mojo/mojo-baro/.work/e11b-qwythos-pack
+armA='FACE=none' armB='FACE=win' gen 64 prompts 20 seq 1 block 5
+power_cap_uW=290000000 load_start 4.35
+nowin BARO_MEGA: True
+nowin BARO_MOE_DOT: False
+nowin BARO_SPEC: True
+nowin mega fail word: 0 
+nowin vram_max 14736 gtt_max 1109 load_max 4.35
+win BARO_MEGA: True
+win BARO_MOE_DOT: False
+win BARO_SPEC: True
+win mega fail word: 0 
+win vram_max 15457 gtt_max 1117 load_max 4.35
+win BARO_MEGA: True
+win BARO_MOE_DOT: False
+win BARO_SPEC: True
+win mega fail word: 0 
+win vram_max 15463 gtt_max 1117 load_max 4.08
+nowin BARO_MEGA: True
+nowin BARO_MOE_DOT: False
+nowin BARO_SPEC: True
+nowin mega fail word: 0 
+nowin vram_max 14763 gtt_max 1111 load_max 4.08
+nowin BARO_MEGA: True
+nowin BARO_MOE_DOT: False
+nowin BARO_SPEC: True
+nowin mega fail word: 0 
+nowin vram_max 14754 gtt_max 1099 load_max 4.07
+win BARO_MEGA: True
+win BARO_MOE_DOT: False
+win BARO_SPEC: True
+win mega fail word: 0 
+win vram_max 15466 gtt_max 1102 load_max 4.15
+win BARO_MEGA: True
+win BARO_MOE_DOT: False
+win BARO_SPEC: True
+win mega fail word: 0 
+win vram_max 15470 gtt_max 1102 load_max 4.15
+nowin BARO_MEGA: True
+nowin BARO_MOE_DOT: False
+nowin BARO_SPEC: True
+nowin mega fail word: 0 
+nowin vram_max 14749 gtt_max 1096 load_max 4.05

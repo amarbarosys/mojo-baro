@@ -1,3 +1,4 @@
+from max.gpu import MAX_THREADS_PER_BLOCK_METADATA
 from std.math import fma
 from std.memory import bitcast
 from std.utils import StaticTuple
@@ -22,7 +23,7 @@ def turbo_lds_dwords[MR: Int, UNROLL: Int]() -> Int:
     return MR * (WARP_SIZE * UNROLL) * STR
 
 
-@__llvm_metadata(`rocdl.flat_work_group_size`=StaticTuple[Int32, 1](Int32(ROW_THREADS)))
+@__llvm_metadata(MAX_THREADS_PER_BLOCK_METADATA=StaticTuple[Int32, 1](Int32(ROW_THREADS)))
 def amar_turbo_rows[
     N: Int, K: Int, MR: Int, UNROLL: Int,
     ALayout: TensorLayout, QLayout: TensorLayout, SLayout: TensorLayout, PLayout: TensorLayout,

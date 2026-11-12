@@ -85,6 +85,13 @@ Any OpenAI client works with `base_url="http://localhost:8080/v1"` and any API k
 clients work against the same port (`/api/chat`, `/api/generate`, `/api/tags`). `tools/baro chat`
 is a terminal client.
 
+`tools/baro gui [--model MODEL.gguf] [--port N] [--fps N]` opens the face (`face/app.mojo`, built on the vendored
+`imkit/`): chat on the left, the engine panel on the right, in one window. It uses the front already on the port, or
+starts `baro serve` for `--model`. Skeleton only for now: placeholder text and the front's `/health` line. It needs the
+system libraries `libSDL3.so.0` (Arch: `pacman -S sdl3`) and `libfreetype.so.6` (`pacman -S freetype2`); the face checks
+both at start and names the missing one. The frame cap defaults to 30 fps: at 60 a resident 9B engine lost about 13% on 6
+to 7 of 20 prompts, at 30 and 15 on 1 (`face/window-cost.sh`).
+
 ## How it works
 
 ```
@@ -429,6 +436,7 @@ the private development history this repo was squashed from.
 | `serve/` | the engines, tokenizer, prefix cache; `serve/src/` the Rust front and router, `serve/front/` the Mojo front |
 | `cpu/` | the CPU tier: ops, weight unpacking, thread pool, `engine_cpu.mojo` |
 | `profiles/` | named settings sets for `tools/baro serve --profile` |
+| `face/`, `imkit/` | the window (`tools/baro gui`) and the vendored immediate-mode GUI under it (mojo-imkit v0.9.0) |
 | `grammar/`, `minja/`, `uregex/`, `toml/` | JSON-schema grammar, chat-template renderer, regex engine, TOML reader (all Mojo) |
 | `bench/` | benchmark harnesses and the frozen protocols |
 | `shim/` | C++ hipBLASLt shim behind a C ABI, the vendor reference |
@@ -446,6 +454,15 @@ Everything is measured on one card, and RDNA3 specifics matter: wave size 32
 units and a 96 MB Infinity Cache. Other RDNA3 cards use the same ISA, so the
 kernels should build, but whether the tuning holds is unmeasured.
 [docs/amd-family.md](docs/amd-family.md) asks for exactly that.
+
+**RDNA4 (gfx1200, gfx1201: RX 9060 XT, 9070, 9070 XT, Radeon AI PRO R9700): builds, never run on a card.** The
+engine and every AMD intrinsic it uses compile for both targets (`tools/rdna4-probe/rdna4-probe.sh`, receipt in
+`docs/rdna4/`), and `bench/preflight.sh` keeps it that way. RDNA4 halved the WMMA input fragments and moved the
+accumulator rows; the fragments are handled, the accumulator rows of the prefill kernels are not ported yet, so
+prefill output on RDNA4 is expected to be wrong until that lands. The megakernel turns itself off on cards with
+fewer compute units than its 96-block grid. If you own one of these cards, `bench/report.sh --rdna4` (no weights
+needed) writes one local text file: card, intrinsic table, a WMMA numeric check, kernel log. Paste it into a
+"hardware report" issue; a failing report is the most useful one.
 
 ## Contributing
 

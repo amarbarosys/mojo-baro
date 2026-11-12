@@ -108,9 +108,26 @@ step "vendored uregex/, toml/ and the front libraries match their upstream"
 M=$HOME/Projects/mojo
 for pkg_up in "uregex:$M/mojo-uregex/src/uregex" "toml:$HOME/Projects/imports/databooth-mojo-toml/src/toml" \
     "aio:$M/mojo-aio/src/aio" "json:$M/mojo-json/src/json" "posix:$M/mojo-posix/src/posix" \
-    "systemd:$M/mojo-systemd/src/systemd" "bento:$M/mojo-bento/src/bento:subset"; do
-  pkg=${pkg_up%%:*}; up=${pkg_up#*:}; subset=""
+    "systemd:$M/mojo-systemd/src/systemd" "bento:$M/mojo-bento/src/bento:subset" "imkit:$M/mojo-imkit/src/imkit:tag=v0.9.0"; do
+  pkg=${pkg_up%%:*}; up=${pkg_up#*:}; subset=""; tag=""
   case $up in *:subset) subset=1; up=${up%:subset} ;; esac
+  # imkit is pinned to a release tag: its upstream checkout moves on, so compare against the tag's blobs
+  case $up in *:tag=*) tag=${up##*:tag=}; up=${up%:tag=*} ;; esac
+  if [ -n "$tag" ]; then
+    repo=${up%/src/*}
+    if [ ! -d "$repo/.git" ]; then ok "$pkg: upstream not on this machine, nothing to compare"; continue; fi
+    drift=""
+    for f in "$pkg"/*.mojo; do
+      base=$(basename "$f")
+      if ! git -C "$repo" cat-file -e "$tag:src/$pkg/$base" 2>/dev/null; then drift="$drift $base(missing-upstream)"
+      elif ! diff -q <(tail -n +7 "$f") <(git -C "$repo" show "$tag:src/$pkg/$base") >/dev/null; then drift="$drift $base"; fi
+    done
+    for base in $(git -C "$repo" ls-tree --name-only "$tag" "src/$pkg/" | xargs -n1 basename); do
+      [ -f "$pkg/$base" ] || drift="$drift $base(missing-vendored)"
+    done
+    if [ -z "$drift" ]; then ok "$pkg: vendored copy is in sync with $tag"; else bad "$pkg: drifted from $tag:$drift"; fi
+    continue
+  fi
   if [ ! -d "$up" ]; then ok "$pkg: upstream not on this machine, nothing to compare"; continue
   fi
   drift=""

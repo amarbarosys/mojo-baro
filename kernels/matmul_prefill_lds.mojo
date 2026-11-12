@@ -3,7 +3,7 @@ from max.gpu.sync import barrier
 from max.gpu import block_idx, thread_idx, WARP_SIZE
 from std.math import ceildiv, fma
 from layout import TileTensor, TensorLayout, row_major, stack_allocation
-from layout.tensor_core import mma
+from arch import mma
 
 from matmul_prefill import f32x16_to_bf16_trunc
 

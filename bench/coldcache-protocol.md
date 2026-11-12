@@ -22,7 +22,7 @@ The whole measurement repeats 10x in-process.
 
 ## Flush rule (2026-10-12)
 
-Cold means flushed by a **read-only** sweep over more than twice the 96 MB Infinity Cache, never by a D2D copy: a
+Cold means flushed by a **read-only** sweep over more than twice the card's Infinity Cache (96 MB on the 7900 XTX; other cards: `infinity_cache_kb` from `bench/gpu-info.py`), never by a D2D copy: a
 256 MB copy leaves dirty cache lines whose write-back the next kernel pays (freivalds lane: 258 vs 158 us for the same
 kernel). Use `kernels/icflush.mojo` (`ICFlush.flush`, and `ICFlush.ruler` for the copy / read bandwidth ruler, units
 checked against the 960 GB/s peak); gate `kernels/test_icflush.mojo` measured a 48 MB read at 36 us warm, 92 us after

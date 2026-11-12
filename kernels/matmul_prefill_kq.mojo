@@ -1,10 +1,11 @@
+from max.gpu import MAX_THREADS_PER_BLOCK_METADATA
 from max.gpu.memory import AddressSpace
 from max.gpu.sync import barrier
 from max.gpu import block_idx, thread_idx, WARP_SIZE
 from std.math import ceildiv, fma
 from std.utils import StaticTuple
 from layout import TileTensor, TensorLayout, row_major, stack_allocation
-from layout.tensor_core import mma
+from arch import mma
 
 from gemv_kq import kq_bytes, GT_Q4K
 from moe import q4k_sm_w, f16_at
@@ -53,7 +54,7 @@ def kq_decode[GT: Int, run: Int](q: B16, qh: B16, sc: B16, d: Scalar[f32], dmin:
         return ((bitcast[DType.int8, 16](q6) - 32).cast[f32]() * SIMD[f32, 16](dsc)).cast[f16]()
 
 
-@__llvm_metadata(`rocdl.flat_work_group_size`=StaticTuple[Int32, 1](Int32(LDS_THREADS)))
+@__llvm_metadata(MAX_THREADS_PER_BLOCK_METADATA=StaticTuple[Int32, 1](Int32(LDS_THREADS)))
 def amar_matmul_prefill_kq[
     GT: Int, WM: Int, WN: Int, TM: Int, TN: Int, ACC: Bool, U: Int,
     ALayout: TensorLayout, CLayout: TensorLayout

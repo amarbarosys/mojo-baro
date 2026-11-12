@@ -1,3 +1,4 @@
+from arch import perm, sudot4
 from max.gpu import block_idx, thread_idx, lane_id, WARP_SIZE
 from max.gpu.primitives import warp
 from max.gpu.host import DeviceContext, DeviceBuffer, HostBuffer
@@ -61,7 +62,7 @@ def fv_sel[a: Int, b: Int, c: Int, d: Int]() -> UInt32:
 
 @always_inline
 def fv_perm(hi: UInt32, lo: UInt32, sel: UInt32) -> UInt32:
-    return llvm_intrinsic["llvm.amdgcn.perm", UInt32](hi, lo, sel)
+    return perm(hi, lo, sel)
 
 
 @always_inline
@@ -78,7 +79,7 @@ def fv_digit[ND: Int, b: Int, g: Int](w: SIMD[u32, 4]) -> UInt32:
 
 @always_inline
 def fv_dot[ASIGN: Bool](a: UInt32, d: UInt32, c: Int32) -> Int32:
-    return llvm_intrinsic["llvm.amdgcn.sudot4", Int32](ASIGN, bitcast[i32, 1](a), False, bitcast[i32, 1](d), c, False)
+    return sudot4(ASIGN, bitcast[i32, 1](a), False, bitcast[i32, 1](d), c, False)
 
 
 @always_inline

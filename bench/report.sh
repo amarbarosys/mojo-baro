@@ -6,16 +6,19 @@
 # the clock state the numbers were taken under. Writes results/report-*.json and
 # prints a markdown block to paste into a GitHub issue.
 #
-# Needs no model weights. --check runs the preflight only.
+# Needs no model weights. --check runs the preflight only. --rdna4 (automatic on gfx12) first runs
+# bench/rdna4-selftest.sh: intrinsics, WMMA numeric check, kernel log, written to results/selftest-*.txt.
 set -eu
 cd "$(dirname "$0")/.."
 
 SIZES="256 512 768 1024 1536 2048 2560 3072 3584 4096"
 CHECK_ONLY=0
+RDNA4=0
 OUT=""
 while [ $# -gt 0 ]; do
   case $1 in
     --check) CHECK_ONLY=1 ;;
+    --rdna4) RDNA4=1 ;;
     --quick) SIZES="512 2048 4096" ;;
     --sizes) SIZES=$2; shift ;;
     --out) OUT=$2; shift ;;
@@ -39,6 +42,11 @@ ROCM=$(printf '%s' "$GPUJSON" | python3 -c 'import json,sys; print(json.load(sys
 HIPBLASLT=$(printf '%s' "$GPUJSON" | python3 -c 'import json,sys; print(json.load(sys.stdin)["hipblaslt"])')
 
 [ -n "$HIPBLASLT" ] || fail "hipBLASLt not found. It is the comparison baseline; install rocm-libs."
+case "$GFX" in gfx12*) RDNA4=1 ;; esac
+if [ "$RDNA4" = 1 ] && [ "$CHECK_ONLY" = 0 ]; then
+  echo "running the architecture self-test first (bench/rdna4-selftest.sh)"
+  bench/rdna4-selftest.sh || echo "self-test had failing sections: the results/selftest-*.txt file is the useful part, paste it too"
+fi
 case "$GFX" in
   gfx11*) ;;
   *) echo "report.sh: WARNING $GFX is not RDNA3. The kernel targets gfx11xx;"

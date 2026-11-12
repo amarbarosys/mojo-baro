@@ -3,14 +3,13 @@ tools/engine-pack.py, which stays as the oracle (byte-identical pack.bin, index.
 pack_mtime_ns, checked by tools/engine-pack-check.sh) and as the library its Python neighbours import.
 
 Modes, as in the oracle (its docstring has the formats):
-  MODEL OUTDIR [--q8|--q4] [--q4-draft]   qwen35 trunk in the fixed engine order (block_count minus the NextN layers, then the NextN
+  MODEL OUTDIR [--q8|--q4|--q2b3|--tq1|--tq2] [--q4-draft]   qwen35 trunk in the fixed engine order (block_count minus the NextN layers, then the NextN
                                           head); without a flag 2D bf16 weights are stored transposed
   MODEL OUTDIR --kq                       as --q8, but 2D Q4_K / Q6_K weights keep the file's raw bytes (dtype q4_k / q6_k);
                                           Mojo only, the engine reads them on the launch path
   MODEL OUTDIR --dense                    llama/qwen2/granite dense transformers for serve/spark.mojo
   MODEL OUTDIR --arch qwen35moe           every tensor in lexical order, experts as the GGUF holds them
   --identity OUTDIR                       refresh OUTDIR/identity.json (cached by pack.bin size and mtime)
-The ternary codecs (--q2b3, --tq1, --tq2) stay in tools/engine-pack.py.
 
 Sources: F32, F16, BF16, Q4_0, Q8_0, Q4_K, Q5_K, Q6_K rows dequantised as gguf-py does (tools/ggml_quant.mojo),
 rounded to bf16 where the oracle rounds, then requantised with ggml's q8_0 / q4_0 rules in f32. Rows stream from
@@ -164,6 +163,68 @@ def q4_row(row: List[Float32], ne0: Int, o: Int, scales: Int):
         f16_bytes(d, scales + g * 2)
 
 
+def ternary_code(x: Float32, inv: Float32) -> Int:
+    var v = x * inv
+    var magnitude = abs(v)
+    var q = floor(magnitude)
+    if magnitude - q >= Float32(0.5):
+        q += Float32(1)
+    if v < 0:
+        q = -q
+    return min(max(Int(q) + 1, 0), 2)
+
+
+def ternary_row(row: List[Float32], ne0: Int, mode: String, mut o: Out, mut scales: List[UInt8]) raises:
+    var block = 128 if mode == "q2b3" else 256
+    if ne0 % block != 0:
+        raise Error(mode + ": row width " + String(ne0) + " is not divisible by " + String(block))
+    for start in range(0, ne0, block):
+        var amax = Float32(0)
+        for j in range(block):
+            amax = max(amax, abs(row[start + j]))
+        var inv = Float32(1) / amax if amax > 0 else Float32(0)
+        if mode == "q2b3":
+            var payload = List[UInt8](length=26, fill=0)
+            for j in range(128):
+                var c = j // 32
+                var t = j % 32
+                var byte = 6 * c + t // 5 if t < 30 else 24 + c // 2
+                var digit = t % 5 if t < 30 else 2 * (c % 2) + (t - 30)
+                var pow3 = 1
+                for k in range(digit):
+                    pow3 *= 3
+                payload[byte] += UInt8(ternary_code(row[start + j], inv) * pow3)
+            for b in range(26):
+                o.b(payload[b])
+        elif mode == "tq1":
+            for m in range(32):
+                var packed = 0
+                for n in range(5):
+                    packed = packed * 3 + ternary_code(row[start + m + n * 32], inv)
+                o.b(UInt8((packed * 256 + 242) // 243))
+            for m in range(16):
+                var packed = 0
+                for n in range(5):
+                    packed = packed * 3 + ternary_code(row[start + 160 + m + n * 16], inv)
+                o.b(UInt8((packed * 256 + 242) // 243))
+            for j in range(4):
+                var packed = 0
+                for m in range(4):
+                    packed = packed * 3 + ternary_code(row[start + 240 + j + m * 4], inv)
+                packed *= 3
+                o.b(UInt8((packed * 256 + 242) // 243))
+        else:
+            for j in range(0, 64, 32):
+                for m in range(32):
+                    var packed = 0
+                    for n in range(4):
+                        packed += ternary_code(row[start + j * 4 + m + n * 32], inv) << (2 * n)
+                    o.b(UInt8(packed))
+        var h = bitcast[DType.uint16](Float16(amax))
+        scales.append(UInt8(h & 0xFF))
+        scales.append(UInt8(h >> 8))
+
+
 def emit_quant(mut o: Out, parts: List[TensorRef], q4: Bool) raises -> Int:
     """Rows of every part quantised in order on all cores, then all their block scales; returns the weight count."""
     var scales = List[UInt8]()
@@ -249,6 +310,21 @@ def emit_mat(mut o: Out, name: String, parts: List[TensorRef], mut lines: String
     lines += line(name, dt, off, ne)
 
 
+def emit_ternary(mut o: Out, parts: List[TensorRef], mode: String) raises -> Int:
+    var scales = List[UInt8]()
+    var ne = 0
+    for t in parts:
+        var ne0 = t.dims[0]
+        var row = List[Float32](length=ne0, fill=0)
+        for r in range(n_rows(t)):
+            bf16_row(t, r, row)
+            ternary_row(row, ne0, mode, o, scales)
+        ne += n_elem(t)
+        release(t)
+    o.bytes(scales)
+    return ne
+
+
 def emit_bf16(mut o: Out, t: TensorRef) raises:
     if t.gtype == T_BF16:
         o.raw(t.addr, t.nbytes)
@@ -332,7 +408,7 @@ def line(name: String, dt: String, off: Int, ne: Int) -> String:
     return name + " " + dt + " " + String(off) + " " + String(ne) + "\n"
 
 
-def pack_trunk(idx: ShardIndex, mut o: Out, q8: Bool, q4: Bool, q4_draft: Bool, kq: Bool = False) raises -> Tuple[String, Int]:
+def pack_trunk(idx: ShardIndex, mut o: Out, q8: Bool, q4: Bool, q4_draft: Bool, kq: Bool = False, ternary: String = "") raises -> Tuple[String, Int]:
     # Trunk depth from the GGUF: block_count minus the MTP draft block(s).
     var n_layers = idx.gguf.akv_int("block_count", -1) - idx.gguf.akv_int("nextn_predict_layers", 0)
     if n_layers < 0:
@@ -358,10 +434,13 @@ def pack_trunk(idx: ShardIndex, mut o: Out, q8: Bool, q4: Bool, q4_draft: Bool, 
         if kq and two_d and not embd and (t.gtype == T_Q4_K or t.gtype == T_Q6_K):
             o.raw(t.addr, t.nbytes)
             dt = "q4_k" if t.gtype == T_Q4_K else "q6_k"
-        elif two_d and (not native or t.gtype == T_BF16) and (q8 or q4 or embd):
+        elif two_d and (not native or t.gtype == T_BF16) and (q8 or q4 or ternary != "" or embd):
             if embd:
                 emit_bf16(o, t)
                 dt = "bf16"
+            elif ternary != "":
+                _ = emit_ternary(o, [t.copy()], ternary)
+                dt = ternary
             else:
                 _ = emit_quant(o, [t.copy()], q4)
                 dt = "q4" if q4 else "q8"
@@ -628,6 +707,7 @@ def main() raises:
     var q8 = False
     var q4 = False
     var q4_draft = False
+    var ternary = String()
     var kq = False
     var dense = False
     var arch = String()
@@ -653,9 +733,12 @@ def main() raises:
             q8 = True
         elif a == "--q4-draft":
             q4_draft = True
-        elif a == "--q2b3" or a == "--tq1" or a == "--tq2":
-            print("engine-pack: " + a + " is built by the oracle, ./.venv/bin/python3 tools/engine-pack.py", file=stderr)
-            exit(2)
+        elif a == "--q2b3":
+            ternary = "q2b3"
+        elif a == "--tq1":
+            ternary = "tq1"
+        elif a == "--tq2":
+            ternary = "tq2"
         else:
             pos.append(a)
         i += 1
@@ -663,13 +746,13 @@ def main() raises:
         ensure_identity(identity)
         return
     if len(pos) != 2:
-        print("usage: engine-pack MODEL.gguf OUTDIR [--q8|--q4|--kq] [--q4-draft] | --dense | --arch qwen35moe;"
+        print("usage: engine-pack MODEL.gguf OUTDIR [--q8|--q4|--kq|--q2b3|--tq1|--tq2] [--q4-draft] | --dense | --arch qwen35moe;"
               + " engine-pack --identity OUTDIR", file=stderr)
         exit(2)
     if arch != "" and arch != "qwen35moe":
         raise Error("unsupported architecture: " + arch)
-    if q8 and q4:
-        raise Error("--q8 and --q4 are exclusive")
+    if (q8 and q4) or ((q8 or q4) and ternary != ""):
+        raise Error("--q8, --q4 and ternary quantization flags are exclusive")
     var model = pos[0]
     var outdir = pos[1]
     makedirs(outdir, exist_ok=True)
@@ -681,7 +764,7 @@ def main() raises:
     elif dense:
         lines = pack_dense(idx, o)
     else:
-        var r = pack_trunk(idx, o, q8, q4, q4_draft, kq)
+        var r = pack_trunk(idx, o, q8, q4, q4_draft, kq, ternary)
         lines = r[0]
         print("packed " + String(r[1]) + " tensors, " + gib(o.n) + " GiB")
     o.close()
