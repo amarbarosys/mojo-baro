@@ -1,0 +1,29 @@
+qwen3.8-27b-obliterated-q4_K_M/Qwen3.8-27B-OBLITERATED.mmproj-f16.gguf
+qwythos-9b-claude-mythos-5-1m-mtp-q4_k_m
+qwythos-9b-v2-mtp-q6_k/Qwythos-9B-v2-MTP-Q4_0-BARO-3c6c25c.gguf
+ornith-1.5-9b-q4_K_M/Ornith-1.5-9B-Q4_K_M-BARO-3c6c25c.gguf
+granite-4.2-3b-bf16/granite-4.2-3b-BF16-BARO-3c6c25c.gguf
+spark-x2.5-4b/Spark-X2.5-4B-Q4_K_M-BARO-3c6c25c.gguf
+qwen2.5-0.5b-instruct-import
+qwen2.5-0.5b-instruct-import2
+qwen2.5-0.5b-instruct-import3
+qwen2.5-0.5b-instruct-hf
+Ternary-Bonsai-2-27B-Uncensored-Heretic-PQ2_0.gguf
+TriLM-1.5B-TQ2_0.gguf
+bitnet-b1.58-2b-4t-bf16
+phi-4-mini-reasoning
+xlam-2-3b-fc-r
+bert-base-turkish-nli-stsb
+IFM
+MiniCPM-V-4.7-1B
+deepseek-ocr-2
+lgm
+siglip-so400m-patch14-384
+styledem
+trm-arc2-8gpu
+whisper-large-v3-turbo-hf
+ChelooRVCv2.zip
+Nicusor Dan (Romanian President) - Weights Model.zip
+Puya (Romanian Rapper) - Weights Model.zip
+becaliRVC.rar
+e-girl.zip

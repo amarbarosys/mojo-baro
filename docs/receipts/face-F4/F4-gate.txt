@@ -1,0 +1,9 @@
+PASS chat_test: sse parse, 5 stream shapes, refused, stop closes the socket
+dash done tok_s_gen=131.0 raw=131.0 path=spec fail=0
+dash reply HTTP 502 fail=3
+dash reply unreadable: json: unexpected end at byte 0
+PASS dash_test: format, done lines, ring, fail word, vram 1057824768/25753026560
+PASS net_test: 200, 503, timeout, refused
+PASS settings_test: load, staging, restart count, sampling json, 5 refusals
+PASS build face/app.mojo (mount)
+PASS settings gate: settings_test + 7 headless frames (6 tabs, Engine advanced with a staged value and its help) read back by OCR (.work/settings-gate)

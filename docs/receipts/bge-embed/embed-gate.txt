@@ -1,0 +1,10 @@
+arm real: child 01051085abf0 cmdline: $HOME/Projects/mojo/mojo-baro-lanes/bge-embed/.work/embed-gate/real/serve_embed $HOME/Models/bge-small-en-v1.5 $HOME/Projects/mojo/mojo-baro-lanes/bge-embed/.work/embed-gate/real/norm.tsv 512 
+rows 30 dims 384 norm 0.9999999..1.0000001
+baro-serve vs ONNX: 30 texts, min cosine 1.0000000, mean 1.0000000 (bar 0.9999)
+arm brain-ask: 1e607e299b4d $HOME/iTools/brain/brain-ask/.bin/embed lines, model $HOME/Models/bge-small-en-v1.5
+baro-serve vs brain-ask embed.mojo: 26 texts (rows 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,18,19,22,23,24,25,26,27,28,29), min cosine 1.0000000, mean 1.0000000 (bar 0.9999)
+NOT EXERCISED against brain-ask: rows 16 (multi-line), 17 (empty), 20 (301 tokens), 21 (700 tokens): its lines mode cannot take or cuts them at 256
+/api/embeddings single text equals batch row 0 (cosine >= 0.999999)
+arm mut: child 9dcdcf73fda9 cmdline: $HOME/Projects/mojo/mojo-baro-lanes/bge-embed/.work/embed-gate/mut/serve_embed $HOME/Models/bge-small-en-v1.5 $HOME/Projects/mojo/mojo-baro-lanes/bge-embed/.work/embed-gate/mut/norm.tsv 512 
+falsifier, mean pooling instead of CLS vs ONNX: 30 texts, min cosine 0.8748190, mean 0.9382641 (must be < 0.9999)
+PASS embed-gate: 30 texts, dims 384, unit norm, ONNX and brain-ask cosine >= 0.9999, mean-pooling mutant rejected

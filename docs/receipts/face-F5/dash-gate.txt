@@ -1,0 +1,5 @@
+frame 1: tok/s panel 144.8 vs done line 144.7921; VRAM panel 15.0 / 24.0 vs rocm-smi 14.6122 / 23.9844 GiB
+frame 2: tok/s panel 144.8 vs done line 144.7921; VRAM panel 15.0 / 24.0 vs rocm-smi 14.6122 / 23.9844 GiB
+frame 3: tok/s panel 144.8 vs done line 144.7921; VRAM panel 15.0 / 24.0 vs rocm-smi 14.6122 / 23.9844 GiB
+PASS dash gate: dash_test + 3 headless frames on a live front and engine, tok/s and VRAM within 5% of the done line and rocm-smi (.work/dash-gate)
+skew 1.2: rc=1 FAIL tok/s: frame 1: panel 145.8 vs done line 174.9942 (more than 5% apart)

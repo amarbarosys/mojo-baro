@@ -1,0 +1,2842 @@
+# docs/settings.toml: the single source for every setting mojo-baro reads (lane F3, 2026-11-12).
+# Checked against the code by tools/settings-check.mojo (wired into tools/ci-checks.sh); the README
+# "Configuration" table is generated from it (tools/settings-check --readme). Face tabs (F4) read it.
+#
+# key     env knob (BARO_*, set in the environment, a profile [env] or -D at build) or a request field "sampling.NAME".
+# group   sampling | engine | model | front
+# type    int | float | bool | enum | path | string. An absent `default` means unset (the code has no default).
+# restart true = engine restart needed (build flags: a rebuild + restart); sampling request fields never need one.
+# level   basic | advanced (the face hides advanced behind a toggle). status: stable | experimental | bench-only.
+# kind    env (engine, read at run time) | build (-D flag) | server-env (baro-serve) | shell (tools/baro) | request (a request field).
+# models  qwen35 (dense) | qwen35moe | spark | all. sources: files the code reads it in (first 6).
+# Help facts come from code, docs and receipts; a claim without a source says "unmeasured".
+
+[[setting]]
+key = "sampling.temperature"
+group = "sampling"
+label = "Temperature"
+type = "float"
+kind = "request"
+default = 0.0
+min = 0.0
+max = 2.0
+restart = false
+level = "basic"
+status = "stable"
+models = ["qwen35", "qwen35moe", "spark"]
+sources = ["serve/src/main.rs", "serve/front/api.mojo", "serve/PROTOCOL.md"]
+summary = "Randomness of the draw; 0 = greedy, and greedy when omitted."
+help = """Sampling randomness. 0 is greedy and what baro-serve does when the field is omitted (docs/plan-ailab-server.md). Above 0 the device sampler (kernels/sample.mojo, amar_sample_row) draws inside the decode loop, composed with speculation. Qwen3 thinking-mode use is 0.6 (profiles/turbo27b-coder.toml, set client-side). Spark engines parse it and still decode greedy (serve/PROTOCOL.md). Effect on answer quality: unmeasured."""
+
+[[setting]]
+key = "sampling.top_p"
+group = "sampling"
+label = "Top-p"
+type = "float"
+kind = "request"
+min = 0.0
+max = 1.0
+restart = false
+level = "basic"
+status = "stable"
+models = ["qwen35", "qwen35moe", "spark"]
+sources = ["serve/src/main.rs", "serve/front/api.mojo", "serve/PROTOCOL.md"]
+summary = "Keep the smallest token set whose probability sums to p."
+help = """Nucleus truncation, applied at temperature > 0. Omitted: baro-serve falls back to BARO_DEFAULT_TOP_P, else untruncated. llama-server defaults are 40 / 0.95 / 0.05 for top-k / top-p / min-p. The turbo27b-coder profile uses 0.95. Effect on answer quality: unmeasured."""
+
+[[setting]]
+key = "sampling.top_k"
+group = "sampling"
+label = "Top-k"
+type = "int"
+kind = "request"
+min = 0
+restart = false
+level = "basic"
+status = "stable"
+models = ["qwen35", "qwen35moe", "spark"]
+sources = ["serve/src/main.rs", "serve/front/api.mojo", "serve/PROTOCOL.md"]
+summary = "Sample only from the k most likely tokens."
+help = """Top-k truncation, applied at temperature > 0. Omitted: BARO_DEFAULT_TOP_K, else untruncated. The turbo27b-coder profile uses 20. Effect on answer quality: unmeasured."""
+
+[[setting]]
+key = "sampling.min_p"
+group = "sampling"
+label = "Min-p"
+type = "float"
+kind = "request"
+min = 0.0
+max = 1.0
+restart = false
+level = "advanced"
+status = "stable"
+models = ["qwen35", "qwen35moe", "spark"]
+sources = ["serve/src/main.rs", "serve/front/api.mojo", "serve/PROTOCOL.md"]
+summary = "Drop tokens below this fraction of the top token probability."
+help = """Min-p truncation, applied at temperature > 0. Omitted: BARO_DEFAULT_MIN_P, else untruncated. The turbo27b-coder profile uses 0. Effect on answer quality: unmeasured."""
+
+[[setting]]
+key = "sampling.seed"
+group = "sampling"
+label = "Seed"
+type = "int"
+kind = "request"
+min = 0
+restart = false
+level = "advanced"
+status = "stable"
+models = ["qwen35", "qwen35moe", "spark"]
+sources = ["serve/src/main.rs", "serve/front/api.mojo", "serve/PROTOCOL.md"]
+summary = "Fixed seed for the device sampler."
+help = """Seed for the sampler draw at temperature > 0; the same seed and counter give the same draw on the single-sequence and per-slot paths (serve/PROTOCOL.md). Unset: the engine picks. No effect at temperature 0."""
+
+[[setting]]
+key = "sampling.presence_penalty"
+group = "sampling"
+label = "Presence penalty"
+type = "float"
+kind = "request"
+min = -2.0
+max = 2.0
+restart = false
+level = "advanced"
+status = "experimental"
+models = ["qwen35", "qwen35moe", "spark"]
+sources = ["serve/src/main.rs", "serve/front/api.mojo", "serve/PROTOCOL.md"]
+summary = "Accepted by the front; parsed and carried, not acted on."
+help = """serve/PROTOCOL.md: both penalties are parsed and carried into SampleParams but not acted on by the engine sampler, so changing them has no effect on the output. Kept so the face matches the wire."""
+
+[[setting]]
+key = "sampling.frequency_penalty"
+group = "sampling"
+label = "Frequency penalty"
+type = "float"
+kind = "request"
+min = -2.0
+max = 2.0
+restart = false
+level = "advanced"
+status = "experimental"
+models = ["qwen35", "qwen35moe", "spark"]
+sources = ["serve/src/main.rs", "serve/front/api.mojo", "serve/PROTOCOL.md"]
+summary = "Accepted by the front; parsed and carried, not acted on."
+help = """serve/PROTOCOL.md: both penalties are parsed and carried into SampleParams but not acted on by the engine sampler, so changing them has no effect on the output. Kept so the face matches the wire."""
+
+[[setting]]
+key = "sampling.max_tokens"
+group = "sampling"
+label = "Max answer tokens"
+type = "int"
+kind = "request"
+default = 16000
+min = 16000
+restart = false
+level = "basic"
+status = "stable"
+models = ["qwen35", "qwen35moe", "spark"]
+sources = ["serve/src/main.rs", "serve/front/api.mojo", "serve/PROTOCOL.md"]
+summary = "Most tokens one answer may generate."
+help = """Answer length cap. The 16K floor (CLAUDE.md, bench/min16k.sh) is the minimum the face allows. Omitted on the wire: up to the window, TMAX minus prompt (serve/PROTOCOL.md, serve/src/main.rs fit_n). The face sends this value. Cost: decode time grows with tokens generated."""
+
+[[setting]]
+key = "chat_template_kwargs.enable_thinking"
+group = "sampling"
+label = "Thinking"
+type = "bool"
+kind = "request"
+default = true
+restart = false
+level = "basic"
+status = "stable"
+models = ["qwen35", "qwen35moe"]
+sources = ["serve/src/main.rs", "serve/front/api.mojo", "serve/PROTOCOL.md"]
+summary = "Let the model think before it answers; the chat shows the thinking block folded."
+help = """Sent as chat_template_kwargs.enable_thinking on chat requests; on by default (serve/src/main.rs). Cost: the thinking tokens count against max_tokens and the window, so a thinking answer needs room (the Reasoning preset sets max_tokens 16000). With the grammar route, thinking is off (serve/PROTOCOL.md). Effect on answer quality: unmeasured."""
+
+[[setting]]
+key = "BARO_DEFAULT_TOP_K"
+group = "sampling"
+label = "BARO_DEFAULT_TOP_K"
+type = "int"
+kind = "server-env"
+restart = true
+level = "basic"
+status = "stable"
+models = ["qwen35", "qwen35moe"]
+sources = ["serve/front/api.mojo", "serve/src/main.rs"]
+summary = "baro-serve: top-k for requests that leave it out (llama-server's default: 40 / 0.95 / 0.05). Unset: untruncated."
+help = """baro-serve: top-k for requests that leave it out (llama-server's default: 40 / 0.95 / 0.05). Unset: untruncated."""
+
+[[setting]]
+key = "BARO_DEFAULT_TOP_P"
+group = "sampling"
+label = "BARO_DEFAULT_TOP_P"
+type = "float"
+kind = "server-env"
+restart = true
+level = "basic"
+status = "stable"
+models = ["qwen35", "qwen35moe"]
+sources = ["serve/front/api.mojo", "serve/src/main.rs"]
+summary = "baro-serve: top-p for requests that leave it out (llama-server's default: 40 / 0.95 / 0.05). Unset: untruncated."
+help = """baro-serve: top-p for requests that leave it out (llama-server's default: 40 / 0.95 / 0.05). Unset: untruncated."""
+
+[[setting]]
+key = "BARO_DEFAULT_MIN_P"
+group = "sampling"
+label = "BARO_DEFAULT_MIN_P"
+type = "float"
+kind = "server-env"
+restart = true
+level = "basic"
+status = "stable"
+models = ["qwen35", "qwen35moe"]
+sources = ["serve/front/api.mojo", "serve/src/main.rs"]
+summary = "baro-serve: min-p for requests that leave it out (llama-server's default: 40 / 0.95 / 0.05). Unset: untruncated."
+help = """baro-serve: min-p for requests that leave it out (llama-server's default: 40 / 0.95 / 0.05). Unset: untruncated."""
+
+[[setting]]
+key = "BARO_EMU_GFX12_ROWS"
+group = "engine"
+label = "BARO_EMU_GFX12_ROWS"
+type = "bool"
+kind = "build"
+default = false
+restart = true
+level = "advanced"
+status = "experimental"
+models = ["all"]
+sources = ["kernels/arch.mojo"]
+summary = "Test build: on gfx1100, run every WMMA epilogue with gfx12 (RDNA4) accumulator row order, C/D permuted around each WMMA (-D BARO_EMU_GFX12_ROWS=true). Results must equal the default build; not for serving."
+help = """Test build: on gfx1100, run every WMMA epilogue with gfx12 (RDNA4) accumulator row order, C/D permuted around each WMMA (-D BARO_EMU_GFX12_ROWS=true). Results must equal the default build; not for serving."""
+
+[[setting]]
+key = "BARO_CPU"
+group = "engine"
+label = "BARO_CPU"
+type = "bool"
+kind = "build"
+default = false
+restart = true
+level = "advanced"
+status = "stable"
+models = ["spark"]
+sources = ["serve/spark.mojo"]
+summary = "Build engine for CPU host SIMD execution path without requiring a discrete AMD GPU (-D BARO_CPU=1)."
+help = """Build engine for CPU host SIMD execution path without requiring a discrete AMD GPU (-D BARO_CPU=1)."""
+
+[[setting]]
+key = "BARO_SEQ_CAP"
+group = "engine"
+label = "BARO_SEQ_CAP"
+type = "int"
+kind = "build"
+default = 4
+restart = true
+level = "advanced"
+status = "stable"
+models = ["qwen35", "qwen35moe"]
+sources = ["serve/PROTOCOL.md", "serve/engine.mojo", "serve/registry.mojo", "serve/src/main.rs"]
+summary = "Concurrent sequences the KV pool is sized for"
+help = """Concurrent sequences the KV pool is sized for; each costs a full BARO_TMAX of KV, so single-user long context builds with 1."""
+
+[[setting]]
+key = "BARO_KQ_D"
+group = "engine"
+label = "BARO_KQ_D"
+type = "int"
+kind = "build"
+default = 2
+restart = true
+level = "advanced"
+status = "stable"
+models = ["qwen35"]
+sources = ["kernels/gemv_kq.mojo"]
+summary = "Superblock depth in flight per lane in the megakernel K-quant row dot (kernels/gemv_kq.mojo kq_lane_part_ld)."
+help = """Superblock depth in flight per lane in the megakernel K-quant row dot (kernels/gemv_kq.mojo kq_lane_part_ld). 2 is the register-budget optimum on gfx1100 (d1 84.0, d2 95.4, d3 90.2 tok/s)."""
+
+[[setting]]
+key = "BARO_DOT_UNROLL"
+group = "engine"
+label = "BARO_DOT_UNROLL"
+type = "int"
+kind = "build"
+default = 1
+restart = true
+level = "advanced"
+status = "stable"
+models = ["qwen35", "qwen35moe"]
+sources = ["kernels/mega.mojo"]
+summary = "Unroll of the megakernel q4 dot loop (kernels/mega.mojo)."
+help = """Unroll of the megakernel q4 dot loop (kernels/mega.mojo). The OrcaSAQ-27B bake builds with 2."""
+
+[[setting]]
+key = "BARO_SLOTS"
+group = "engine"
+label = "BARO_SLOTS"
+type = "int"
+kind = "build"
+default = 9
+restart = true
+level = "advanced"
+status = "stable"
+models = ["qwen35", "qwen35moe"]
+sources = ["serve/PROTOCOL.md", "serve/engine.mojo", "serve/registry.mojo"]
+summary = "SSM state rollback ring capacity."
+help = """SSM state rollback ring capacity. Minimum kcfg + 2 slots required for MTP draft window of length kcfg; defaults to KMAX + 1 (9)."""
+
+[[setting]]
+key = "BARO_KVQ"
+group = "engine"
+label = "KV cache type"
+type = "enum"
+kind = "build"
+default = "f32"
+choices = ["f32", "int8"]
+restart = true
+level = "basic"
+status = "stable"
+models = ["qwen35"]
+sources = ["kernels/attn.mojo", "serve/engine.mojo", "serve/latent.mojo", "serve/spark.mojo", "serve/src/state.rs"]
+summary = "KV cache dtype: f32, or int8 (dense only; RULER 100.0 at 64k and 128k; state files become BAROST03 = pool pages, 32k load 0.061 s, P7-int8-pool-sta..."
+help = """int8 halves KV memory on dense models (agreement 99.1% mean on 20 prompts, README); f32 is the exact reference. Compile-time flag: the front rebuilds the engine, so it needs a restart. KV cache dtype: f32, or int8 (dense only; RULER 100.0 at 64k and 128k; state files become BAROST03 = pool pages, 32k load 0.061 s, P7-int8-pool-state-2026-09-24; fork ids equal to f32 in the six state-timing cells, 20-prompt gate P7b)."""
+
+[[setting]]
+key = "BARO_MOE_G"
+group = "engine"
+label = "BARO_MOE_G"
+type = "int"
+kind = "build"
+default = 96
+restart = true
+level = "advanced"
+status = "stable"
+models = ["qwen35moe"]
+sources = ["serve/registry.mojo"]
+summary = "Grid size of the persistent MoE token kernel"
+help = """Grid size of the persistent MoE token kernel: 96, 192 or 288 (anything else means 96)."""
+
+[[setting]]
+key = "BARO_TRACE_SUM"
+group = "engine"
+label = "BARO_TRACE_SUM"
+type = "int"
+kind = "build"
+default = 0
+restart = true
+level = "advanced"
+status = "stable"
+models = ["spark"]
+sources = ["serve/spark.mojo"]
+summary = "Spark engine: build in per-position residual checksums so two runs can be compared cell by cell."
+help = """Spark engine: build in per-position residual checksums so two runs can be compared cell by cell."""
+
+[[setting]]
+key = "BARO_ACT_BF16"
+group = "engine"
+label = "BARO_ACT_BF16"
+type = "int"
+kind = "build"
+default = 0
+restart = true
+level = "advanced"
+status = "stable"
+models = ["spark"]
+sources = ["serve/spark.mojo"]
+summary = "Spark engine: 1 builds bf16 GEMV activations (rmsnorm, attention and gate*up outputs), the pre-2026-10-19 numerics; default f32 (-D BARO_ACT_BF16=1)."
+help = """Spark engine: 1 builds bf16 GEMV activations (rmsnorm, attention and gate*up outputs), the pre-2026-10-19 numerics; default f32 (-D BARO_ACT_BF16=1)."""
+
+[[setting]]
+key = "BARO_SP_QKV_S"
+group = "engine"
+label = "BARO_SP_QKV_S"
+type = "int"
+kind = "build"
+default = 4
+restart = true
+level = "advanced"
+status = "stable"
+models = ["spark"]
+sources = ["serve/spark.mojo"]
+summary = "Spark engine: split-K factor of the QKV GEMV (-D BARO_SP_QKV_S=N); the engine prints it on the 'spark knobs:' line."
+help = """Spark engine: split-K factor of the QKV GEMV (-D BARO_SP_QKV_S=N); the engine prints it on the 'spark knobs:' line."""
+
+[[setting]]
+key = "BARO_SP_O_S"
+group = "engine"
+label = "BARO_SP_O_S"
+type = "int"
+kind = "build"
+default = 1
+restart = true
+level = "advanced"
+status = "stable"
+models = ["spark"]
+sources = ["serve/spark.mojo"]
+summary = "Spark engine: split-K factor of the attention output GEMV (-D BARO_SP_O_S=N); the engine prints it on the 'spark knobs:' line."
+help = """Spark engine: split-K factor of the attention output GEMV (-D BARO_SP_O_S=N); the engine prints it on the 'spark knobs:' line."""
+
+[[setting]]
+key = "BARO_SP_DOWN_S"
+group = "engine"
+label = "BARO_SP_DOWN_S"
+type = "int"
+kind = "build"
+default = 1
+restart = true
+level = "advanced"
+status = "stable"
+models = ["spark"]
+sources = ["serve/spark.mojo"]
+summary = "Spark engine: split-K factor of the ffn_down GEMV (-D BARO_SP_DOWN_S=N); the engine prints it on the 'spark knobs:' line."
+help = """Spark engine: split-K factor of the ffn_down GEMV (-D BARO_SP_DOWN_S=N); the engine prints it on the 'spark knobs:' line."""
+
+[[setting]]
+key = "BARO_SP_HEAD_S"
+group = "engine"
+label = "BARO_SP_HEAD_S"
+type = "int"
+kind = "build"
+default = 1
+restart = true
+level = "advanced"
+status = "stable"
+models = ["spark"]
+sources = ["serve/spark.mojo"]
+summary = "Spark engine: split-K factor of the LM head GEMV (-D BARO_SP_HEAD_S=N); the engine prints it on the 'spark knobs:' line."
+help = """Spark engine: split-K factor of the LM head GEMV (-D BARO_SP_HEAD_S=N); the engine prints it on the 'spark knobs:' line."""
+
+[[setting]]
+key = "BARO_SERVE"
+group = "engine"
+label = "BARO_SERVE"
+type = "bool"
+kind = "env"
+default = false
+restart = true
+level = "advanced"
+status = "stable"
+models = ["qwen35", "qwen35moe"]
+sources = ["serve/Cargo.toml", "serve/PROTOCOL.md", "serve/engine.mojo", "serve/front/engine_client.mojo", "serve/front/main.mojo", "serve/front/stub_engine.mojo"]
+summary = "Serve mode: read JSON requests on stdin and stream tokens; set by baro-serve for its engines."
+help = """Serve mode: read JSON requests on stdin and stream tokens; set by baro-serve for its engines."""
+
+[[setting]]
+key = "BARO_TMAX"
+group = "engine"
+label = "Context window"
+type = "int"
+kind = "env"
+default = 16384
+min = 16384
+max = 262144
+restart = true
+level = "basic"
+status = "stable"
+models = ["qwen35", "qwen35moe"]
+sources = ["cpu/engine_cpu.mojo", "serve/engine.mojo", "serve/front/main.mojo", "serve/front/stub_engine.mojo", "serve/src/main.rs", "serve/src/state.rs"]
+summary = "Context window the KV pool is sized for, in tokens (engine default 1088, baro-serve 32768, face default 16384)."
+help = """Longest prompt plus answer the engine keeps, in tokens: the KV pool is sized for it at start, so a change needs an engine restart. Engine default is 1088 and baro-serve passes 32768; the face default is the 16K floor (CLAUDE.md, bench/min16k.sh refuses less). Cost: VRAM per token per sequence (MoE f32 KV 40,960 bytes). Size it against FREE VRAM, desktop included: read rocm-smi, then run `pack-fit PACK --tmax N --used-gb <measured>`; BARO_KVQ=int8 halves the KV part. The 262144 ceiling is the plan's contract value; the real limit is VRAM. A pack that no longer fits spills to GTT and decode drops about 10x with no log line (README Troubleshooting). Context length the KV pool is sized for, in tokens (MoE f32 KV costs 40,960 bytes per token per sequence)."""
+
+[[setting]]
+key = "BARO_TUNE"
+group = "engine"
+label = "BARO_TUNE"
+type = "bool"
+kind = "env"
+default = true
+restart = true
+level = "advanced"
+status = "stable"
+models = ["qwen35", "qwen35moe"]
+sources = ["serve/tune.mojo"]
+summary = "Read the pack's tune.txt prefill tile table at boot (bench/tile-tune-protocol.md)"
+help = """Read the pack's tune.txt prefill tile table at boot (bench/tile-tune-protocol.md); 0 forces the registry rule. No tune.txt means the rule either way."""
+
+[[setting]]
+key = "BARO_PROMPT"
+group = "engine"
+label = "BARO_PROMPT"
+type = "path"
+kind = "env"
+default = "<pack>/prompt-tokens.txt"
+restart = true
+level = "advanced"
+status = "stable"
+models = ["qwen35", "qwen35moe"]
+sources = ["serve/PROTOCOL.md", "serve/engine.mojo", "serve/spark.mojo"]
+summary = "One-shot mode: token-id file to decode from when not serving."
+help = """One-shot mode: token-id file to decode from when not serving."""
+
+[[setting]]
+key = "BARO_CHAT"
+group = "engine"
+label = "BARO_CHAT"
+type = "path"
+kind = "env"
+restart = true
+level = "advanced"
+status = "stable"
+models = ["spark"]
+sources = ["serve/spark.mojo"]
+summary = "Spark engine: chat JSON file to render with the model's template and decode."
+help = """Spark engine: chat JSON file to render with the model's template and decode."""
+
+[[setting]]
+key = "BARO_GEN"
+group = "engine"
+label = "BARO_GEN"
+type = "int"
+kind = "env"
+default = 64
+restart = true
+level = "advanced"
+status = "stable"
+models = ["spark"]
+sources = ["serve/spark.mojo"]
+summary = "Spark engine: tokens to generate in one-shot mode."
+help = """Spark engine: tokens to generate in one-shot mode."""
+
+[[setting]]
+key = "BARO_PROMPT_TEXT"
+group = "engine"
+label = "BARO_PROMPT_TEXT"
+type = "path"
+kind = "env"
+restart = true
+level = "advanced"
+status = "stable"
+models = ["spark"]
+sources = ["serve/spark.mojo"]
+summary = "Spark engine: plain-text prompt file to tokenize and decode."
+help = """Spark engine: plain-text prompt file to tokenize and decode."""
+
+[[setting]]
+key = "BARO_ROPE_FUSE"
+group = "engine"
+label = "BARO_ROPE_FUSE"
+type = "bool"
+kind = "env"
+default = true
+restart = true
+level = "advanced"
+status = "stable"
+models = ["spark"]
+sources = ["serve/spark.mojo"]
+summary = "spark decode: q rope and k rope + KV append in one launch (amar_rope_qkv), byte-equal to the two-launch path (kernels/test_rope_qkv.mojo). Llama 1B..."
+help = """spark decode: q rope and k rope + KV append in one launch (amar_rope_qkv), byte-equal to the two-launch path (kernels/test_rope_qkv.mojo). Llama 1B g64 1.028x, g256 1.025x, faster on 21/21."""
+
+[[setting]]
+key = "BARO_PREFILL_ROWS"
+group = "engine"
+label = "BARO_PREFILL_ROWS"
+type = "bool"
+kind = "env"
+default = true
+restart = true
+level = "advanced"
+status = "stable"
+models = ["spark"]
+sources = ["serve/spark.mojo"]
+summary = "spark batched prompt prefill"
+help = """spark batched prompt prefill: rows 0..n-3 in 128-row chunks (dequant + WMMA GEMM), the last two token-by-token. Llama 1B 217 rows 329 -> 26 ms. 0 = token-by-token prefill and no prefill arena (50.9 MB Llama 1B, 173.9 MB Qwen2.5-7B)."""
+
+[[setting]]
+key = "BARO_MEGA"
+group = "engine"
+label = "Megakernel"
+type = "bool"
+kind = "env"
+default = true
+restart = true
+level = "basic"
+status = "stable"
+models = ["qwen35", "qwen35moe"]
+sources = ["serve/PROTOCOL.md", "serve/engine.mojo", "tools/baro"]
+summary = "Persistent megakernel; default 1 on dense, 0 on MoE (the table shows the dense value). 0 selects the launch path."
+help = """1 on dense, 0 on MoE (the TOML default is the dense value); 0 selects the launch path. Persistent megakernel: one launch per token. On MoE 113.94 vs 110.90 tok/s, opt-in; refuses BARO_TIER and BARO_EXPERTS. (template default: "1 on dense, 0 on qwen35moe")"""
+
+[[setting]]
+key = "BARO_MEGA_WIN"
+group = "engine"
+label = "BARO_MEGA_WIN"
+type = "bool"
+kind = "env"
+default = false
+restart = true
+level = "advanced"
+status = "stable"
+models = ["qwen35"]
+sources = ["serve/engine.mojo"]
+summary = "Run the speculative verify window through the megakernel instead of the launch path."
+help = """Run the speculative verify window through the megakernel instead of the launch path."""
+
+[[setting]]
+key = "BARO_PREFILL"
+group = "engine"
+label = "Batched prefill"
+type = "bool"
+kind = "env"
+default = true
+restart = true
+level = "basic"
+status = "stable"
+models = ["qwen35", "qwen35moe"]
+sources = ["serve/engine.mojo", "serve/front/main.mojo", "serve/src/main.rs"]
+summary = "Batched prefill (up to BARO_PREFILL_C rows per chunk)."
+help = """Batched prefill (up to BARO_PREFILL_C rows per chunk). Default 1 on every profile since 2026-09-24 (qwen35moe was opt-in before); 0 replays the prompt rows one at a time."""
+
+[[setting]]
+key = "BARO_PF_ATT"
+group = "engine"
+label = "BARO_PF_ATT"
+type = "string"
+kind = "env"
+default = "exact"
+restart = true
+level = "advanced"
+status = "stable"
+models = ["qwen35moe"]
+sources = ["serve/window.mojo"]
+summary = "qwen35moe batched prefill attention"
+help = """qwen35moe batched prefill attention: exact (decode kernel over rows, identical to replay) or wmma (faster at long context, fails the identity and agreement gates)."""
+
+[[setting]]
+key = "BARO_PF_SSM"
+group = "engine"
+label = "BARO_PF_SSM"
+type = "string"
+kind = "env"
+default = "exact"
+restart = true
+level = "advanced"
+status = "stable"
+models = ["qwen35moe"]
+sources = ["serve/window.mojo"]
+summary = "qwen35moe batched prefill delta scan"
+help = """qwen35moe batched prefill delta scan: exact (decode summation order) or chunk (dense chunk scan, flips greedy tokens)."""
+
+[[setting]]
+key = "BARO_PF_OVERLAP"
+group = "engine"
+label = "BARO_PF_OVERLAP"
+type = "bool"
+kind = "env"
+default = true
+restart = true
+level = "advanced"
+status = "stable"
+models = ["qwen35moe"]
+sources = ["serve/expert_tier.mojo"]
+summary = "qwen35moe batched prefill with the expert tier"
+help = """qwen35moe batched prefill with the expert tier: copy the next layer's experts on a second stream while the current layer computes (two staging slots, about 1 GB VRAM). 0 keeps one stream."""
+
+[[setting]]
+key = "BARO_PREFILL_C"
+group = "engine"
+label = "BARO_PREFILL_C"
+type = "int"
+kind = "env"
+default = 1024
+restart = true
+level = "advanced"
+status = "stable"
+models = ["qwen35"]
+sources = ["serve/engine.mojo"]
+summary = "Prefill chunk size in rows, capped at the compiled CP (1024), floor 16."
+help = """Prefill chunk size in rows, capped at the compiled CP (1024), floor 16."""
+
+[[setting]]
+key = "MODULAR_DEVICE_CONTEXT_MEMORY_MANAGER_SIZE_PERCENT"
+group = "engine"
+label = "MODULAR_DEVICE_CONTEXT_MEMORY_MANAGER_SIZE_PERCENT"
+type = "int"
+kind = "external"
+default = 2
+restart = true
+level = "advanced"
+status = "stable"
+models = ["all"]
+sources = ["serve/engine.mojo", "serve/q4x.mojo", "serve/spark.mojo", "serve/src/engine.rs", "tools/baro"]
+summary = "MAX's device memory pool, as a percent of free VRAM, reserved up front when the engine starts."
+help = """MAX's device memory pool, as a percent of free VRAM, reserved up front when the engine starts. Default 2 reserves ~0.45 GB and larger buffers are allocated beside the pool (docs/BASELINE.md, exchange/regescore-blender-ab.md). The engine echoes it."""
+
+[[setting]]
+key = "BARO_PF_MIN_TIER"
+group = "engine"
+label = "BARO_PF_MIN_TIER"
+type = "int"
+kind = "env"
+default = 96
+restart = true
+level = "advanced"
+status = "stable"
+models = ["qwen35moe"]
+sources = ["serve/engine.mojo"]
+summary = "With BARO_TIER set, a prompt replay shorter than this many rows runs one token at a time through the VRAM expert cache instead of a batched chunk t..."
+help = """With BARO_TIER set, a prompt replay shorter than this many rows runs one token at a time through the VRAM expert cache instead of a batched chunk that stages all 256 experts per layer from host (~1.2 s whatever the rows)."""
+
+[[setting]]
+key = "BARO_ATT_SPLIT"
+group = "engine"
+label = "BARO_ATT_SPLIT"
+type = "bool"
+kind = "env"
+default = false
+restart = true
+level = "advanced"
+status = "stable"
+models = ["qwen35", "qwen35moe", "spark"]
+sources = ["serve/engine.mojo", "serve/spark.mojo"]
+summary = "Force split-K decode attention at every context length (sets the threshold to 0)."
+help = """Force split-K decode attention at every context length (sets the threshold to 0)."""
+
+[[setting]]
+key = "BARO_ATT_SPLIT_T"
+group = "engine"
+label = "BARO_ATT_SPLIT_T"
+type = "int"
+kind = "env"
+restart = true
+level = "advanced"
+status = "stable"
+models = ["qwen35", "qwen35moe", "spark"]
+sources = ["serve/engine.mojo", "serve/spark.mojo"]
+summary = "Context length above which decode attention switches to split-K."
+help = """Context length above which decode attention switches to split-K. spark: split over (q head, span) blocks plus a merge from 128 tokens (sweep 64/128/192); Llama 1B 4K context 159 -> 424 tok/s, g256 1.029x, g64 neutral, ids 21/21; TMAX or more turns it off."""
+
+[[setting]]
+key = "BARO_DOT"
+group = "engine"
+label = "BARO_DOT"
+type = "bool"
+kind = "env"
+default = false
+restart = true
+level = "advanced"
+status = "stable"
+models = ["qwen35"]
+sources = ["serve/engine.mojo"]
+summary = "int8-dot FFN path on a non-q4 pack"
+help = """int8-dot FFN path on a non-q4 pack; default off."""
+
+[[setting]]
+key = "BARO_KVTAB"
+group = "engine"
+label = "BARO_KVTAB"
+type = "string"
+kind = "env"
+default = "identity"
+restart = true
+level = "advanced"
+status = "bench-only"
+models = ["qwen35", "qwen35moe"]
+sources = ["serve/engine.mojo"]
+summary = "KV page-table arm, identity or reverse"
+help = """KV page-table arm, identity or reverse; a gate falsifier, not a user setting."""
+
+[[setting]]
+key = "BARO_SPEC"
+group = "engine"
+label = "Speculative decode"
+type = "bool"
+kind = "env"
+default = true
+restart = true
+level = "basic"
+status = "stable"
+models = ["qwen35"]
+sources = ["serve/PROTOCOL.md", "serve/engine.mojo", "serve/front/api.mojo", "serve/front/main.mojo", "serve/src/main.rs"]
+summary = "Speculative decoding with the model's MTP draft head (dense"
+help = """Dense models with an MTP head only; 1.104x as a 20-prompt median (README). Greedy near-tie prompts can flip between decode paths, so compare with teacher-forced agreement, not text equality. Speculative decoding with the model's MTP draft head (dense; 1.1042x on the 20-prompt median)."""
+
+[[setting]]
+key = "BARO_SPEC_K"
+group = "engine"
+label = "Draft tokens per window"
+type = "int"
+kind = "env"
+default = 2
+min = 1
+restart = true
+level = "advanced"
+status = "stable"
+models = ["qwen35", "qwen35moe"]
+sources = ["serve/PROTOCOL.md", "serve/engine.mojo"]
+summary = "Draft tokens per speculative window, 1 to KMAX."
+help = """Draft tokens per speculative window, 1 to KMAX."""
+
+[[setting]]
+key = "BARO_SPEC_DBG"
+group = "engine"
+label = "BARO_SPEC_DBG"
+type = "bool"
+kind = "env"
+default = false
+restart = true
+level = "advanced"
+status = "bench-only"
+models = ["qwen35", "qwen35moe"]
+sources = ["serve/engine.mojo"]
+summary = "Print one line per speculative window (position, rows, accepted)."
+help = """Print one line per speculative window (position, rows, accepted)."""
+
+[[setting]]
+key = "BARO_FR"
+group = "engine"
+label = "BARO_FR"
+type = "bool"
+kind = "env"
+default = false
+restart = true
+level = "advanced"
+status = "stable"
+models = ["qwen35"]
+sources = ["serve/engine.mojo"]
+summary = "Use the pack's frequency-restricted draft vocabulary, when the pack has one."
+help = """Use the pack's frequency-restricted draft vocabulary, when the pack has one."""
+
+[[setting]]
+key = "BARO_NGRAM"
+group = "engine"
+label = "BARO_NGRAM"
+type = "bool"
+kind = "env"
+default = false
+restart = true
+level = "advanced"
+status = "stable"
+models = ["qwen35moe"]
+sources = ["serve/engine.mojo"]
+summary = "Prompt-lookup (ngram) speculation on MoE, greedy only"
+help = """Prompt-lookup (ngram) speculation on MoE, greedy only; measured 0.76x ungated, 1.00x with BARO_NGRAM_MIN=5."""
+
+[[setting]]
+key = "BARO_NGRAM_MIN"
+group = "engine"
+label = "BARO_NGRAM_MIN"
+type = "int"
+kind = "env"
+default = 1
+restart = true
+level = "advanced"
+status = "stable"
+models = ["qwen35moe"]
+sources = ["serve/engine.mojo"]
+summary = "Shortest suffix match that may draft"
+help = """Shortest suffix match that may draft; 3 gave 0.99x, 5 gave 1.00x."""
+
+[[setting]]
+key = "BARO_TIER"
+group = "engine"
+label = "Expert tier cache"
+type = "int"
+kind = "env"
+min = 1
+restart = true
+level = "basic"
+status = "stable"
+models = ["qwen35moe"]
+sources = ["serve/engine.mojo", "serve/expert_tier.mojo", "serve/harness.mojo", "serve/window.mojo", "tools/baro"]
+summary = "Experts in host RAM with this many cached per layer in VRAM (64 = 5.2 GB)"
+help = """MoE only. Unset = experts stay in VRAM. Needs a split pack. Experts in host RAM with this many cached per layer in VRAM (64 = 5.2 GB); needs a split pack (tools/pack-split-experts.py)."""
+
+[[setting]]
+key = "BARO_TIER_PINNED"
+group = "engine"
+label = "BARO_TIER_PINNED"
+type = "bool"
+kind = "env"
+default = true
+restart = true
+level = "advanced"
+status = "stable"
+models = ["qwen35moe"]
+sources = ["serve/engine.mojo", "serve/expert_tier.mojo", "serve/front/main.mojo", "serve/src/main.rs"]
+summary = "Keep the host expert store in pinned memory (67.12 vs 48.57 tok/s page-cached)."
+help = """Keep the host expert store in pinned memory (67.12 vs 48.57 tok/s page-cached)."""
+
+[[setting]]
+key = "BARO_TIER_MMAP"
+group = "engine"
+label = "BARO_TIER_MMAP"
+type = "bool"
+kind = "env"
+default = true
+restart = true
+level = "advanced"
+status = "stable"
+models = ["qwen35moe"]
+sources = ["serve/expert_tier.mojo"]
+summary = "With BARO_TIER_PINNED, mmap experts.bin read-only and hipHostRegister it instead of reading it into a pinned buffer"
+help = """With BARO_TIER_PINNED, mmap experts.bin read-only and hipHostRegister it instead of reading it into a pinned buffer: one RAM copy of the experts, not a pinned copy plus the page cache. 0 = pinned buffer filled by 8 parallel preads."""
+
+[[setting]]
+key = "BARO_TIER_ZC"
+group = "engine"
+label = "BARO_TIER_ZC"
+type = "bool"
+kind = "env"
+default = true
+restart = true
+level = "advanced"
+status = "stable"
+models = ["qwen35moe"]
+sources = ["serve/expert_tier.mojo", "serve/front/main.mojo", "serve/src/main.rs"]
+summary = "Zero-copy misses: expert kernels read missed experts straight from pinned host memory (72.02 vs 67.71 tok/s)."
+help = """Zero-copy misses: expert kernels read missed experts straight from pinned host memory (72.02 vs 67.71 tok/s)."""
+
+[[setting]]
+key = "BARO_TIER_CPU"
+group = "engine"
+label = "BARO_TIER_CPU"
+type = "bool"
+kind = "env"
+default = false
+restart = true
+level = "advanced"
+status = "stable"
+models = ["qwen35moe"]
+sources = ["serve/cpu_worker.mojo", "serve/expert_cpu.mojo", "serve/expert_tier.mojo", "serve/window.mojo"]
+summary = "Tier misses on q4_k layers computed on the CPU (int8 VNNI, serve/expert_cpu.mojo) while the GPU runs hits"
+help = """Tier misses on q4_k layers computed on the CPU (int8 VNNI, serve/expert_cpu.mojo) while the GPU runs hits; q6_k layers keep ZC; needs pinned store. Round 2: 0.806x of the ZC arm, host-bound (bench/moe-tier-cpu-protocol.md)."""
+
+[[setting]]
+key = "BARO_TIER_BELL"
+group = "engine"
+label = "BARO_TIER_BELL"
+type = "bool"
+kind = "env"
+default = true
+restart = true
+level = "advanced"
+status = "stable"
+models = ["qwen35moe"]
+sources = ["serve/expert_tier.mojo"]
+summary = "Doorbell decode under ZC (Strata port P2)"
+help = """Doorbell decode under ZC (Strata port P2): router ids/weights/x go to the host through coherent pinned memory and a 1-wave kernel waits for the plan; no per-layer synchronize. Round 4: 1.056x the sync path, tokens identical 20/20 (bench/moe-tier-cpu-protocol.md). 0 = prepare() with a sync per layer."""
+
+[[setting]]
+key = "BARO_TIER_BELL_LAG"
+group = "engine"
+label = "BARO_TIER_BELL_LAG"
+type = "int"
+kind = "env"
+default = 4
+restart = true
+level = "advanced"
+status = "stable"
+models = ["qwen35moe"]
+sources = ["serve/expert_tier.mojo"]
+summary = "Doorbell decode: how many MoE layers the host enqueues ahead of the one it answers (0 under BARO_PROFILE). Lags 0-8 measured flat."
+help = """Doorbell decode: how many MoE layers the host enqueues ahead of the one it answers (0 under BARO_PROFILE). Lags 0-8 measured flat."""
+
+[[setting]]
+key = "BARO_TIER_BYTES"
+group = "engine"
+label = "BARO_TIER_BYTES"
+type = "bool"
+kind = "env"
+default = true
+restart = true
+level = "advanced"
+status = "stable"
+models = ["qwen35moe"]
+sources = ["serve/expert_tier.mojo"]
+summary = "Expert cache slots sized per layer in bytes (Strata port P3)"
+help = """Expert cache slots sized per layer in bytes (Strata port P3): same VRAM as BARO_TIER x the largest layer, q4_k layers hold 73 instead of 64 at cap 64; hit rate 0.765 -> 0.779, tokens identical. 0 = BARO_TIER slots in every layer."""
+
+[[setting]]
+key = "BARO_TIER_CPU_MAX"
+group = "engine"
+label = "BARO_TIER_CPU_MAX"
+type = "int"
+kind = "env"
+default = 8
+restart = true
+level = "advanced"
+status = "stable"
+models = ["qwen35moe"]
+sources = ["serve/expert_tier.mojo"]
+summary = "With BARO_TIER_CPU=1"
+help = """With BARO_TIER_CPU=1: at most this many misses per layer go to the CPU, the rest stay on the GPU ZC path (round 3, bench/moe-tier-cpu-protocol.md). 8 = every miss."""
+
+[[setting]]
+key = "BARO_MOE_DOT"
+group = "engine"
+label = "BARO_MOE_DOT"
+type = "bool"
+kind = "env"
+default = true
+restart = true
+level = "advanced"
+status = "stable"
+models = ["qwen35moe"]
+sources = ["serve/engine.mojo", "serve/front/main.mojo", "serve/harness.mojo", "serve/src/main.rs", "serve/window.mojo"]
+summary = "int8 activation rows + f16 scales per 32 for the sdot4 routed expert kernels on qwen35moe (+9.1% resident decode A/B, cf0dc92)."
+help = """int8 activation rows + f16 scales per 32 for the sdot4 routed expert kernels on qwen35moe (+9.1% resident decode A/B, cf0dc92)."""
+
+[[setting]]
+key = "BARO_TIER_HOT"
+group = "engine"
+label = "BARO_TIER_HOT"
+type = "bool"
+kind = "env"
+default = false
+restart = true
+level = "advanced"
+status = "stable"
+models = ["qwen35moe"]
+sources = ["serve/expert_tier.mojo"]
+summary = "Per-request hot store for re-touched experts"
+help = """Per-request hot store for re-touched experts; only without pinned memory."""
+
+[[setting]]
+key = "BARO_TIER_HOTCAP"
+group = "engine"
+label = "BARO_TIER_HOTCAP"
+type = "int"
+kind = "env"
+default = 128
+restart = true
+level = "advanced"
+status = "stable"
+models = ["qwen35moe"]
+sources = ["serve/expert_tier.mojo"]
+summary = "Experts per layer the hot store may hold."
+help = """Experts per layer the hot store may hold."""
+
+[[setting]]
+key = "BARO_TIER_STAMP"
+group = "engine"
+label = "BARO_TIER_STAMP"
+type = "bool"
+kind = "env"
+default = false
+restart = true
+level = "advanced"
+status = "bench-only"
+models = ["qwen35moe"]
+sources = ["serve/expert_tier.mojo"]
+summary = "Print per-layer tier timing (open, readback, lru, pread, copy) after each request."
+help = """Print per-layer tier timing (open, readback, lru, pread, copy) after each request."""
+
+[[setting]]
+key = "BARO_TIER_PIN_FILE"
+group = "engine"
+label = "BARO_TIER_PIN_FILE"
+type = "path"
+kind = "env"
+restart = true
+level = "advanced"
+status = "stable"
+models = ["qwen35moe"]
+sources = ["serve/expert_tier.mojo"]
+summary = "PIN1 binary file (from gguf-experts sim-cache --pin-out) listing hot (layer, expert) slots to pin in VRAM (up to cap // 2 per layer) across cyclic..."
+help = """PIN1 binary file (from gguf-experts sim-cache --pin-out) listing hot (layer, expert) slots to pin in VRAM (up to cap // 2 per layer) across cyclic scans and request resets."""
+
+[[setting]]
+key = "BARO_CKPT"
+group = "engine"
+label = "BARO_CKPT"
+type = "int"
+kind = "env"
+default = 8
+restart = true
+level = "advanced"
+status = "stable"
+models = ["qwen35", "qwen35moe"]
+sources = ["serve/engine.mojo"]
+summary = "Prefix checkpoints the engine keeps in serve mode, so a repeated prompt prefix skips prefill."
+help = """Prefix checkpoints the engine keeps in serve mode, so a repeated prompt prefix skips prefill."""
+
+[[setting]]
+key = "BARO_KV_SHARE"
+group = "engine"
+label = "BARO_KV_SHARE"
+type = "int"
+kind = "env"
+default = 0
+restart = true
+level = "advanced"
+status = "stable"
+models = ["qwen35", "qwen35moe"]
+sources = ["serve/PROTOCOL.md", "serve/engine.mojo", "serve/harness.mojo", "serve/prefix.mojo", "serve/src/main.rs"]
+summary = "KV pool size in sequences (0 = off)"
+help = """KV pool size in sequences (0 = off): prefix checkpoints keep their own KV pages, so two conversations in flight no longer replay over each other. SEQ_CAP=1 builds."""
+
+[[setting]]
+key = "BARO_SEQS"
+group = "engine"
+label = "Sequences in flight"
+type = "int"
+kind = "env"
+default = 1
+min = 1
+restart = true
+level = "basic"
+status = "stable"
+models = ["qwen35", "qwen35moe"]
+sources = ["serve/PROTOCOL.md", "serve/engine.mojo", "serve/harness.mojo", "serve/prefix.mojo", "serve/rows.mojo", "serve/src/embeddings.rs"]
+summary = "Sequences in flight on one engine."
+help = """Sequences in flight on one engine. 2 on the MoE profile = the pair loop (serve_pair): two requests decode in one R = 2 megakernel launch, prefill exclusive; needs -D BARO_SEQ_CAP=2, BARO_KV_SHARE > 0 and BARO_MEGA=1 (exchange/mega2-report.md). N > 2 on a dense pack = serve_seqs: N slots, decode steps of up to 8 rows (serve/rows.mojo), prefix pages shared; needs -D BARO_SEQ_CAP>=N and BARO_KV_SHARE > 0 (baro-serve --parallel N sets both knobs; docs/design/multi-session-serve.md)."""
+
+[[setting]]
+key = "BARO_KV_POOL"
+group = "engine"
+label = "BARO_KV_POOL"
+type = "int"
+kind = "env"
+default = 0
+restart = true
+level = "advanced"
+status = "stable"
+models = ["qwen35"]
+sources = ["serve/PROTOCOL.md", "serve/engine.mojo", "serve/harness.mojo", "serve/src/main.rs"]
+summary = "KV pool size in sequences of TMAX, set outright (0 = max(SEQ_CAP, BARO_KV_SHARE))."
+help = """KV pool size in sequences of TMAX, set outright (0 = max(SEQ_CAP, BARO_KV_SHARE)). BARO_SEQS > 2 slots take pages as they decode, so the pool is sized by VRAM; a request whose prompt pages do not fit is refused (kv pool full, HTTP 429). baro-serve --kv-pool P."""
+
+[[setting]]
+key = "BARO_CKPT_END"
+group = "engine"
+label = "BARO_CKPT_END"
+type = "bool"
+kind = "env"
+default = true
+restart = true
+level = "advanced"
+status = "stable"
+models = ["qwen35"]
+sources = ["serve/engine.mojo"]
+summary = "BARO_SEQS > 2: save the prompt-end checkpoint of every request (a CONV+SSM state copy, ~50 MB, reused only by an identical prompt). 0 skips it."
+help = """BARO_SEQS > 2: save the prompt-end checkpoint of every request (a CONV+SSM state copy, ~50 MB, reused only by an identical prompt). 0 skips it."""
+
+[[setting]]
+key = "BARO_SEQS_PF"
+group = "engine"
+label = "BARO_SEQS_PF"
+type = "string"
+kind = "env"
+default = "all"
+restart = true
+level = "advanced"
+status = "stable"
+models = ["qwen35"]
+sources = ["serve/PROTOCOL.md", "serve/engine.mojo"]
+summary = "BARO_SEQS > 2: all = run every pending prefill before the next decode step (full decode batches for lockstep bursts); one = one prefill step per loop."
+help = """BARO_SEQS > 2: all = run every pending prefill before the next decode step (full decode batches for lockstep bursts); one = one prefill step per loop."""
+
+[[setting]]
+key = "BARO_SEQS_RESERVE"
+group = "engine"
+label = "BARO_SEQS_RESERVE"
+type = "int"
+kind = "env"
+default = 512
+restart = true
+level = "advanced"
+status = "stable"
+models = ["qwen35"]
+sources = ["serve/PROTOCOL.md", "serve/engine.mojo"]
+summary = "BARO_SEQS > 2: decode tokens of KV pages a request must get at admission besides its prompt (capped at its n). While other requests run, a request..."
+help = """BARO_SEQS > 2: decode tokens of KV pages a request must get at admission besides its prompt (capped at its n). While other requests run, a request that cannot get them waits in the engine queue; alone, it is refused (kv pool full, HTTP 429). Pages past the reserve are taken as the slot decodes."""
+
+[[setting]]
+key = "BARO_SEQS_ROWS"
+group = "engine"
+label = "BARO_SEQS_ROWS"
+type = "bool"
+kind = "env"
+default = true
+restart = true
+level = "advanced"
+status = "stable"
+models = ["qwen35"]
+sources = ["serve/engine.mojo"]
+summary = "BARO_SEQS > 2: decode the slots in batched steps of up to 8 rows (serve/rows.mojo step_rows). 0 = one step_window per slot (A/B arm)."
+help = """BARO_SEQS > 2: decode the slots in batched steps of up to 8 rows (serve/rows.mojo step_rows). 0 = one step_window per slot (A/B arm)."""
+
+[[setting]]
+key = "BARO_ROWS_GEMV"
+group = "engine"
+label = "BARO_ROWS_GEMV"
+type = "bool"
+kind = "env"
+default = true
+restart = true
+level = "advanced"
+status = "stable"
+models = ["qwen35"]
+sources = ["serve/rows.mojo"]
+summary = "BARO_SEQS > 2: K-quant GEMMs of a batched step read the weights once for all rows (amar_gemv_kq_rows, byte-equal per row to the m = 1 kernel). 0 =..."
+help = """BARO_SEQS > 2: K-quant GEMMs of a batched step read the weights once for all rows (amar_gemv_kq_rows, byte-equal per row to the m = 1 kernel). 0 = one m = 1 GEMV per row (A/B arm)."""
+
+[[setting]]
+key = "BARO_SEQS_TIME"
+group = "engine"
+label = "BARO_SEQS_TIME"
+type = "bool"
+kind = "env"
+default = false
+restart = true
+level = "advanced"
+status = "stable"
+models = ["qwen35"]
+sources = ["serve/engine.mojo"]
+summary = "BARO_SEQS > 2: synchronize around prefill and decode steps and print the split plus step ms by row count every 64 loops (instrument; adds host syncs)."
+help = """BARO_SEQS > 2: synchronize around prefill and decode steps and print the split plus step ms by row count every 64 loops (instrument; adds host syncs)."""
+
+[[setting]]
+key = "BARO_PAIR_TRACE"
+group = "engine"
+label = "BARO_PAIR_TRACE"
+type = "bool"
+kind = "env"
+default = false
+restart = true
+level = "advanced"
+status = "stable"
+models = ["qwen35moe"]
+sources = ["serve/engine.mojo", "serve/window.mojo"]
+summary = "Pair-loop diagnostics"
+help = """Pair-loop diagnostics: a synchronized print after every prefill step and the first pair steps of each request, and per-layer / per-kernel prints on the launch path. Diagnosis only, slows every step."""
+
+[[setting]]
+key = "BARO_PF_GEMM"
+group = "engine"
+label = "BARO_PF_GEMM"
+type = "string"
+kind = "env"
+default = "wmma"
+restart = true
+level = "advanced"
+status = "stable"
+models = ["qwen35moe"]
+sources = ["serve/engine.mojo", "serve/window.mojo"]
+summary = "Prefill GEMM path for the MoE profile"
+help = """Prefill GEMM path for the MoE profile: wmma (grouped experts and q8 projections on WMMA, phase 2) or exact (the bit-exact row kernels, the replay identity arm). Read back as 'BARO_PF_GEMM: <value>'."""
+
+[[setting]]
+key = "BARO_STATE_KV7"
+group = "engine"
+label = "BARO_STATE_KV7"
+type = "bool"
+kind = "env"
+default = false
+restart = true
+level = "advanced"
+status = "stable"
+models = ["qwen35", "qwen35moe"]
+sources = ["serve/engine.mojo"]
+summary = "Write BAROKV7 checkpoints"
+help = """Write BAROKV7 checkpoints: splits CONV_SLOT + SSM_SLOT into a RLE-compressed sign+exponent high-byte plane and a raw mantissa low-byte plane (~3.1x smaller than f32 BAROST02/03, lossless 16-bit precision)."""
+
+[[setting]]
+key = "BARO_STATE_SAVE"
+group = "engine"
+label = "BARO_STATE_SAVE"
+type = "path"
+kind = "env"
+restart = true
+level = "advanced"
+status = "stable"
+models = ["qwen35", "qwen35moe"]
+sources = ["serve/engine.mojo", "serve/serve_proto.mojo", "serve/src/state.rs"]
+summary = "Write the KV and SSM state to this file after the request (f32 KV only)."
+help = """Write the KV and SSM state to this file after the request (f32 KV only)."""
+
+[[setting]]
+key = "BARO_STATE_LOAD"
+group = "engine"
+label = "BARO_STATE_LOAD"
+type = "path"
+kind = "env"
+restart = true
+level = "advanced"
+status = "stable"
+models = ["qwen35", "qwen35moe"]
+sources = ["serve/engine.mojo", "serve/serve_proto.mojo", "serve/src/main.rs"]
+summary = "Restore KV and SSM state from this file before the request (f32 KV only)."
+help = """Restore KV and SSM state from this file before the request (f32 KV only)."""
+
+[[setting]]
+key = "BARO_STATE_INT8"
+group = "engine"
+label = "BARO_STATE_INT8"
+type = "bool"
+kind = "env"
+default = true
+restart = true
+level = "advanced"
+status = "stable"
+models = ["qwen35", "qwen35moe"]
+sources = ["serve/engine.mojo", "serve/src/state.rs"]
+summary = "Store saved state as int8 by default"
+help = """Store saved state as int8 by default; set 0 for legacy f32 state files."""
+
+[[setting]]
+key = "BARO_LATENT_SOCK"
+group = "engine"
+label = "BARO_LATENT_SOCK"
+type = "path"
+kind = "env"
+restart = true
+level = "advanced"
+status = "stable"
+models = ["qwen35", "qwen35moe"]
+sources = ["serve/engine.mojo"]
+summary = "LatentOS agent socket for state handoff as sealed memfds"
+help = """LatentOS agent socket for state handoff as sealed memfds; set and unreachable raises."""
+
+[[setting]]
+key = "BARO_EMBD_HOST"
+group = "engine"
+label = "BARO_EMBD_HOST"
+type = "bool"
+kind = "env"
+default = false
+restart = true
+level = "advanced"
+status = "stable"
+models = ["qwen35", "qwen35moe"]
+sources = ["serve/harness.mojo"]
+summary = "T3b step 2b: keep token_embd (bf16, the pack's first tensor) in mapped pinned host memory that the embed kernels read in place, saving its 2.03 GB..."
+help = """T3b step 2b: keep token_embd (bf16, the pack's first tensor) in mapped pinned host memory that the embed kernels read in place, saving its 2.03 GB of VRAM on the 9B; the weight record then carries the device bytes only, so both engines of a shared pair must agree. realign's full-table gather reads it over PCIe."""
+
+[[setting]]
+key = "BARO_SHIM_LIB"
+group = "engine"
+label = "BARO_SHIM_LIB"
+type = "path"
+kind = "env"
+default = "libamarbaro_shim.so"
+restart = true
+level = "advanced"
+status = "stable"
+models = ["qwen35", "qwen35moe"]
+sources = ["serve/latent_ipc.mojo"]
+summary = "libamarbaro_shim for HIP IPC checkpoint handoff (T3b, /v1/ipc/*)"
+help = """libamarbaro_shim for HIP IPC checkpoint handoff (T3b, /v1/ipc/*): dlopened only when an IPC ingest opens a handle; build with cmake -S shim -B .work/shim-build."""
+
+[[setting]]
+key = "BARO_SEMANTIC_MANIFEST"
+group = "engine"
+label = "BARO_SEMANTIC_MANIFEST"
+type = "path"
+kind = "env"
+restart = true
+level = "advanced"
+status = "stable"
+models = ["spark"]
+sources = ["serve/spark.mojo"]
+summary = "Versioned semantic-latent binding manifest for Spark"
+help = """Versioned semantic-latent binding manifest for Spark; unset disables semantic consumption."""
+
+[[setting]]
+key = "BARO_SEMANTIC_INPUT"
+group = "engine"
+label = "BARO_SEMANTIC_INPUT"
+type = "path"
+kind = "env"
+restart = true
+level = "advanced"
+status = "stable"
+models = ["spark"]
+sources = ["serve/spark.mojo"]
+summary = "Projected f32 receiver-space semantic input paired with BARO_SEMANTIC_MANIFEST."
+help = """Projected f32 receiver-space semantic input paired with BARO_SEMANTIC_MANIFEST."""
+
+[[setting]]
+key = "BARO_SEMANTIC_POSITIONS"
+group = "engine"
+label = "BARO_SEMANTIC_POSITIONS"
+type = "int"
+kind = "env"
+default = 8
+restart = true
+level = "advanced"
+status = "stable"
+models = ["spark"]
+sources = ["serve/spark.mojo"]
+summary = "Number of leading prompt positions replaced by the projected semantic input."
+help = """Number of leading prompt positions replaced by the projected semantic input."""
+
+[[setting]]
+key = "BARO_SEMANTIC_BINDING_SHA256"
+group = "engine"
+label = "BARO_SEMANTIC_BINDING_SHA256"
+type = "string"
+kind = "env"
+restart = true
+level = "advanced"
+status = "stable"
+models = ["spark"]
+sources = ["serve/spark.mojo"]
+summary = "Optional adapter-digest pin"
+help = """Optional adapter-digest pin; a mismatch refuses the Spark semantic request before decode."""
+
+[[setting]]
+key = "BARO_SEMANTIC_RECEIVER_SHA256"
+group = "engine"
+label = "BARO_SEMANTIC_RECEIVER_SHA256"
+type = "string"
+kind = "env"
+restart = true
+level = "advanced"
+status = "stable"
+models = ["spark"]
+sources = ["serve/spark.mojo"]
+summary = "Optional receiver-digest pin for the semantic binding direction."
+help = """Optional receiver-digest pin for the semantic binding direction."""
+
+[[setting]]
+key = "BARO_SEMANTIC_SENDER_SHA256"
+group = "engine"
+label = "BARO_SEMANTIC_SENDER_SHA256"
+type = "string"
+kind = "env"
+restart = true
+level = "advanced"
+status = "stable"
+models = ["spark"]
+sources = ["serve/spark.mojo"]
+summary = "Full sender digest pin for the semantic direction."
+help = """Full sender digest pin for the semantic direction."""
+
+[[setting]]
+key = "BARO_SEMANTIC_RECEIVER_RUNTIME_SHA256"
+group = "engine"
+label = "BARO_SEMANTIC_RECEIVER_RUNTIME_SHA256"
+type = "string"
+kind = "env"
+restart = true
+level = "advanced"
+status = "stable"
+models = ["spark"]
+sources = ["serve/spark.mojo"]
+summary = "Full receiver runtime/build digest pin for semantic binding validation."
+help = """Full receiver runtime/build digest pin for semantic binding validation."""
+
+[[setting]]
+key = "BARO_SEMANTIC_SCOPE_SHA256"
+group = "engine"
+label = "BARO_SEMANTIC_SCOPE_SHA256"
+type = "string"
+kind = "env"
+restart = true
+level = "advanced"
+status = "stable"
+models = ["spark"]
+sources = ["serve/spark.mojo"]
+summary = "Scope digest pin for the semantic transfer authority."
+help = """Scope digest pin for the semantic transfer authority."""
+
+[[setting]]
+key = "BARO_SEMANTIC_SOURCE_LAYER"
+group = "engine"
+label = "BARO_SEMANTIC_SOURCE_LAYER"
+type = "int"
+kind = "env"
+default = 0
+restart = true
+level = "advanced"
+status = "stable"
+models = ["spark"]
+sources = ["serve/spark.mojo"]
+summary = "Expected sender source layer/site in the semantic manifest."
+help = """Expected sender source layer/site in the semantic manifest."""
+
+[[setting]]
+key = "BARO_SEMANTIC_INJECTION_SITE"
+group = "engine"
+label = "BARO_SEMANTIC_INJECTION_SITE"
+type = "int"
+kind = "env"
+default = 0
+restart = true
+level = "advanced"
+status = "stable"
+models = ["spark"]
+sources = ["serve/spark.mojo"]
+summary = "Expected receiver injection site in the semantic manifest."
+help = """Expected receiver injection site in the semantic manifest."""
+
+[[setting]]
+key = "BARO_SEMANTIC_TASK_DOMAIN"
+group = "engine"
+label = "BARO_SEMANTIC_TASK_DOMAIN"
+type = "int"
+kind = "env"
+default = 0
+restart = true
+level = "advanced"
+status = "stable"
+models = ["spark"]
+sources = ["serve/spark.mojo"]
+summary = "Expected semantic task-domain identifier."
+help = """Expected semantic task-domain identifier."""
+
+[[setting]]
+key = "BARO_SEMANTIC_SCOPE_REVISION"
+group = "engine"
+label = "BARO_SEMANTIC_SCOPE_REVISION"
+type = "int"
+kind = "env"
+default = 0
+restart = true
+level = "advanced"
+status = "stable"
+models = ["spark"]
+sources = ["serve/spark.mojo"]
+summary = "Expected room/session scope revision for the semantic manifest."
+help = """Expected room/session scope revision for the semantic manifest."""
+
+[[setting]]
+key = "BARO_SEMANTIC_AUTHORITY_EPOCH"
+group = "engine"
+label = "BARO_SEMANTIC_AUTHORITY_EPOCH"
+type = "int"
+kind = "env"
+default = 0
+restart = true
+level = "advanced"
+status = "stable"
+models = ["spark"]
+sources = ["serve/spark.mojo"]
+summary = "Expected authority epoch for the semantic manifest."
+help = """Expected authority epoch for the semantic manifest."""
+
+[[setting]]
+key = "BARO_SEMANTIC_SENDER_RUNTIME_SHA256"
+group = "engine"
+label = "BARO_SEMANTIC_SENDER_RUNTIME_SHA256"
+type = "string"
+kind = "env"
+restart = true
+level = "advanced"
+status = "stable"
+models = ["spark"]
+sources = ["serve/spark.mojo"]
+summary = "Full sender runtime/build digest pin for semantic binding validation."
+help = """Full sender runtime/build digest pin for semantic binding validation."""
+
+[[setting]]
+key = "BARO_SEMANTIC_SENDER_TOKENIZER_SHA256"
+group = "engine"
+label = "BARO_SEMANTIC_SENDER_TOKENIZER_SHA256"
+type = "string"
+kind = "env"
+restart = true
+level = "advanced"
+status = "stable"
+models = ["spark"]
+sources = ["serve/spark.mojo"]
+summary = "Full sender tokenizer/template digest pin for semantic binding validation."
+help = """Full sender tokenizer/template digest pin for semantic binding validation."""
+
+[[setting]]
+key = "BARO_SEMANTIC_NORMALIZATION_ID"
+group = "engine"
+label = "BARO_SEMANTIC_NORMALIZATION_ID"
+type = "int"
+kind = "env"
+default = 0
+restart = true
+level = "advanced"
+status = "stable"
+models = ["spark"]
+sources = ["serve/spark.mojo"]
+summary = "Expected normalization identifier in the semantic manifest."
+help = """Expected normalization identifier in the semantic manifest."""
+
+[[setting]]
+key = "BARO_SEMANTIC_ADAPTER_VERSION"
+group = "engine"
+label = "BARO_SEMANTIC_ADAPTER_VERSION"
+type = "int"
+kind = "env"
+default = 1
+restart = true
+level = "advanced"
+status = "stable"
+models = ["spark"]
+sources = ["serve/spark.mojo"]
+summary = "Expected adapter version in the semantic manifest"
+help = """Expected adapter version in the semantic manifest; 0 disables validation."""
+
+[[setting]]
+key = "BARO_SEMANTIC_ADAPTER_DIR"
+group = "engine"
+label = "BARO_SEMANTIC_ADAPTER_DIR"
+type = "path"
+kind = "env"
+restart = true
+level = "advanced"
+status = "stable"
+models = ["spark"]
+sources = ["serve/engine.mojo", "serve/spark.mojo"]
+summary = "Directory containing non-linear MLP adapter weights (W_down.f32, W_up.f32, b_up.f32) for rank-256 semantic latent projection."
+help = """Directory containing non-linear MLP adapter weights (W_down.f32, W_up.f32, b_up.f32) for rank-256 semantic latent projection."""
+
+[[setting]]
+key = "BARO_SEMANTIC_NOW_S"
+group = "engine"
+label = "BARO_SEMANTIC_NOW_S"
+type = "int"
+kind = "env"
+default = 0
+restart = true
+level = "advanced"
+status = "stable"
+models = ["spark"]
+sources = ["serve/spark.mojo"]
+summary = "Absolute epoch second used to validate semantic manifest expiry"
+help = """Absolute epoch second used to validate semantic manifest expiry; required when semantic input is enabled."""
+
+[[setting]]
+key = "BARO_PROFILE"
+group = "engine"
+label = "BARO_PROFILE"
+type = "int"
+kind = "env"
+default = 0
+restart = true
+level = "advanced"
+status = "bench-only"
+models = ["qwen35", "qwen35moe"]
+sources = ["serve/engine.mojo", "serve/expert_tier.mojo", "serve/window.mojo"]
+summary = "Timing breakdown: 1 attn/ssm/ffn/head, 3 draft path split, 5 per-phase stamps; the timed path is otherwise untouched."
+help = """Timing breakdown: 1 attn/ssm/ffn/head, 3 draft path split, 5 per-phase stamps; the timed path is otherwise untouched."""
+
+[[setting]]
+key = "BARO_FFN"
+group = "engine"
+label = "BARO_FFN"
+type = "int"
+kind = "build"
+default = 12288
+restart = true
+level = "advanced"
+status = "stable"
+models = ["qwen35"]
+sources = ["serve/model_qwen35.mojo"]
+summary = "qwen35 shape: FFN intermediate width. tools/model-id.py reads it from the GGUF and tools/baro passes it as -D only when it differs from the 9B defa..."
+help = """qwen35 shape: FFN intermediate width. tools/model-id.py reads it from the GGUF and tools/baro passes it as -D only when it differs from the 9B default."""
+
+[[setting]]
+key = "BARO_NANPROBE"
+group = "engine"
+label = "BARO_NANPROBE"
+type = "int"
+kind = "env"
+default = 0
+restart = true
+level = "advanced"
+status = "bench-only"
+models = ["qwen35", "qwen35moe"]
+sources = ["kernels/nanprobe.mojo", "serve/window.mojo"]
+summary = "1 runs the non-finite stage tracer after each step and names the first stage producing NaN/Inf"
+help = """1 runs the non-finite stage tracer after each step and names the first stage producing NaN/Inf; see tools/nan-first.sh."""
+
+[[setting]]
+key = "BARO_VRAM_LOG"
+group = "engine"
+label = "BARO_VRAM_LOG"
+type = "int"
+kind = "env"
+default = 0
+restart = true
+level = "advanced"
+status = "bench-only"
+models = ["qwen35", "qwen35moe"]
+sources = ["serve/engine.mojo", "serve/harness.mojo"]
+summary = "1 enables live sysfs VRAM logging at engine init, prefill, and decode exit via find_drm_vram_used."
+help = """1 enables live sysfs VRAM logging at engine init, prefill, and decode exit via find_drm_vram_used."""
+
+[[setting]]
+key = "BARO_GTT_WARN_BYTES"
+group = "engine"
+label = "BARO_GTT_WARN_BYTES"
+type = "int"
+kind = "env"
+default = 1073741824
+restart = true
+level = "advanced"
+status = "bench-only"
+models = ["qwen35", "qwen35moe"]
+sources = ["serve/harness.mojo"]
+summary = "GTT growth in bytes (mem_info_gtt_used of the card with the largest vram_total) since the last check that prints one WARN gtt line naming the stage..."
+help = """GTT growth in bytes (mem_info_gtt_used of the card with the largest vram_total) since the last check that prints one WARN gtt line naming the stage and bytes; checks run before the device context, after pack load, after buffer allocation and around each request, never inside decode."""
+
+[[setting]]
+key = "BARO_GTT_REFUSE"
+group = "engine"
+label = "BARO_GTT_REFUSE"
+type = "int"
+kind = "env"
+default = 0
+restart = true
+level = "advanced"
+status = "bench-only"
+models = ["qwen35", "qwen35moe"]
+sources = ["serve/harness.mojo"]
+summary = "1 makes the GTT warning fatal"
+help = """1 makes the GTT warning fatal: prints FAIL gtt and exits 3, so a pack that spilled to system memory never reaches a timed run."""
+
+[[setting]]
+key = "BARO_FORCE"
+group = "engine"
+label = "BARO_FORCE"
+type = "path"
+kind = "env"
+restart = true
+level = "advanced"
+status = "bench-only"
+models = ["qwen35", "qwen35moe"]
+sources = ["serve/engine.mojo", "serve/spark.mojo"]
+summary = "Teacher forcing: feed these token ids regardless of the model's choice (needs BARO_SPEC=0)."
+help = """Teacher forcing: feed these token ids regardless of the model's choice (needs BARO_SPEC=0)."""
+
+[[setting]]
+key = "BARO_MARGIN"
+group = "engine"
+label = "BARO_MARGIN"
+type = "bool"
+kind = "env"
+default = false
+restart = true
+level = "advanced"
+status = "bench-only"
+models = ["qwen35", "qwen35moe"]
+sources = ["cpu/engine_cpu.mojo", "serve/engine.mojo"]
+summary = "Print the top-2 logits and their gap next to each argmax."
+help = """Print the top-2 logits and their gap next to each argmax."""
+
+[[setting]]
+key = "BARO_DUMP"
+group = "engine"
+label = "BARO_DUMP"
+type = "path"
+kind = "env"
+restart = true
+level = "advanced"
+status = "bench-only"
+models = ["qwen35", "qwen35moe"]
+sources = ["cpu/engine_cpu.mojo", "serve/engine.mojo", "serve/window.mojo"]
+summary = "Dump intermediate tensors to this file."
+help = """Dump intermediate tensors to this file."""
+
+[[setting]]
+key = "BARO_DUMP4"
+group = "engine"
+label = "BARO_DUMP4"
+type = "bool"
+kind = "env"
+default = false
+restart = true
+level = "advanced"
+status = "bench-only"
+models = ["qwen35", "qwen35moe"]
+sources = ["cpu/engine_cpu.mojo", "serve/engine.mojo"]
+summary = "Dump the four-slot per-layer tensor set instead of the default."
+help = """Dump the four-slot per-layer tensor set instead of the default."""
+
+[[setting]]
+key = "BARO_DUMP_DIR"
+group = "engine"
+label = "BARO_DUMP_DIR"
+type = "path"
+kind = "env"
+restart = true
+level = "advanced"
+status = "bench-only"
+models = ["qwen35", "qwen35moe"]
+sources = ["serve/engine.mojo"]
+summary = "Directory for per-step dumps when BARO_DUMP is set."
+help = """Directory for per-step dumps when BARO_DUMP is set."""
+
+[[setting]]
+key = "BARO_DUMP_LAYER"
+group = "engine"
+label = "BARO_DUMP_LAYER"
+type = "int"
+kind = "env"
+default = 0
+restart = true
+level = "advanced"
+status = "bench-only"
+models = ["qwen35", "qwen35moe"]
+sources = ["cpu/engine_cpu.mojo", "serve/engine.mojo", "serve/window.mojo"]
+summary = "Layer whose tensors are dumped."
+help = """Layer whose tensors are dumped."""
+
+[[setting]]
+key = "BARO_DUMP_LOGITS"
+group = "engine"
+label = "BARO_DUMP_LOGITS"
+type = "path"
+kind = "env"
+restart = true
+level = "advanced"
+status = "bench-only"
+models = ["qwen35", "qwen35moe"]
+sources = ["serve/engine.mojo", "serve/spark.mojo"]
+summary = "Dump each step's raw logits row to this path pattern."
+help = """Dump each step's raw logits row to this path pattern."""
+
+[[setting]]
+key = "BARO_DUMP_LOGITS_DIR"
+group = "engine"
+label = "BARO_DUMP_LOGITS_DIR"
+type = "path"
+kind = "env"
+restart = true
+level = "advanced"
+status = "bench-only"
+models = ["qwen35", "qwen35moe"]
+sources = ["serve/engine.mojo", "serve/spark.mojo"]
+summary = "Per-step raw logit row and history dump for an independent host comparison."
+help = """Per-step raw logit row and history dump for an independent host comparison."""
+
+[[setting]]
+key = "BARO_TRACE_SUM_DIR"
+group = "engine"
+label = "BARO_TRACE_SUM_DIR"
+type = "path"
+kind = "env"
+restart = true
+level = "advanced"
+status = "bench-only"
+models = ["spark"]
+sources = ["serve/spark.mojo"]
+summary = "Spark engine: directory for the BARO_TRACE_SUM checksum tables."
+help = """Spark engine: directory for the BARO_TRACE_SUM checksum tables."""
+
+[[setting]]
+key = "BARO_MOE_ARMS"
+group = "engine"
+label = "BARO_MOE_ARMS"
+type = "int"
+kind = "env"
+default = 8
+restart = true
+level = "advanced"
+status = "bench-only"
+models = ["test"]
+sources = ["kernels/test_moe_block.mojo"]
+summary = "test_moe_block: disjoint expert sets rotated so the bench is not served from Infinity Cache."
+help = """test_moe_block: disjoint expert sets rotated so the bench is not served from Infinity Cache."""
+
+[[setting]]
+key = "BARO_MOE_BENCH"
+group = "engine"
+label = "BARO_MOE_BENCH"
+type = "bool"
+kind = "env"
+default = false
+restart = true
+level = "advanced"
+status = "bench-only"
+models = ["test"]
+sources = ["kernels/test_moe_block.mojo"]
+summary = "test_moe_block: run the timed bench after the parity check."
+help = """test_moe_block: run the timed bench after the parity check."""
+
+[[setting]]
+key = "BARO_MOE_LAYER"
+group = "engine"
+label = "BARO_MOE_LAYER"
+type = "int"
+kind = "env"
+default = 3
+restart = true
+level = "advanced"
+status = "bench-only"
+models = ["test"]
+sources = ["serve/moe_gate1.mojo"]
+summary = "moe_gate1: layer the single-block MoE gate runs."
+help = """moe_gate1: layer the single-block MoE gate runs."""
+
+[[setting]]
+key = "BARO_PREFIX_TOKENS"
+group = "engine"
+label = "BARO_PREFIX_TOKENS"
+type = "path"
+kind = "env"
+default = "bench/prefill-prompts/p8192.tokens"
+restart = true
+level = "advanced"
+status = "bench-only"
+models = ["test"]
+sources = ["kernels/test_prefix.mojo"]
+summary = "test_prefix: prompt token file for the prefix-cache test."
+help = """test_prefix: prompt token file for the prefix-cache test."""
+
+[[setting]]
+key = "BARO_REPLAY_M"
+group = "engine"
+label = "BARO_REPLAY_M"
+type = "int"
+kind = "env"
+default = 4
+restart = true
+level = "advanced"
+status = "stable"
+models = ["qwen35"]
+sources = ["serve/engine.mojo", "serve/window.mojo"]
+summary = "Rows per window when replaying prompt tokens the pool already holds (a fork's suffix)."
+help = """Rows per window when replaying prompt tokens the pool already holds (a fork's suffix). 8 sits on the q4-GEMM m=8 cliff: 15 rows 0.113 s at 8 vs 0.068 s at 4, bit-exact across values (P3-stageB-2026-09-24). Read back as 'BARO_REPLAY_M: n'."""
+
+[[setting]]
+key = "BARO_SEMANTIC_DUMP"
+group = "engine"
+label = "BARO_SEMANTIC_DUMP"
+type = "path"
+kind = "env"
+restart = true
+level = "advanced"
+status = "bench-only"
+models = ["all"]
+sources = ["serve/spark.mojo"]
+summary = "Path to dump semantic request state"
+help = """Path to dump semantic request state; empty = disabled."""
+
+[[setting]]
+key = "BARO_SEMANTIC_RECEIVER_TOKENIZER_SHA256"
+group = "engine"
+label = "BARO_SEMANTIC_RECEIVER_TOKENIZER_SHA256"
+type = "string"
+kind = "env"
+restart = true
+level = "advanced"
+status = "bench-only"
+models = ["all"]
+sources = ["serve/spark.mojo"]
+summary = "Expected SHA256 of receiver tokenizer for semantic requests."
+help = """Expected SHA256 of receiver tokenizer for semantic requests."""
+
+[[setting]]
+key = "BARO_SEMANTIC_DUMP_APPEND"
+group = "engine"
+label = "BARO_SEMANTIC_DUMP_APPEND"
+type = "bool"
+kind = "env"
+default = false
+restart = true
+level = "advanced"
+status = "stable"
+models = ["spark"]
+sources = ["serve/spark.mojo"]
+summary = "Appends continuous hidden state vectors for every prefill token position into binary dump."
+help = """Appends continuous hidden state vectors for every prefill token position into binary dump."""
+
+[[setting]]
+key = "BARO_CERT"
+group = "engine"
+label = "BARO_CERT"
+type = "string"
+kind = "env"
+restart = true
+level = "advanced"
+status = "bench-only"
+models = ["qwen35"]
+sources = ["serve/cert_hook.mojo"]
+summary = "Per-token certificate hook seed (serve/cert_hook.mojo)"
+help = """Per-token certificate hook seed (serve/cert_hook.mojo); empty = off. Gate: bench/check-cert-hook.sh."""
+
+[[setting]]
+key = "BARO_SHARED_EXP"
+group = "engine"
+label = "BARO_SHARED_EXP"
+type = "bool"
+kind = "build"
+default = false
+restart = true
+level = "advanced"
+status = "stable"
+models = ["qwen35"]
+sources = ["kernels/bexp.mojo"]
+summary = "Use the shared exp (kernels/bexp.mojo) so the GPU kernel and the CPU path give the same bits."
+help = """Use the shared exp (kernels/bexp.mojo) so the GPU kernel and the CPU path give the same bits."""
+
+[[setting]]
+key = "BARO_ABLATE"
+group = "engine"
+label = "BARO_ABLATE"
+type = "path"
+kind = "env"
+restart = true
+level = "advanced"
+status = "experimental"
+models = ["all"]
+sources = ["serve/spark.mojo"]
+summary = "Ablation file: f32 lambda[2 * N_LAYERS] (attn, ffn per layer), then v[N_LAYERS * H]; host-side rank-1 output projection."
+help = """Ablation file: f32 lambda[2 * N_LAYERS] (attn, ffn per layer), then v[N_LAYERS * H]; host-side rank-1 output projection."""
+
+[[setting]]
+key = "BARO_DUMP_LAYERS"
+group = "engine"
+label = "BARO_DUMP_LAYERS"
+type = "path"
+kind = "env"
+restart = true
+level = "advanced"
+status = "experimental"
+models = ["all"]
+sources = ["serve/spark.mojo"]
+summary = "Write every layer output at the last prompt position to this file."
+help = """Write every layer output at the last prompt position to this file."""
+
+[[setting]]
+key = "BARO_STEER"
+group = "engine"
+label = "BARO_STEER"
+type = "path"
+kind = "env"
+restart = true
+level = "advanced"
+status = "experimental"
+models = ["all"]
+sources = ["serve/engine.mojo", "serve/harness.mojo", "serve/spark.mojo", "serve/window.mojo"]
+summary = "Steering file: one f32 vector per layer added to the residual; disables speculative decoding."
+help = """Steering file: one f32 vector per layer added to the residual; disables speculative decoding."""
+
+[[setting]]
+key = "BARO_STEER_SERVE"
+group = "engine"
+label = "BARO_STEER_SERVE"
+type = "bool"
+kind = "env"
+default = false
+restart = true
+level = "advanced"
+status = "experimental"
+models = ["all"]
+sources = ["serve/engine.mojo", "serve/harness.mojo", "serve/spark.mojo", "serve/src/main.rs"]
+summary = "Allocate the steering buffer so serve requests can carry steer_file / steer_bank per request."
+help = """Allocate the steering buffer so serve requests can carry steer_file / steer_bank per request."""
+
+[[setting]]
+key = "BARO_CAPTURE"
+group = "engine"
+label = "BARO_CAPTURE"
+type = "path"
+kind = "env"
+restart = true
+level = "advanced"
+status = "experimental"
+models = ["qwen35"]
+sources = ["serve/PROTOCOL.md", "serve/engine.mojo", "serve/harness.mojo", "serve/src/main.rs", "serve/src/protocol.rs", "serve/window.mojo"]
+summary = "Directory for per-token activation capture (neuron v2 A1)"
+help = """Directory for per-token activation capture (neuron v2 A1): L<layer>.f16 records, tokens.i32, req.i32, meta.json. Dense qwen35 only. Turns batched prefill, speculation, the megakernel and checkpoint reuse off; a serve request may carry capture NAME to record under DIR/NAME."""
+
+[[setting]]
+key = "BARO_CAPTURE_LAYERS"
+group = "engine"
+label = "BARO_CAPTURE_LAYERS"
+type = "string"
+kind = "env"
+restart = true
+level = "advanced"
+status = "experimental"
+models = ["qwen35"]
+sources = ["serve/engine.mojo", "serve/harness.mojo", "serve/src/main.rs"]
+summary = "Comma list of layers BARO_CAPTURE records (0-based), for example 16,20."
+help = """Comma list of layers BARO_CAPTURE records (0-based), for example 16,20."""
+
+[[setting]]
+key = "BARO_CAPTURE_FIELDS"
+group = "engine"
+label = "BARO_CAPTURE_FIELDS"
+type = "string"
+kind = "env"
+default = "xyr"
+restart = true
+level = "advanced"
+status = "experimental"
+models = ["qwen35"]
+sources = ["serve/engine.mojo", "serve/src/main.rs"]
+summary = "Rows of each capture record, letters from x (FFN input), y (FFN output), r (residual after the layer), in the order given."
+help = """Rows of each capture record, letters from x (FFN input), y (FFN output), r (residual after the layer), in the order given."""
+
+[[setting]]
+key = "BARO_CAPTURE_MODEL"
+group = "engine"
+label = "BARO_CAPTURE_MODEL"
+type = "string"
+kind = "env"
+restart = true
+level = "advanced"
+status = "experimental"
+models = ["qwen35"]
+sources = ["serve/engine.mojo"]
+summary = "Model name written to the capture's meta.json (default"
+help = """Model name written to the capture's meta.json (default: the pack directory)."""
+
+[[setting]]
+key = "BARO_IMPLANTS"
+group = "engine"
+label = "BARO_IMPLANTS"
+type = "path"
+kind = "env"
+restart = true
+level = "advanced"
+status = "experimental"
+models = ["qwen35"]
+sources = ["serve/engine.mojo", "serve/harness.mojo", "serve/window.mojo"]
+summary = "implants.bin (mojo-neuron docs/format-implants.md)"
+help = """implants.bin (mojo-neuron docs/format-implants.md): rank-k side FFN per layer added to the residual after that layer's FFN, host side. Turns batched prefill, speculation and the megakernel off; a request with implants 0 switches it off. Dense qwen35 only."""
+
+[[setting]]
+key = "BARO_MODEL"
+group = "model"
+label = "BARO_MODEL"
+type = "enum"
+kind = "build"
+default = "qwen35"
+choices = ["qwen35", "qwen35moe"]
+restart = true
+level = "advanced"
+status = "stable"
+models = ["qwen35", "qwen35moe"]
+sources = ["serve/model.mojo", "tools/baro"]
+summary = "Model family the engine is compiled for"
+help = """Model family the engine is compiled for: qwen35 (dense) or qwen35moe."""
+
+[[setting]]
+key = "BARO_IMG_CAP"
+group = "model"
+label = "BARO_IMG_CAP"
+type = "int"
+kind = "build"
+default = 4096
+restart = true
+level = "advanced"
+status = "stable"
+models = ["qwen35moe"]
+sources = ["serve/registry.mojo"]
+summary = "Rows of the image-embedding buffer (serve/registry.mojo)"
+help = """Rows of the image-embedding buffer (serve/registry.mojo): vision tokens one request can carry."""
+
+[[setting]]
+key = "BARO_H"
+group = "model"
+label = "BARO_H"
+type = "int"
+kind = "build"
+default = 2048
+restart = true
+level = "advanced"
+status = "stable"
+models = ["qwen35moe"]
+sources = ["kernels/moe.mojo", "serve/model_qwen35.mojo", "serve/model_qwen35moe.mojo"]
+summary = "qwen35moe shape: hidden size (embedding_length). tools/model-id.py reads it from the GGUF and tools/baro passes it as -D only when it differs from..."
+help = """qwen35moe shape: hidden size (embedding_length). tools/model-id.py reads it from the GGUF and tools/baro passes it as -D only when it differs from the default (RegesCore-1.0-35B)."""
+
+[[setting]]
+key = "BARO_N_LAYERS"
+group = "model"
+label = "BARO_N_LAYERS"
+type = "int"
+kind = "build"
+default = 40
+restart = true
+level = "advanced"
+status = "stable"
+models = ["qwen35moe"]
+sources = ["serve/model_qwen35.mojo", "serve/model_qwen35moe.mojo"]
+summary = "qwen35moe shape: layer count (block_count). tools/model-id.py reads it from the GGUF and tools/baro passes it as -D only when it differs from the d..."
+help = """qwen35moe shape: layer count (block_count). tools/model-id.py reads it from the GGUF and tools/baro passes it as -D only when it differs from the default (RegesCore-1.0-35B)."""
+
+[[setting]]
+key = "BARO_ATT_EVERY"
+group = "model"
+label = "BARO_ATT_EVERY"
+type = "int"
+kind = "build"
+default = 4
+restart = true
+level = "advanced"
+status = "stable"
+models = ["qwen35moe"]
+sources = ["serve/model_qwen35.mojo", "serve/model_qwen35moe.mojo"]
+summary = "qwen35moe shape: one full-attention layer every N (full_attention_interval); the rest are DeltaNet. tools/model-id.py reads it from the GGUF and to..."
+help = """qwen35moe shape: one full-attention layer every N (full_attention_interval); the rest are DeltaNet. tools/model-id.py reads it from the GGUF and tools/baro passes it as -D only when it differs from the default (RegesCore-1.0-35B)."""
+
+[[setting]]
+key = "BARO_NQH"
+group = "model"
+label = "BARO_NQH"
+type = "int"
+kind = "build"
+default = 16
+restart = true
+level = "advanced"
+status = "stable"
+models = ["qwen35moe"]
+sources = ["serve/model_qwen35.mojo", "serve/model_qwen35moe.mojo"]
+summary = "qwen35moe shape: attention query heads. tools/model-id.py reads it from the GGUF and tools/baro passes it as -D only when it differs from the defau..."
+help = """qwen35moe shape: attention query heads. tools/model-id.py reads it from the GGUF and tools/baro passes it as -D only when it differs from the default (RegesCore-1.0-35B)."""
+
+[[setting]]
+key = "BARO_NKVH"
+group = "model"
+label = "BARO_NKVH"
+type = "int"
+kind = "build"
+default = 2
+restart = true
+level = "advanced"
+status = "stable"
+models = ["qwen35moe"]
+sources = ["serve/model_qwen35.mojo", "serve/model_qwen35moe.mojo"]
+summary = "qwen35moe shape: attention KV heads. tools/model-id.py reads it from the GGUF and tools/baro passes it as -D only when it differs from the default..."
+help = """qwen35moe shape: attention KV heads. tools/model-id.py reads it from the GGUF and tools/baro passes it as -D only when it differs from the default (RegesCore-1.0-35B)."""
+
+[[setting]]
+key = "BARO_HD"
+group = "model"
+label = "BARO_HD"
+type = "int"
+kind = "build"
+default = 256
+restart = true
+level = "advanced"
+status = "stable"
+models = ["qwen35moe"]
+sources = ["serve/model_qwen35.mojo", "serve/model_qwen35moe.mojo"]
+summary = "qwen35moe shape: attention head dim (key_length). tools/model-id.py reads it from the GGUF and tools/baro passes it as -D only when it differs from..."
+help = """qwen35moe shape: attention head dim (key_length). tools/model-id.py reads it from the GGUF and tools/baro passes it as -D only when it differs from the default (RegesCore-1.0-35B)."""
+
+[[setting]]
+key = "BARO_NROT"
+group = "model"
+label = "BARO_NROT"
+type = "int"
+kind = "build"
+default = 64
+restart = true
+level = "advanced"
+status = "stable"
+models = ["qwen35moe"]
+sources = ["serve/model_qwen35.mojo", "serve/model_qwen35moe.mojo"]
+summary = "qwen35moe shape: rotary dims (rope.dimension_count). tools/model-id.py reads it from the GGUF and tools/baro passes it as -D only when it differs f..."
+help = """qwen35moe shape: rotary dims (rope.dimension_count). tools/model-id.py reads it from the GGUF and tools/baro passes it as -D only when it differs from the default (RegesCore-1.0-35B)."""
+
+[[setting]]
+key = "BARO_N_EXP"
+group = "model"
+label = "BARO_N_EXP"
+type = "int"
+kind = "build"
+default = 256
+restart = true
+level = "advanced"
+status = "stable"
+models = ["qwen35moe"]
+sources = ["kernels/moe.mojo", "serve/model_qwen35moe.mojo"]
+summary = "qwen35moe shape: routed experts per layer (expert_count). tools/model-id.py reads it from the GGUF and tools/baro passes it as -D only when it diff..."
+help = """qwen35moe shape: routed experts per layer (expert_count). tools/model-id.py reads it from the GGUF and tools/baro passes it as -D only when it differs from the default (RegesCore-1.0-35B)."""
+
+[[setting]]
+key = "BARO_TOPK"
+group = "model"
+label = "BARO_TOPK"
+type = "int"
+kind = "build"
+default = 8
+restart = true
+level = "advanced"
+status = "stable"
+models = ["qwen35moe"]
+sources = ["kernels/moe.mojo", "serve/model_qwen35moe.mojo", "serve/registry.mojo"]
+summary = "qwen35moe shape: experts selected per token (expert_used_count); also the routing-trace width. tools/model-id.py reads it from the GGUF and tools/b..."
+help = """qwen35moe shape: experts selected per token (expert_used_count); also the routing-trace width. tools/model-id.py reads it from the GGUF and tools/baro passes it as -D only when it differs from the default (RegesCore-1.0-35B)."""
+
+[[setting]]
+key = "BARO_E_FFN"
+group = "model"
+label = "BARO_E_FFN"
+type = "int"
+kind = "build"
+default = 512
+restart = true
+level = "advanced"
+status = "stable"
+models = ["qwen35moe"]
+sources = ["kernels/moe.mojo", "serve/model_qwen35moe.mojo"]
+summary = "qwen35moe shape: routed expert FFN width (expert_feed_forward_length). tools/model-id.py reads it from the GGUF and tools/baro passes it as -D only..."
+help = """qwen35moe shape: routed expert FFN width (expert_feed_forward_length). tools/model-id.py reads it from the GGUF and tools/baro passes it as -D only when it differs from the default (RegesCore-1.0-35B)."""
+
+[[setting]]
+key = "BARO_SH_FFN"
+group = "model"
+label = "BARO_SH_FFN"
+type = "int"
+kind = "build"
+default = 512
+restart = true
+level = "advanced"
+status = "stable"
+models = ["qwen35moe"]
+sources = ["kernels/moe.mojo", "serve/model_qwen35moe.mojo"]
+summary = "qwen35moe shape: shared expert FFN width. tools/model-id.py reads it from the GGUF and tools/baro passes it as -D only when it differs from the def..."
+help = """qwen35moe shape: shared expert FFN width. tools/model-id.py reads it from the GGUF and tools/baro passes it as -D only when it differs from the default (RegesCore-1.0-35B)."""
+
+[[setting]]
+key = "BARO_SSM_NH_K"
+group = "model"
+label = "BARO_SSM_NH_K"
+type = "int"
+kind = "build"
+default = 16
+restart = true
+level = "advanced"
+status = "stable"
+models = ["qwen35moe"]
+sources = ["cpu/engine_cpu.mojo", "kernels/ssm.mojo"]
+summary = "qwen35moe shape: DeltaNet key heads (ssm.group_count). tools/model-id.py reads it from the GGUF and tools/baro passes it as -D only when it differs..."
+help = """qwen35moe shape: DeltaNet key heads (ssm.group_count). tools/model-id.py reads it from the GGUF and tools/baro passes it as -D only when it differs from the default (RegesCore-1.0-35B)."""
+
+[[setting]]
+key = "BARO_SSM_NH_V"
+group = "model"
+label = "BARO_SSM_NH_V"
+type = "int"
+kind = "build"
+default = 32
+restart = true
+level = "advanced"
+status = "stable"
+models = ["qwen35moe"]
+sources = ["cpu/engine_cpu.mojo", "kernels/ssm.mojo"]
+summary = "qwen35moe shape: DeltaNet value heads (ssm.time_step_rank). tools/model-id.py reads it from the GGUF and tools/baro passes it as -D only when it di..."
+help = """qwen35moe shape: DeltaNet value heads (ssm.time_step_rank). tools/model-id.py reads it from the GGUF and tools/baro passes it as -D only when it differs from the default (RegesCore-1.0-35B)."""
+
+[[setting]]
+key = "BARO_SSM_STATE"
+group = "model"
+label = "BARO_SSM_STATE"
+type = "int"
+kind = "build"
+default = 128
+restart = true
+level = "advanced"
+status = "stable"
+models = ["qwen35moe"]
+sources = ["cpu/engine_cpu.mojo", "kernels/ssm.mojo"]
+summary = "qwen35moe shape: DeltaNet state size per head (ssm.state_size). tools/model-id.py reads it from the GGUF and tools/baro passes it as -D only when i..."
+help = """qwen35moe shape: DeltaNet state size per head (ssm.state_size). tools/model-id.py reads it from the GGUF and tools/baro passes it as -D only when it differs from the default (RegesCore-1.0-35B)."""
+
+[[setting]]
+key = "BARO_VOCAB"
+group = "model"
+label = "BARO_VOCAB"
+type = "int"
+kind = "build"
+default = 248320
+restart = true
+level = "advanced"
+status = "stable"
+models = ["qwen35moe"]
+sources = ["serve/model_qwen35.mojo", "serve/model_qwen35moe.mojo"]
+summary = "qwen35moe shape: vocabulary rows. tools/model-id.py reads it from the GGUF and tools/baro passes it as -D only when it differs from the default (Re..."
+help = """qwen35moe shape: vocabulary rows. tools/model-id.py reads it from the GGUF and tools/baro passes it as -D only when it differs from the default (RegesCore-1.0-35B)."""
+
+[[setting]]
+key = "BARO_PACK"
+group = "model"
+label = "Weight pack directory"
+type = "path"
+kind = "env"
+default = ".work/moe-w1/pack"
+restart = true
+level = "basic"
+status = "stable"
+models = ["all"]
+sources = ["cpu/engine_cpu.mojo", "serve/PROTOCOL.md", "serve/engine.mojo", "serve/front/main.mojo", "serve/moe_gate1.mojo", "serve/q4x.mojo"]
+summary = "Weight pack directory the engine loads (pack.bin + index.txt, experts.bin for a tier pack)."
+help = """Weight pack directory the engine loads (pack.bin + index.txt, experts.bin for a tier pack)."""
+
+[[setting]]
+key = "BARO_GGUF"
+group = "model"
+label = "BARO_GGUF"
+type = "path"
+kind = "env"
+restart = true
+level = "advanced"
+status = "stable"
+models = ["spark"]
+sources = ["serve/spark.mojo"]
+summary = "Spark engine: GGUF to read the tokenizer and chat template from."
+help = """Spark engine: GGUF to read the tokenizer and chat template from."""
+
+[[setting]]
+key = "BARO_TURBO"
+group = "model"
+label = "BARO_TURBO"
+type = "bool"
+kind = "build"
+default = false
+restart = true
+level = "advanced"
+status = "stable"
+models = ["qwen35"]
+sources = ["serve/engine.mojo", "serve/window.mojo"]
+summary = "Window-path Q4_0 GEMVs (m <= 4) through amar_turbo_rows, the A rows staged once per block in LDS"
+help = """Window-path Q4_0 GEMVs (m <= 4) through amar_turbo_rows, the A rows staged once per block in LDS; same words as the q4rowb path, 1.124x on the 27B Turbo spec path. Build flag -D BARO_TURBO=1, read back as BARO_TURBO:."""
+
+[[setting]]
+key = "BARO_DRAFT_Q4"
+group = "model"
+label = "BARO_DRAFT_Q4"
+type = "bool"
+kind = "env"
+default = false
+restart = true
+level = "advanced"
+status = "stable"
+models = ["qwen35"]
+sources = ["serve/PROTOCOL.md", "serve/engine.mojo"]
+summary = "Use the pack's q4 copy of the draft head, when the pack has one."
+help = """Use the pack's q4 copy of the draft head, when the pack has one."""
+
+[[setting]]
+key = "BARO_DRAFT_CACHE_ONLY"
+group = "model"
+label = "BARO_DRAFT_CACHE_ONLY"
+type = "bool"
+kind = "env"
+default = false
+restart = true
+level = "advanced"
+status = "stable"
+models = ["qwen35moe"]
+sources = ["serve/expert_tier.mojo"]
+summary = "Zero-I/O cache-only routing fallback"
+help = """Zero-I/O cache-only routing fallback: skip host pread/DMA for non-resident experts once the layer cache is populated."""
+
+[[setting]]
+key = "BARO_WEIGHTS_EXPORT"
+group = "model"
+label = "BARO_WEIGHTS_EXPORT"
+type = "path"
+kind = "env"
+restart = true
+level = "advanced"
+status = "stable"
+models = ["qwen35", "qwen35moe"]
+sources = ["serve/harness.mojo"]
+summary = "T3b step 2: load the pack into an IPC-exportable allocation and write the 112-byte weight record (magic, size, pack salt, handle) here for BARO_WEI..."
+help = """T3b step 2: load the pack into an IPC-exportable allocation and write the 112-byte weight record (magic, size, pack salt, handle) here for BARO_WEIGHTS_IMPORT engines; this engine must outlive them."""
+
+[[setting]]
+key = "BARO_WEIGHTS_IMPORT"
+group = "model"
+label = "BARO_WEIGHTS_IMPORT"
+type = "path"
+kind = "env"
+restart = true
+level = "advanced"
+status = "stable"
+models = ["qwen35", "qwen35moe"]
+sources = ["serve/harness.mojo"]
+summary = "T3b step 2: map the weights another engine exported (BARO_WEIGHTS_EXPORT record) instead of reading pack.bin; a record for another pack or size rai..."
+help = """T3b step 2: map the weights another engine exported (BARO_WEIGHTS_EXPORT record) instead of reading pack.bin; a record for another pack or size raises before any HIP call."""
+
+[[setting]]
+key = "BARO_YARN"
+group = "model"
+label = "BARO_YARN"
+type = "int"
+kind = "build"
+default = 1
+restart = true
+level = "advanced"
+status = "stable"
+models = ["qwen35"]
+sources = ["serve/model_qwen35.mojo"]
+summary = "qwen35 shape: 1 applies YaRN rope scaling, 0 plain RoPE (GGUF declares no scaling). Set by tools/model-id.py."
+help = """qwen35 shape: 1 applies YaRN rope scaling, 0 plain RoPE (GGUF declares no scaling). Set by tools/model-id.py."""
+
+[[setting]]
+key = "BARO_EXPERTS"
+group = "model"
+label = "BARO_EXPERTS"
+type = "path"
+kind = "env"
+restart = true
+level = "advanced"
+status = "bench-only"
+models = ["qwen35moe"]
+sources = ["serve/engine.mojo"]
+summary = "Write the router's top-8 experts per layer per token to this path (instrumentation run)."
+help = """Write the router's top-8 experts per layer per token to this path (instrumentation run)."""
+
+[[setting]]
+key = "BARO_CACHE"
+group = "model"
+label = "BARO_CACHE"
+type = "path"
+kind = "shell"
+default = "~/.cache/baro"
+restart = true
+level = "basic"
+status = "stable"
+models = ["all"]
+sources = ["tools/baro"]
+summary = "Directory for compiled engines, manifests and packs (tools/baro, default ~/.cache/baro/<id>/)."
+help = """Directory for compiled engines, manifests and packs (tools/baro, default ~/.cache/baro/<id>/). Packs reflink their vendor file, so these copies are the real disk cost (btrfs fi du before deleting)."""
+
+[[setting]]
+key = "BARO_TARGET_ACCELERATOR"
+group = "model"
+label = "BARO_TARGET_ACCELERATOR"
+type = "string"
+kind = "shell"
+default = "gfx1100"
+restart = true
+level = "advanced"
+status = "stable"
+models = ["all"]
+sources = ["tools/baro"]
+summary = "GPU architecture passed to `mojo build --target-accelerator` by tools/baro and the CI scripts."
+help = """GPU architecture passed to `mojo build --target-accelerator` by tools/baro and the CI scripts. gfx1100 is the 7900 XTX; gfx1200 and gfx1201 builds are CPU-checked only (docs/rdna4/)."""
+
+[[setting]]
+key = "BARO_POOL"
+group = "front"
+label = "Engine processes"
+type = "int"
+kind = "server-env"
+default = 1
+min = 1
+restart = true
+level = "basic"
+status = "stable"
+models = ["all"]
+sources = ["serve/src/engine.rs", "serve/src/main.rs"]
+summary = "Number of engine processes baro-serve spawns"
+help = """Number of engine processes baro-serve spawns; more than 1 does not fit one 24 GB GPU."""
+
+[[setting]]
+key = "BARO_RUNTIME"
+group = "front"
+label = "BARO_RUNTIME"
+type = "string"
+kind = "server-env"
+restart = true
+level = "advanced"
+status = "stable"
+models = ["all"]
+sources = ["serve/src/checkpoints.rs"]
+summary = "Runtime identity string hashed into checkpoint ids when the pack has no identity.json"
+help = """Runtime identity string hashed into checkpoint ids when the pack has no identity.json; unset falls back to the git commit."""
+
+[[setting]]
+key = "BARO_LOG_RENDER"
+group = "front"
+label = "BARO_LOG_RENDER"
+type = "bool"
+kind = "server-env"
+default = false
+restart = true
+level = "advanced"
+status = "bench-only"
+models = ["all"]
+sources = ["serve/src/main.rs"]
+summary = "Log each chat request's whole rendered prompt (the check that chat_template_kwargs changed it)"
+help = """Log each chat request's whole rendered prompt (the check that chat_template_kwargs changed it); otherwise only its length is logged."""
+
+[[setting]]
+key = "BARO_CKPT_API"
+group = "front"
+label = "BARO_CKPT_API"
+type = "int"
+kind = "server-env"
+default = 8
+restart = true
+level = "advanced"
+status = "stable"
+models = ["all"]
+sources = ["serve/src/checkpoints.rs"]
+summary = "Checkpoints baro-serve's /v1/fork and state API keep on disk."
+help = """Checkpoints baro-serve's /v1/fork and state API keep on disk."""
+
+[[setting]]
+key = "BARO_CKPT_DIR"
+group = "front"
+label = "BARO_CKPT_DIR"
+type = "path"
+kind = "server-env"
+default = ".work/checkpoints"
+restart = true
+level = "advanced"
+status = "stable"
+models = ["all"]
+sources = ["serve/src/checkpoints.rs"]
+summary = "Directory for baro-serve's checkpoint files."
+help = """Directory for baro-serve's checkpoint files."""
+
+[[setting]]
+key = "BARO_STATE_HMAC_KEY"
+group = "front"
+label = "BARO_STATE_HMAC_KEY"
+type = "string"
+kind = "server-env"
+restart = true
+level = "advanced"
+status = "stable"
+models = ["all"]
+sources = ["serve/src/state.rs"]
+summary = "Key that signs exported state files"
+help = """Key that signs exported state files; unset means unsigned. A secret: never put it in a profile."""
+
+[[setting]]
+key = "BARO_CKPT_DISK_BYTES"
+group = "front"
+label = "BARO_CKPT_DISK_BYTES"
+type = "int"
+kind = "server-env"
+default = 0
+restart = true
+level = "advanced"
+status = "stable"
+models = ["qwen35", "qwen35moe"]
+sources = ["serve/src/checkpoints.rs"]
+summary = "Total bytes of state files allowed on disk"
+help = """Total bytes of state files allowed on disk; 0 = unlimited. A create that would exceed it answers 507 and leaves no file (S4, ckpt-s4.sh)."""
+
+[[setting]]
+key = "BARO_BRAIN_ASK"
+group = "front"
+label = "BARO_BRAIN_ASK"
+type = "string"
+kind = "server-env"
+default = "$HOME/iTools/bin/brain-ask"
+restart = true
+level = "advanced"
+status = "stable"
+models = ["all"]
+sources = ["serve/src/main.rs"]
+summary = "Path of the brain-ask binary BARO_NEURONS retrieval runs (3 s timeout, top hits capped at 1500 chars)."
+help = """Path of the brain-ask binary BARO_NEURONS retrieval runs (3 s timeout, top hits capped at 1500 chars)."""
+
+[[setting]]
+key = "BARO_NEURONS"
+group = "front"
+label = "BARO_NEURONS"
+type = "bool"
+kind = "server-env"
+default = false
+restart = true
+level = "advanced"
+status = "stable"
+models = ["all"]
+sources = ["serve/src/main.rs", "tools/baro"]
+summary = "1 = a non-streaming chat request without tools of its own gets a brain_ask retrieval loop"
+help = """1 = a non-streaming chat request without tools of its own gets a brain_ask retrieval loop; the request field neurons:false turns it off per request."""
+
+[[setting]]
+key = "BARO_NEURONS_INBOX"
+group = "front"
+label = "BARO_NEURONS_INBOX"
+type = "string"
+kind = "server-env"
+default = "$HOME/Brain/mojo/mojo-baro/checked-answers.md"
+restart = true
+level = "advanced"
+status = "stable"
+models = ["all"]
+sources = ["serve/src/main.rs"]
+summary = "File POST /v1/neurons appends a checked answer to"
+help = """File POST /v1/neurons appends a checked answer to; an unchecked answer is refused."""
+
+[[setting]]
+key = "BARO_NEURONS_NET"
+group = "front"
+label = "BARO_NEURONS_NET"
+type = "enum"
+kind = "server-env"
+default = "text"
+choices = ["text", "results"]
+restart = true
+level = "advanced"
+status = "stable"
+models = ["all"]
+sources = ["serve/src/main.rs"]
+summary = "The brain-ask --net mode BARO_NEURONS retrieval uses (text or results)."
+help = """The brain-ask --net mode BARO_NEURONS retrieval uses (text or results)."""
+
+[[setting]]
+key = "BARO_WIRE_PACK"
+group = "front"
+label = "BARO_WIRE_PACK"
+type = "string"
+kind = "server-env"
+default = ".work/ailab/pack-kq"
+restart = true
+level = "advanced"
+status = "stable"
+models = ["all"]
+sources = ["serve/src/text.rs", "serve/src/text_oracle_test.rs", "serve/src/wire_test.rs"]
+summary = "Test only (serve/src/wire_test.rs)"
+help = """Test only (serve/src/wire_test.rs): the pack directory whose tokenizer.json and chat template render the recorded ask_openai bodies; a missing path fails the test."""
+
+[[setting]]
+key = "BARO_DETOK_N"
+group = "front"
+label = "BARO_DETOK_N"
+type = "int"
+kind = "server-env"
+default = 256
+restart = true
+level = "advanced"
+status = "bench-only"
+models = ["all"]
+sources = ["serve/src/text.rs"]
+summary = "Test-only: tokens pushed through one streaming Detok in the serve/src/text.rs timing test."
+help = """Test-only: tokens pushed through one streaming Detok in the serve/src/text.rs timing test."""
+
+[[setting]]
+key = "BARO_PARSE_N"
+group = "front"
+label = "BARO_PARSE_N"
+type = "int"
+kind = "server-env"
+default = 1
+restart = true
+level = "advanced"
+status = "bench-only"
+models = ["all"]
+sources = ["serve/src/protocol.rs"]
+summary = "Test-only: repeats of parse_line in the serve/src/protocol.rs timing test."
+help = """Test-only: repeats of parse_line in the serve/src/protocol.rs timing test."""
+
+[[setting]]
+key = "BARO_SSE_N"
+group = "front"
+label = "BARO_SSE_N"
+type = "int"
+kind = "server-env"
+default = 64
+restart = true
+level = "advanced"
+status = "bench-only"
+models = ["all"]
+sources = ["serve/src/main.rs"]
+summary = "Test-only: scale of the serve/src/main.rs stream accumulator test for a peak-RSS measurement."
+help = """Test-only: scale of the serve/src/main.rs stream accumulator test for a peak-RSS measurement."""
+# ---------------------------------------------------------------- presets
+# group: speed | task | fit | user. values = { KEY = value }; user presets (~/.config/mojo-baro/presets.toml) share this shape.
+# Every KEY must be a [[setting]] key (tools/settings-check checks it). Effects: only BARO_SPEC has a measured number
+# (1.104x, README); the rest are conventions, marked "unmeasured" in each summary.
+
+[[setting]]
+key = "BARO_EMBED_MAX_TOKENS"
+group = "front"
+label = "BARO_EMBED_MAX_TOKENS"
+type = "int"
+kind = "server-env"
+default = 512
+restart = true
+level = "advanced"
+status = "stable"
+models = ["all"]
+sources = ["serve/src/embed.rs"]
+summary = "Token cap per text for the standard embedder (/v1/embeddings, bge-small-en-v1.5), 3 to 512."
+help = """baro-serve: token cap per embedded text, CLS and SEP included; longer texts are cut. 512 is the model's own limit (brain-ask cuts at 256, so texts over 255 tokens differ from its vectors). Read back from the embedder child's command line in bench/embed-gate.sh."""
+
+[[setting]]
+key = "BARO_EMBED_BIN"
+group = "front"
+label = "BARO_EMBED_BIN"
+type = "path"
+kind = "server-env"
+default = "~/.cache/baro/embed/serve_embed"
+restart = true
+level = "advanced"
+status = "stable"
+models = ["all"]
+sources = ["serve/src/embed.rs"]
+summary = "Embedder child that baro-serve starts for /v1/embeddings."
+help = """baro-serve: the standard embedder process (embed/serve_embed.mojo), built by embed/build.sh. Started on the first embeddings request, at boot under --embed-only."""
+
+[[setting]]
+key = "BARO_EMBED_MODEL"
+group = "front"
+label = "BARO_EMBED_MODEL"
+type = "path"
+kind = "server-env"
+default = "~/Models/bge-small-en-v1.5"
+restart = true
+level = "advanced"
+status = "stable"
+models = ["all"]
+sources = ["serve/src/embed.rs"]
+summary = "bge-small-en-v1.5 model directory (safetensors, vocab.txt)."
+help = """baro-serve: directory the embedder child reads model.safetensors and vocab.txt from."""
+
+[[setting]]
+key = "BARO_EMBED_NORM"
+group = "front"
+label = "BARO_EMBED_NORM"
+type = "path"
+kind = "server-env"
+default = "~/.cache/baro/embed/norm.tsv"
+restart = true
+level = "advanced"
+status = "stable"
+models = ["all"]
+sources = ["serve/src/embed.rs"]
+summary = "WordPiece normaliser table beside the embedder binary."
+help = """baro-serve: the Unicode normaliser table (embed/norm.tsv, written by embed/build.sh next to the binary)."""
+
+[[preset]]
+name = "Fast"
+group = "speed"
+summary = "Speculative decode on, smallest window (16K floor), greedy. Speed gain beyond BARO_SPEC 1.104x unmeasured."
+values = { BARO_SPEC = true, BARO_SPEC_K = 2, BARO_MEGA = true, BARO_PREFILL = true, BARO_TMAX = 16384, "sampling.temperature" = 0.0 }
+
+[[preset]]
+name = "Balanced"
+group = "speed"
+summary = "Startup default (owner 2026-11-12): speculative decode k=2, f32 KV (the face falls back to int8 when it does not fit), 32K window, temperature 0.7, top-p 0.9."
+values = { BARO_SPEC = true, BARO_SPEC_K = 2, BARO_KVQ = "f32", BARO_MEGA = true, BARO_PREFILL = true, BARO_TMAX = 32768, "sampling.temperature" = 0.7, "sampling.top_p" = 0.9 }
+
+[[preset]]
+name = "Quality"
+group = "speed"
+summary = "Exact path: no speculation, f32 KV, 32768 window (baro-serve default), greedy. Quality gain unmeasured."
+values = { BARO_SPEC = false, BARO_KVQ = "f32", BARO_TMAX = 32768, "sampling.temperature" = 0.0 }
+
+[[preset]]
+name = "Chat"
+group = "task"
+summary = "Light sampling for conversation. Values are a convention, unmeasured."
+values = { "sampling.temperature" = 0.7, "sampling.top_p" = 0.9, "sampling.max_tokens" = 16000 }
+
+[[preset]]
+name = "Code"
+group = "task"
+summary = "Low temperature for code edits. Values are a convention, unmeasured."
+values = { "sampling.temperature" = 0.2, "sampling.top_p" = 0.95, "sampling.max_tokens" = 16000 }
+
+[[preset]]
+name = "Reasoning"
+group = "task"
+summary = "Thinking on, max_tokens 16000, Qwen3 thinking-mode sampling from profiles/turbo27b-coder.toml (0.6 / 0.95 / 20 / 0). The chat folds the thinking block."
+values = { "sampling.temperature" = 0.6, "sampling.top_p" = 0.95, "sampling.top_k" = 20, "sampling.min_p" = 0.0, "sampling.max_tokens" = 16000, "chat_template_kwargs.enable_thinking" = true }
+
+[[preset]]
+name = "Low VRAM"
+group = "fit"
+summary = "int8 KV (halves KV memory, dense) and the 16K floor window. Check with pack-fit before applying."
+values = { BARO_KVQ = "int8", BARO_TMAX = 16384 }
+
+[[preset]]
+name = "Long context"
+group = "fit"
+summary = "int8 KV and a 131072 window, as profiles/turbo27b-coder.toml (pack-fit 2026-11-10: fits at 2.0 GB desktop; int8 speed at this window unmeasured)."
+values = { BARO_KVQ = "int8", BARO_TMAX = 131072, BARO_SPEC = true, BARO_MEGA = true }

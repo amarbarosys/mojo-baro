@@ -1,0 +1,40 @@
+=== test_identity.mojo (U3: identity refusal, one negative control per field) ===
+
+=== test_identity.mojo: U3 identity refusal ===
+PASS: matching header on all four fields ingests (no raise)
+PASS: flipped weights_uuid is refused (raised)
+PASS: refusal names the field: weights_uuid (got: IDENTITY_MISMATCH:weights_uuid)
+PASS: flipped runtime is refused (raised)
+PASS: refusal names the field: runtime (got: IDENTITY_MISMATCH:runtime)
+PASS: flipped sigma_id is refused (raised)
+PASS: refusal names the field: sigma_id (got: IDENTITY_MISMATCH:sigma_id)
+PASS: flipped tokenizer_sha is refused (raised)
+PASS: refusal names the field: tokenizer_sha (got: IDENTITY_MISMATCH:tokenizer_sha)
+
+All identity tests PASSED.
+--- test_identity.mojo (U3: identity refusal, one negative control per field): PASS ---
+=== test_latent_c_abi.c (C/NDK ABI contract) ===
+==================================================
+      LatentOS C ABI / Android NDK Test Suite     
+==================================================
+PASS: LatentHeader size is exactly 256 bytes (expected 256)
+PASS: LatentHeader field offsets match proto.mojo serialize()
+PASS: LatentHeader initialized and valid
+PASS: Sealed memfd created with all 4 seals active (seals=15)
+PASS: Atomic SCM_RIGHTS handle passing verified
+PASS: Received descriptor mapped read-only and data verified bit-exact
+==================================================
+  ALL C ABI / ANDROID NDK TESTS PASSED (0 ERRORS) 
+==================================================
+--- test_latent_c_abi.c (C/NDK ABI contract): PASS ---
+=== gpt.mojo vs Python oracle ===
+PASS: partition 0 matches: {'gpt_name': 'PARTONE', 'fs_label': 'FIXTUREA', 'fs_kind': 'ext4', 'first_lba': 2048, 'last_lba': 67583}
+PASS: partition 1 matches: {'gpt_name': 'PARTTWO', 'fs_label': 'FIXTUREB', 'fs_kind': 'ext4', 'first_lba': 67584, 'last_lba': 133119}
+gpt_oracle: PASS, 2 partitions match
+--- gpt.mojo vs Python oracle: PASS ---
+
+===== latentos-check summary =====
+PASS: 5 (test_liblatentos.mojo (memfd seal/map + LatentHeader round trip) test_latent_engine.mojo (checkpoint + KV page mint/seal/ingest) test_identity.mojo (U3: identity refusal, one negative control per field) test_latent_c_abi.c (C/NDK ABI contract) gpt.mojo vs Python oracle)
+FAIL: 0 (none)
+PASS run-tests: all tests, pack .work/engine-pack-q4
+rc=0

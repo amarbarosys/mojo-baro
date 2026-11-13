@@ -1,0 +1,2 @@
+FAIL ocr: answer 1: 'zebra quartz nobody streamed' not read back from chat-1.png, see .work/F1-gate-falsify/chat-1.ocr.txt
+gpu-wait: job mwd2tl7mia1f failed: exit code 1

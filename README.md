@@ -86,11 +86,30 @@ clients work against the same port (`/api/chat`, `/api/generate`, `/api/tags`). 
 is a terminal client.
 
 `tools/baro gui [--model MODEL.gguf] [--port N] [--fps N]` opens the face (`face/app.mojo`, built on the vendored
-`imkit/`): chat on the left, the engine panel on the right, in one window. It uses the front already on the port, or
-starts `baro serve` for `--model`. Skeleton only for now: placeholder text and the front's `/health` line. It needs the
-system libraries `libSDL3.so.0` (Arch: `pacman -S sdl3`) and `libfreetype.so.6` (`pacman -S freetype2`); the face checks
-both at start and names the missing one. The frame cap defaults to 30 fps: at 60 a resident 9B engine lost about 13% on 6
-to 7 of 20 prompts, at 30 and 15 on 1 (`face/window-cost.sh`).
+`imkit/`): one window with a tab row across the top. It uses the front already on the port, or starts `baro serve`
+for `--model`. Tabs:
+
+- **Chat**: the chat pane streams over SSE from the front (Send, Stop, Copy), with the engine panel beside it
+  (engine state, queue depth, model card, last done line with its fail word, tok/s line, VRAM bar).
+- **Sampling, Engine, Front**: one control per setting, taken from [`docs/settings.toml`](docs/settings.toml)
+  (slider, on/off button, one button per enum choice, or a text field), a one-line summary under each row, and a
+  help panel on the right (help text, key, default, range, restart need, status). A Basic/Advanced switch
+  hides the expert settings. A change is only staged: it is marked "staged", or "staged, restart" when the engine
+  must restart.
+- **Presets**: eight presets in three groups (Fast, Balanced, Quality; Chat, Code, Reasoning; Low VRAM, Long
+  context). Choosing one stages its values; Balanced is staged when the face starts. You can save and delete your own
+  presets (`~/.config/mojo-baro/presets.toml`, override with `MOJO_BARO_PRESETS`). **Apply** shows a plan (which staged
+  settings need a restart, which are live, and a `pack-fit` verdict); Confirm is disabled when the verdict is NO. On
+  Confirm the face stops the `tools/baro serve` process it started, starts it again with the staged `BARO_*`
+  values, waits for `/health` and shows the fail word.
+- **Model**: a GGUF path field, a pack lookup in the cache (`tools/baro pack-path`, it never builds) and the
+  model, pack and limits card.
+
+The face checks these claims offscreen (`face/gate.sh`, `face/chat-gate.sh`, `face/settings_gate.sh`: rendered frames
+read back with OCR, no window opened). Not yet verified: an Apply restart on a real engine (the tests use a fake command) and
+`face/dash_gate.sh`, which needs a 9B engine. The face needs the system libraries `libSDL3.so.0` (Arch: `pacman -S sdl3`)
+and `libfreetype.so.6` (`pacman -S freetype2`); it checks both at start and names the missing one. The frame cap defaults
+to 30 fps: at 60 a resident 9B engine lost about 13% on 6 to 7 of 20 prompts, at 30 and 15 on 1 (`face/window-cost.sh`).
 
 ## How it works
 
@@ -295,7 +314,7 @@ serve/target/release/baro-serve --engine ENGINE --pack PACKDIR --tokenizer PACKD
 | `GET /health` | 200 only when an engine can take work; 503 while loading or after the engine died |
 | `GET /props` | engine limits: window, speculation depth, KV type |
 | `/api/chat`, `/api/generate`, `/api/tags`, `/api/ps`, `/api/show`, `/api/version` | Ollama-compatible |
-| `POST /api/embeddings` | embeddings |
+| `POST /v1/embeddings`, `/api/embeddings` | embeddings: bge-small-en-v1.5 by default ([below](#embeddings)) |
 
 `/health` answers with a status code, not only a body: a load balancer or script can poll it.
 The port opens before the weights finish loading, so "port open" does not mean "ready".
@@ -318,6 +337,26 @@ The port opens before the weights finish loading, so "port open" does not mean "
   pack with `--parallel N`: N sessions share one weight copy and the shared prompt prefix and
   decode together in batched steps. Past the KV pool the server answers HTTP 429.
   [`docs/design/multi-session-serve.md`](docs/design/multi-session-serve.md).
+
+### Embeddings
+
+`/v1/embeddings` and `/api/embeddings` answer with **bge-small-en-v1.5** (384 dimensions, CLS pooling, L2-normalised,
+512 tokens) when `model` is absent or names it. It runs in a Mojo child process (`embed/serve_embed.mojo`) on the CPU,
+so it needs no GPU and no chat engine: `baro-serve --embed-only --port 8081` serves it alone. `input` is a string or an
+array of strings; `encoding_format` is `float` or `base64`; the response is the OpenAI shape. The server embeds the
+text it is given: a retrieval client adds bge's query prefix itself. A name that is neither bge-small nor the loaded
+chat model is a 404. Naming the loaded chat model keeps the old path (the chat model's last hidden state, needs an
+engine).
+
+```bash
+embed/build.sh                      # serve_embed + norm.tsv into ~/.cache/baro/embed
+baro-serve --embed-only --port 8081 # needs ~/Models/bge-small-en-v1.5
+curl -s localhost:8081/v1/embeddings -d '{"input":["hello","world"]}' -H 'content-type: application/json'
+```
+
+Knobs (`docs/settings.toml`): `BARO_EMBED_BIN`, `BARO_EMBED_MODEL`, `BARO_EMBED_NORM`, `BARO_EMBED_MAX_TOKENS`.
+`bench/embed-gate.sh` checks 30 fixed texts against the ONNX model and brain-ask's embedder (cosine >= 0.9999) and
+rejects a mean-pooling build.
 
 ### Several engines: `baro-router`
 
@@ -348,20 +387,29 @@ Settings come from three places, in this order of precedence:
 3. **Build flags** (`-D NAME=VALUE`), which fix the model shape and some kernel choices at
    compile time. `tools/baro` sets these from the GGUF.
 
-Every setting the code reads is listed, with its type, default and the models it applies to, in
-[`docs/settings-template.toml`](docs/settings-template.toml). `tools/settings-check.py` fails if
-that file and the source disagree. The ones you are most likely to touch:
+Every setting the code reads is listed, with its type, default, range, restart need and a help text, in
+[`docs/settings.toml`](docs/settings.toml), the single source the face reads. `tools/settings-check.mojo`
+fails if that file and the source disagree, and generates the table below. The ones you are most likely to touch:
+
+<!-- settings-table:begin (generated by tools/settings-check --readme; edit docs/settings.toml) -->
 
 | setting | default | what it does |
 |---|---|---|
-| `BARO_TMAX` | 1088 in the engine, 32768 under `baro-serve` | context window the KV pool is sized for, in tokens |
-| `BARO_KVQ` | `f32` | `int8` halves KV memory on dense models (agreement 99.1% mean on 20 prompts) |
-| `BARO_SPEC` | 1 | speculative decode with the MTP head (dense; 1.104x as a 20-prompt median) |
-| `BARO_MEGA` | 1 dense, 0 MoE | the persistent megakernel; `0` selects the launch path |
-| `BARO_PREFILL` | 1 | batched prefill; `0` replays the prompt one row at a time |
-| `BARO_TIER` | unset | MoE experts in host RAM, this many cached per layer in VRAM (needs a split pack) |
-| `BARO_SEQS` | 1 | sequences in flight on one engine |
-| `BARO_CACHE` | `~/.cache/baro` | where `tools/baro` keeps compiled engines and packs |
+| `BARO_DEFAULT_TOP_K` | unset | baro-serve: top-k for requests that leave it out (llama-server's default: 40 / 0.95 / 0.05). Unset: untruncated. |
+| `BARO_DEFAULT_TOP_P` | unset | baro-serve: top-p for requests that leave it out (llama-server's default: 40 / 0.95 / 0.05). Unset: untruncated. |
+| `BARO_DEFAULT_MIN_P` | unset | baro-serve: min-p for requests that leave it out (llama-server's default: 40 / 0.95 / 0.05). Unset: untruncated. |
+| `BARO_KVQ` | `f32` | KV cache dtype: f32, or int8 (dense only; RULER 100.0 at 64k and 128k; state files become BAROST03 = pool pages, 32k load 0.061 s, P7-int8-pool-sta... |
+| `BARO_TMAX` | `16384` | Context window the KV pool is sized for, in tokens (engine default 1088, baro-serve 32768, face default 16384). |
+| `BARO_MEGA` | `1` | Persistent megakernel; default 1 on dense, 0 on MoE (the table shows the dense value). 0 selects the launch path. |
+| `BARO_PREFILL` | `1` | Batched prefill (up to BARO_PREFILL_C rows per chunk). |
+| `BARO_SPEC` | `1` | Speculative decoding with the model's MTP draft head (dense |
+| `BARO_TIER` | unset | Experts in host RAM with this many cached per layer in VRAM (64 = 5.2 GB) |
+| `BARO_SEQS` | `1` | Sequences in flight on one engine. |
+| `BARO_PACK` | `.work/moe-w1/pack` | Weight pack directory the engine loads (pack.bin + index.txt, experts.bin for a tier pack). |
+| `BARO_CACHE` | `~/.cache/baro` | Directory for compiled engines, manifests and packs (tools/baro, default ~/.cache/baro/<id>/). |
+| `BARO_POOL` | `1` | Number of engine processes baro-serve spawns |
+
+<!-- settings-table:end -->
 
 **Size the window against free VRAM.** The engine allocates its buffers from free VRAM, so the
 desktop and other GPU programs count. Read used VRAM first (`rocm-smi --showmeminfo vram`), then
@@ -394,6 +442,9 @@ path yet, and only the dense qwen35 shape runs. It has run on one host only.
 | `serve/front/test_*.mojo` | CPU | the Mojo front against fake engines |
 | `bench/check-cpu-engine.sh` | GPU + CPU | the CPU tier against the GPU engine, with a self-check and a mutant that must fail |
 | `bench/front-real-check.sh` | GPU | both fronts on one real engine |
+| `face/settings_gate.sh`, `face/chat-gate.sh`, `face/gate.sh` | small GPU job (`--vram 1`; chat-gate also a real engine) | the face offscreen: settings tabs, presets and the Apply plan, chat; frames read back with OCR |
+| `bench/rdna4-epi-gate.sh` | CPU build, GPU run | gfx12 accumulator rows emulated on gfx1100: ISA identity, parity tests, planted-mutant kills, engine agreement |
+| `tools/settings-check.mojo` (built by `tools/ci-checks.sh` to `.work/settings-check`) | CPU | `docs/settings.toml` against the code and the Configuration table |
 
 GPU jobs on the author's machine run under a local queue (`gpu-wait run`). On your machine,
 run the inner command directly.
@@ -434,6 +485,7 @@ the private development history this repo was squashed from.
 |---|---|
 | `kernels/` | Mojo GPU kernels and their parity tests ([`docs/KERNELS.md`](docs/KERNELS.md), generated) |
 | `serve/` | the engines, tokenizer, prefix cache; `serve/src/` the Rust front and router, `serve/front/` the Mojo front |
+| `embed/` | the standard embedder: bge-small-en-v1.5 in Mojo (CPU), the process `baro-serve` starts for `/v1/embeddings` |
 | `cpu/` | the CPU tier: ops, weight unpacking, thread pool, `engine_cpu.mojo` |
 | `profiles/` | named settings sets for `tools/baro serve --profile` |
 | `face/`, `imkit/` | the window (`tools/baro gui`) and the vendored immediate-mode GUI under it (mojo-imkit v0.9.0) |
@@ -458,10 +510,13 @@ kernels should build, but whether the tuning holds is unmeasured.
 **RDNA4 (gfx1200, gfx1201: RX 9060 XT, 9070, 9070 XT, Radeon AI PRO R9700): builds, never run on a card.** The
 engine and every AMD intrinsic it uses compile for both targets (`tools/rdna4-probe/rdna4-probe.sh`, receipt in
 `docs/rdna4/`), and `bench/preflight.sh` keeps it that way. RDNA4 halved the WMMA input fragments and moved the
-accumulator rows; the fragments are handled, the accumulator rows of the prefill kernels are not ported yet, so
-prefill output on RDNA4 is expected to be wrong until that lands. The megakernel turns itself off on cards with
-fewer compute units than its 96-block grid. If you own one of these cards, `bench/report.sh --rdna4` (no weights
-needed) writes one local text file: card, intrinsic table, a WMMA numeric check, kernel log. Paste it into a
+accumulator rows; both are ported (every WMMA epilogue goes through `acc_row` in `kernels/arch.mojo`, and reductions
+over accumulator elements through `gfx11_rows`). The new row order is checked on a gfx1100 card by an emulation build
+(`-D BARO_EMU_GFX12_ROWS=true`, gate `bench/rdna4-epi-gate.sh`): it matches the default build bit for bit, the gfx11
+code objects are byte-equal to the pre-port tree, and 20 of 20 engine prompts agree (teacher-forced, see
+[`docs/rdna4/README.md`](docs/rdna4/README.md)). Numbers on a real RDNA4 card are UNVERIFIED. The megakernel turns itself
+off on cards with fewer compute units than its 96-block grid. If you own one of these cards, `bench/report.sh --rdna4`
+(no weights needed) writes one local text file: card, intrinsic table, a WMMA numeric check, kernel log. Paste it into a
 "hardware report" issue; a failing report is the most useful one.
 
 ## Contributing

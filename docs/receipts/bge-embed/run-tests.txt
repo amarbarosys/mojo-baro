@@ -1,0 +1,14 @@
+run-tests receipt, lane-bge-embed 9fece08, 2026-11-13, gpu-wait run --timeout 1800 --vram 22, pack .work/engine-pack-q4
+log sha256 067d19c8c9e294e7, 143 PASS lines
+--- test_latent_c_abi.c (C/NDK ABI contract): PASS ---
+=== gpt.mojo vs Python oracle ===
+PASS: partition 0 matches: {'gpt_name': 'PARTONE', 'fs_label': 'FIXTUREA', 'fs_kind': 'ext4', 'first_lba': 2048, 'last_lba': 67583}
+PASS: partition 1 matches: {'gpt_name': 'PARTTWO', 'fs_label': 'FIXTUREB', 'fs_kind': 'ext4', 'first_lba': 67584, 'last_lba': 133119}
+gpt_oracle: PASS, 2 partitions match
+--- gpt.mojo vs Python oracle: PASS ---
+
+===== latentos-check summary =====
+PASS: 5 (test_liblatentos.mojo (memfd seal/map + LatentHeader round trip) test_latent_engine.mojo (checkpoint + KV page mint/seal/ingest) test_identity.mojo (U3: identity refusal, one negative control per field) test_latent_c_abi.c (C/NDK A
+FAIL: 0 (none)
+PASS run-tests: all tests, pack .work/engine-pack-q4
+EXIT 0

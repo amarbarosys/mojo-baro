@@ -108,8 +108,9 @@ gui)
   if [ -z "$(hc | tr -d 0)" ]; then
     [ -n "$gmodel" ] || die "no front on port $gport; start one (baro serve MODEL.gguf --port $gport) or pass --model MODEL.gguf"
     echo "gui: no front on port $gport, starting baro serve for $gmodel (log .work/gui-front.log)"
-    nohup "$0" serve "$gmodel" --port "$gport" > "$here/.work/gui-front.log" 2>&1 &
+    setsid nohup "$0" serve "$gmodel" --port "$gport" > "$here/.work/gui-front.log" 2>&1 &
     fpid=$!
+    echo "$fpid" > "$here/.work/gui-front.pid"
     for _ in $(seq 900); do
       [ "$(hc)" = 200 ] && break
       kill -0 "$fpid" 2>/dev/null || die "front exited before /health answered, see $here/.work/gui-front.log"
@@ -227,6 +228,19 @@ fetch_pack_tool() {
 }
 
 case $cmd in
+
+pack-path)
+  idjson=$("$py" "$here/tools/model-id.py" "$model" --json 2>"$work/model-id.err") || die "$(cat "$work/model-id.err")"
+  id=$(jq -r .id <<<"$idjson")
+  gsha=$(model_sha "$model")
+  packdir=${BARO_CACHE:-$HOME/.cache/baro}/$id/packs/$gsha
+  if [ -s "$packdir/index.txt" ]; then
+    echo "PACK FOUND: $packdir"
+  else
+    echo "PACK MISS: $packdir"
+    exit 1
+  fi
+  ;;
 
 receipts)
   exec "$py" "$here/tools/gguf-receipt.py" "$model" --list

@@ -1,0 +1,8 @@
+Running as unit: run-p1725589-i14305167.scope; invocation ID: 5616c1977cbf451caaaac276095735f3
+== ci-checks
+== rdna4-probe
+== builds
+OK build-many preflight: 38 builds, 38 cached, jobs 2 x 8 threads
+== baro-serve
+PASS preflight b310673dcb5c
+exit 0

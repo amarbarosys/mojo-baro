@@ -5,7 +5,7 @@ from max.gpu import block_idx, thread_idx, WARP_SIZE
 from std.math import ceildiv, fma
 from std.utils import StaticTuple
 from layout import TileTensor, TensorLayout, row_major, stack_allocation
-from arch import mma
+from arch import mma, acc_row
 
 from gemv_kq import kq_bytes, GT_Q4K
 from moe import q4k_sm_w, f16_at
@@ -199,7 +199,7 @@ def amar_matmul_prefill_kq[
             var c = col0 + tn * 16 + h
             if c < N:
                 comptime for i in range(8):
-                    var r = row0 + tm * 16 + 2 * i + half
+                    var r = acc_row(row0 + tm * 16, i, half)
                     if r < M:
                         comptime if ACC:
                             C[r, c] = rebind[C.ElementType](

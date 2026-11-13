@@ -1,0 +1,52 @@
+# Fixture that follows the plan contract (docs/lanes/2026-11-12-face-settings-plan.md). Not the real settings.toml.
+[[setting]]
+key = "BARO_TMAX"
+group = "engine"
+label = "Context window"
+type = "int"
+default = 16384
+min = 16384
+max = 262144
+restart = true
+level = "basic"
+status = "stable"
+summary = "Longest prompt + answer the engine keeps, in tokens."
+help = "fixture"
+
+[[setting]]
+key = "BARO_MEGA"
+group = "engine"
+label = "Megakernel"
+type = "bool"
+default = true
+restart = true
+level = "advanced"
+status = "stable"
+summary = "Run decode as one persistent kernel."
+help = "fixture"
+
+[[setting]]
+key = "sampling.temperature"
+group = "sampling"
+label = "Temperature"
+type = "float"
+default = 0.7
+min = 0.0
+max = 2.0
+restart = false
+level = "basic"
+status = "stable"
+summary = "Randomness of sampling."
+help = "fixture"
+
+[[preset]]
+name = "Fast"
+group = "speed"
+summary = "Short window, greedy-ish."
+values = { BARO_TMAX = 16384, "sampling.temperature" = 0.2 }
+
+[[preset]]
+name = "Quality"
+group = "speed"
+summary = "Long window, warmer."
+values = { BARO_TMAX = 65536, BARO_MEGA = true, "sampling.temperature" = 0.8 }

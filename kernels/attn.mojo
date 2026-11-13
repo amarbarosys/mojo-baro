@@ -7,7 +7,7 @@ from std.sys import get_defined_string
 from max.gpu.memory import AddressSpace
 from max.gpu.sync import barrier
 from layout import TileTensor, TensorLayout, row_major, stack_allocation
-from arch import mma
+from arch import mma, acc_row, gfx11_rows
 from dattn import dkv_sc, dkv_sc_off, dkv_dq, dkv_q
 from model import HD, NQH, NKVH, NROT, YARN_LOW, YARN_HIGH, FREQ_BASE, FREQ_SCALE, MSCALE, IS_MOE
 from std.utils import StaticTuple
@@ -744,16 +744,16 @@ def amar_attn_prefill_wmma[
             var sc = (s0 + s1) * scale
             var mx = Float32(-3.4e38)
             comptime for i in range(8):
-                if valid and t0 + 2 * i + half <= lim:
+                if valid and acc_row(t0, i, half) <= lim:
                     mx = max(mx, sc[i])
             mx = max(mx, warp.shuffle_xor(mx, UInt32(16)))
             var m_new = max(m_run, mx)
             var alpha = exp(m_run - m_new)
             var pv = SIMD[f32, 8](0)
             comptime for i in range(8):
-                if valid and t0 + 2 * i + half <= lim:
+                if valid and acc_row(t0, i, half) <= lim:
                     pv[i] = exp(sc[i] - m_new)
-            var ps = pv.reduce_add()
+            var ps = gfx11_rows(pv).reduce_add()
             ps += warp.shuffle_xor(ps, UInt32(16))
             l_run = l_run * alpha + ps
             m_run = m_new
@@ -761,8 +761,8 @@ def amar_attn_prefill_wmma[
             comptime for i in range(8):
                 var own = (pv[i] * PW_PS).cast[f16]()
                 var oth = (warp.shuffle_xor(pv[i], UInt32(16)) * PW_PS).cast[f16]()
-                bf[2 * i] = own if half == 0 else oth
-                bf[2 * i + 1] = oth if half == 0 else own
+                bf[acc_row(0, i, 0)] = own if half == 0 else oth
+                bf[acc_row(0, i, 1)] = oth if half == 0 else own
             comptime for dt in range(HD // 16):
                 var a = rebind[SIMD[f16, 8]](vtv[dt * 16 + h, 0]).join(rebind[SIMD[f16, 8]](vtv[dt * 16 + h, 1]))
                 var t = SIMD[f32, 8](0)
@@ -774,7 +774,7 @@ def amar_attn_prefill_wmma[
         var inv = 1 / (l_run * PW_PS)
         comptime for dt in range(HD // 16):
             comptime for i in range(8):
-                O_[qrow, dt * 16 + 2 * i + half] = rebind[O_.ElementType](acc[dt][i] * inv)
+                O_[qrow, acc_row(dt * 16, i, half)] = rebind[O_.ElementType](acc[dt][i] * inv)
 
 
 def amar_attn_mla_decode[

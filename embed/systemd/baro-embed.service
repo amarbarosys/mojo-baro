@@ -1,0 +1,15 @@
+[Unit]
+Description=baro-serve --embed-only: bge-small-en-v1.5 embeddings on :8081 (CPU, no GPU, no gpu-wait)
+Documentation=file://%h/Brain/OS/coios-embed-service.md
+After=default.target
+
+[Service]
+Type=simple
+ExecStart=%h/.cache/baro/embed/baro-serve --embed-only --host 127.0.0.1 --port 8081
+Restart=on-failure
+RestartSec=3
+KillSignal=SIGTERM
+TimeoutStopSec=5
+
+[Install]
+WantedBy=default.target

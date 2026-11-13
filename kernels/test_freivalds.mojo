@@ -26,7 +26,7 @@ from max.gpu.host import DeviceContext, DeviceBuffer, HostBuffer
 from max.gpu.memory import AddressSpace
 from max.gpu.sync import barrier
 from layout import TileTensor, row_major, stack_allocation
-from layout.tensor_core import mma
+from arch import mma, acc_row
 
 from freivalds import Freivalds, freivalds_check, fv_add, fv_term, FV_P, u64, i64, i32, UP
 
@@ -103,7 +103,7 @@ def gemm_i8(A: BP, B: BP, C: IP, m: Int32, n: Int32, k_dim: Int32):
             var c = col0 + tn * 16 + h
             if c < N:
                 comptime for i in range(8):
-                    var r = row0 + tm * 16 + 2 * i + half
+                    var r = acc_row(row0 + tm * 16, i, half)
                     if r < M:
                         C[unsafe_offset=r * N + c] = acc[tm * 4 + tn][i]
 

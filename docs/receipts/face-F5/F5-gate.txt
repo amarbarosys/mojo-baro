@@ -1,0 +1,22 @@
+PASS settings gate: settings_test + presets_test + 7 headless frames (including Apply plan OCR) (.work/F5-gate)
+
+Exit code: 0
+
+Preset test: PASS presets_test: fixture, apply, user round trip, plan text, verdict
+
+Model tab OCR:
+GGUF path
+Find pack
+Model card
+tmax 32768 seqs 1 spec_k 2 tier 0
+Find pack
+Model card
+tmax 32768 seqs 1 spec_k 2 tier 0
+
+Apply plan OCR:
+Engine restarts for 1 change(s):
+BARO_TMAX: 16384 -> 32768
+VRAM fit at BARO_TMAX 32768: FITS: gate fixture
+
+CI: PASS all non-GPU checks, exit 0 (.work/F5-final-ci.log).
+Preflight: PASS 96ed8367fabb, exit 0 (.work/F5-final-preflight.log).

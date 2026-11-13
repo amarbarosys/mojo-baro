@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # usage: face/gate.sh [OUTDIR]     (default .work/face-gate)
 # F0 gate (docs/lanes/2026-11-12-face-plan.md): the net test, then the face renders 3 frames headless (no window,
-# no display) on the GPU, converted to PNG; tesseract (img-read) must read the placeholder text and the status line
+# no display) on the GPU, converted to PNG; tesseract (img-read) must read the chat hint, the engine panel title and the status line
 # back from EVERY frame. Exit non-zero on any miss. The front is pointed at a dead port so the status line is
 # deterministic: "front: unreachable". FACE_EXPECT_EXTRA="text" adds one required string (falsifier: a wrong one must fail).
 set -euo pipefail
@@ -15,7 +15,7 @@ timeout 30 .work/net_test > "$out/net_test.log" 2>&1 || fail net_test "see $out/
 cap $mojo build --target-accelerator amdgpu:gfx1100 -I . -I face face/app.mojo -o .work/face > "$out/face.build.log" 2>&1 || fail build "face, see $out/face.build.log"
 rm -f "$out"/face-*.ppm "$out"/face-*.png
 cap gpu-wait run --shared --vram 1 --timeout 300 -- .work/face --shots "$out" --front 127.0.0.1:1 > "$out/run.log" 2>&1 || fail run "see $out/run.log"
-need=("Chat placeholder" "Engine placeholder" "front: unreachable")
+need=("Type a message below" "Model card" "front: unreachable")
 [ -z "${FACE_EXPECT_EXTRA:-}" ] || need+=("$FACE_EXPECT_EXTRA")
 for f in 1 2 3; do
   [ -s "$out/face-$f.ppm" ] || fail frame "face-$f.ppm missing"

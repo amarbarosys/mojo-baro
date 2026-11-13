@@ -1,0 +1,6 @@
+before: pid 161361 health {"status":"ok","engine_state":"idle","engines":[{"state":"idle","depth":0,"reason":null}],"queue":0,"pool":[0],"tokenizer":true,"limits":{"tmax":16384,"mrows":8,"kmax":8,"spec_k":2,"seqs":1,"tier":"off"},"capacity":1,"pack":"$HOME/.cache/baro/qwen35-c19706672fb25b4a/packs/5657eb0f4ce2e32245090603d4e45e6eb18098f353c902bd61a22a9a56adece9"}
+apply: front: ok, engine idle; fail 0
+after: pid 161782 health {"status":"ok","engine_state":"idle","engines":[{"state":"idle","depth":0,"reason":null}],"queue":0,"pool":[0],"tokenizer":true,"limits":{"tmax":32768,"mrows":8,"kmax":8,"spec_k":2,"seqs":1,"tier":"off"},"capacity":1,"pack":"$HOME/.cache/baro/qwen35-c19706672fb25b4a/packs/5657eb0f4ce2e32245090603d4e45e6eb18098f353c902bd61a22a9a56adece9"}
+PASS apply gate: restart pid 161361 -> 161782, /health tmax 16384 -> 32768, engine log for TMAX 32768 (.work/apply-gate)
+falsifier APPLY_GATE_EXPECT=16384: rc=1
+FAIL after: /health tmax is not 16384: {"status":"ok","engine_state":"idle","engines":[{"state":"idle","depth":0,"reason":null}],"queue":0,"pool":[0],"tokenizer":true,"limits":{"tmax":32768,"mrows":8,

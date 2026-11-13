@@ -1,0 +1,3 @@
+OCR answer 1: read back 'the lighthouse keeper a'
+OCR answer 2: read back 'the majestic ship the'
+PASS chat gate: 2 prompts streamed and OCR-read back, Stop and close each cancelled at the front (2 'client dropped' lines, .work/F1-gate-live)

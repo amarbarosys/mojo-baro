@@ -14,6 +14,14 @@
 
 # ---------------------------------------------------------------- build flags
 
+[settings.BARO_EMU_GFX12_ROWS]
+kind = "build"
+type = "bool"
+default = "0"
+doc = "Test build: on gfx1100, run every WMMA epilogue with gfx12 (RDNA4) accumulator row order, C/D permuted around each WMMA (-D BARO_EMU_GFX12_ROWS=true). Results must equal the default build; not for serving."
+models = ["all"]
+group = "build"
+
 [settings.BARO_CPU]
 kind = "build"
 type = "bool"
@@ -1400,3 +1408,35 @@ default = ""
 doc = "implants.bin (mojo-neuron docs/format-implants.md): rank-k side FFN per layer added to the residual after that layer's FFN, host side. Turns batched prefill, speculation and the megakernel off; a request with implants 0 switches it off. Dense qwen35 only."
 models = ["qwen35"]
 group = "research"
+
+[settings.BARO_EMBED_MAX_TOKENS]
+kind = "server-env"
+type = "int"
+default = "512"
+doc = "baro-serve: token cap per embedded text for the standard embedder (bge-small-en-v1.5), CLS and SEP included, 3 to 512."
+models = ["all"]
+group = "serving"
+
+[settings.BARO_EMBED_BIN]
+kind = "server-env"
+type = "path"
+default = "~/.cache/baro/embed/serve_embed"
+doc = "baro-serve: the standard embedder process (embed/serve_embed.mojo), built by embed/build.sh."
+models = ["all"]
+group = "serving"
+
+[settings.BARO_EMBED_MODEL]
+kind = "server-env"
+type = "path"
+default = "~/Models/bge-small-en-v1.5"
+doc = "baro-serve: directory the embedder child reads model.safetensors and vocab.txt from."
+models = ["all"]
+group = "serving"
+
+[settings.BARO_EMBED_NORM]
+kind = "server-env"
+type = "path"
+default = "~/.cache/baro/embed/norm.tsv"
+doc = "baro-serve: the Unicode normaliser table (embed/norm.tsv, copied next to the binary by embed/build.sh)."
+models = ["all"]
+group = "serving"

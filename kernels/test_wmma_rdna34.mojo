@@ -2,6 +2,7 @@ from std.sys import llvm_intrinsic
 from std.sys.info import _is_amd_rdna3, _is_amd_rdna4
 from max.gpu import lane_id
 from max.gpu.host import DeviceContext
+from arch import acc_row, mma, EMU_GFX12_ROWS
 
 comptime R4 = _is_amd_rdna4()
 comptime KF = 8 if R4 else 16
@@ -11,7 +12,12 @@ comptime Acc = SIMD[DType.float32, 8]
 
 @always_inline
 def wmma(a: F16x, b: F16x, c: Acc) -> Acc:
-    return llvm_intrinsic["llvm.amdgcn.wmma.f32.16x16x16.f16", Acc](a, b, c)
+    comptime if EMU_GFX12_ROWS:
+        var d = Acc(0)
+        mma(d, a, b, c)
+        return d
+    else:
+        return llvm_intrinsic["llvm.amdgcn.wmma.f32.16x16x16.f16", Acc](a, b, c)
 
 
 @always_inline
@@ -28,8 +34,7 @@ def load_frag(p: UnsafePointer[Float16, MutAnyOrigin], lane: Int, k: Int, ld: In
 def store_acc(p: UnsafePointer[Float32, MutAnyOrigin], acc: Acc, lane: Int, ld: Int):
     var h = lane // 16
     comptime for i in range(8):
-        var row = (i + 8 * h) if R4 else (2 * i + h)
-        p.store(row * ld + lane % 16, acc[i])
+        p.store(acc_row(0, i, h) * ld + lane % 16, acc[i])
 
 
 def wmma_gemm_16x16(
@@ -52,6 +57,7 @@ def main() raises:
     var a_h = ctx.enqueue_create_host_buffer[DType.float16](16 * K)
     var b_h = ctx.enqueue_create_host_buffer[DType.float16](16 * K)
     var c_h = ctx.enqueue_create_host_buffer[DType.float32](256)
+    var want_h = ctx.enqueue_create_host_buffer[DType.float32](256)
     ctx.synchronize()
     for r in range(16):
         for k in range(K):
@@ -77,9 +83,37 @@ def main() raises:
                 mag += abs(pr)
             if r == 0 and c == 1:
                 want01 = want
+            want_h[r * 16 + c] = want
             if abs(c_h[r * 16 + c] - want) > mag * Float32(1.9073486328125e-06):
                 bad += 1
     print("C[0,1] gpu", c_h[1], "want", want01)
     if bad != 0:
+        var shown = 0
+        for r in range(16):
+            for c in range(16):
+                var got = c_h[r * 16 + c]
+                var want = want_h[r * 16 + c]
+                var mag = Float32(0)
+                for k in range(K):
+                    mag += abs(Float32(a_h[r * K + k]) * Float32(b_h[c * K + k]))
+                if abs(got - want) > mag * Float32(1.9073486328125e-06):
+                    if shown < 8:
+                        print("bad r=", r, " c=", c, " got=", got, " want=", want)
+                        var half = (r // 8) if R4 else (r % 2)
+                        var reg = (r % 8) if R4 else (r // 2)
+                        print("writer lane=", c + 16 * half, " register=", reg)
+                        var found = False
+                        for r2 in range(16):
+                            for c2 in range(16):
+                                var ref_want = want_h[r2 * 16 + c2]
+                                var ref_mag = Float32(0)
+                                for k in range(K):
+                                    ref_mag += abs(Float32(a_h[r2 * K + k]) * Float32(b_h[c2 * K + k]))
+                                if not found and abs(got - ref_want) <= ref_mag * Float32(1.9073486328125e-06):
+                                    print("matches want at r2=", r2, " c2=", c2)
+                                    found = True
+                        if not found:
+                            print("matches want: none")
+                    shown += 1
         raise Error("FAIL wmma-gfx: " + String(bad) + "/256 mismatch")
     print("PASS wmma-gfx: 256/256 within 2^-19 sum|ab|, K=64")

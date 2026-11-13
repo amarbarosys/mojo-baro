@@ -1,0 +1,4 @@
+dash done tok_s_gen=131.0 raw=131.0 path=spec fail=0
+dash reply HTTP 502 fail=3
+dash reply unreadable: json: unexpected end at byte 0
+PASS dash_test: format, done lines, ring, fail word, vram 1031217152/25753026560

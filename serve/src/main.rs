@@ -12,6 +12,7 @@
 
 mod audio;
 mod checkpoints;
+mod embed;
 mod embeddings;
 mod early;
 mod engine;
@@ -60,6 +61,8 @@ struct App {
     identity: checkpoints::Identity,
     /// P3a speech-in sidecar (`serve/src/audio.rs`).
     audio: audio::AudioSidecar,
+    /// Standard embedder child (`serve/src/embed.rs`, `embed/serve_embed.mojo`).
+    embed: embed::EmbedSidecar,
     /// The last submitted prompt: its common prefix with the next one is
     /// sent as a checkpoint hint (`check_and_submit`).
     last_prompt: std::sync::Mutex<Vec<u32>>,
@@ -92,6 +95,9 @@ struct Opts {
     /// no VRAM held for it; `EnginePool::empty()` backs every route that
     /// would otherwise need one with its existing 503 error path.
     audio_only: bool,
+    /// `--embed-only`: like `--audio-only` (no engine, no pack, no tokenizer) and the embedder child starts at boot;
+    /// `/v1/embeddings` serves bge-small and nothing else.
+    embed_only: bool,
     /// P4: per-process (pool-wide) environment seam so a device pin
     /// (`ROCR_VISIBLE_DEVICES`, `HSA_OVERRIDE_GFX_VERSION`) is an explicit,
     /// logged baro-serve argument rather than only whatever launched it.
@@ -130,6 +136,7 @@ fn parse_opts() -> Result<Opts, String> {
         host: "127.0.0.1".into(),
         port: 8080,
         audio_only: false,
+        embed_only: false,
         engine_env: Vec::new(),
         parallel: 1,
         kv_pool: None,
@@ -149,6 +156,7 @@ fn parse_opts() -> Result<Opts, String> {
             "--host" => o.host = val("--host")?,
             "--port" => o.port = val("--port")?.parse().map_err(|e| format!("--port: {e}"))?,
             "--audio-only" => o.audio_only = true,
+            "--embed-only" => o.embed_only = true,
             "--parallel" => o.parallel = val("--parallel")?.parse().map_err(|e| format!("--parallel: {e}"))?,
             "--max-inflight" => o.max_inflight = val("--max-inflight")?.parse().map_err(|e| format!("--max-inflight: {e}"))?,
             "--kv-pool" => o.kv_pool = Some(val("--kv-pool")?.parse().map_err(|e| format!("--kv-pool: {e}"))?),
@@ -170,7 +178,7 @@ fn parse_opts() -> Result<Opts, String> {
                 o.engine_env.push((k.to_string(), v.to_string()));
             }
             "-h" | "--help" => {
-                println!("usage: baro-serve [--engine PATH] [--pack DIR] [--tokenizer tokenizer.json] [--chat-template-file PATH] [--host H] [--port N] [--audio-only] [--warm] [--warm-tools FILE] [--warm-save FILE] [--engine-env KEY=VALUE]... [--parallel N] [--kv-pool P] [--max-inflight Q]");
+                println!("usage: baro-serve [--engine PATH] [--pack DIR] [--tokenizer tokenizer.json] [--chat-template-file PATH] [--host H] [--port N] [--audio-only] [--embed-only] [--warm] [--warm-tools FILE] [--warm-save FILE] [--engine-env KEY=VALUE]... [--parallel N] [--kv-pool P] [--max-inflight Q]");
                 std::process::exit(0);
             }
             other => return Err(format!("unknown argument {other}")),
@@ -215,9 +223,10 @@ async fn main() {
     let early = early::Early::start(std_listener.try_clone().expect("clone the listener"));
     let listener = tokio::net::TcpListener::from_std(std_listener).expect("listener back into tokio");
     eprintln!("baro-serve: port bound ({}:{}); /health answers \"starting\" until the engine is ready", opts.host, opts.port);
-    let tok_path = if opts.audio_only { PathBuf::new() } else { opts.tokenizer.clone().unwrap_or_else(|| opts.pack.join("tokenizer.json")) };
-    let text = if opts.audio_only {
-        eprintln!("audio-only: tokenizer not loaded, text endpoints disabled");
+    let no_engine = opts.audio_only || opts.embed_only;
+    let tok_path = if no_engine { PathBuf::new() } else { opts.tokenizer.clone().unwrap_or_else(|| opts.pack.join("tokenizer.json")) };
+    let text = if no_engine {
+        eprintln!("{}: tokenizer not loaded, text endpoints disabled", if opts.embed_only { "embed-only" } else { "audio-only" });
         None
     } else if tok_path.exists() {
         match Text::load(&tok_path, opts.chat_template_file.as_deref()) {
@@ -246,8 +255,8 @@ async fn main() {
         opts.engine_env.extend(add);
     }
     let pool_size = std::env::var("BARO_POOL").ok().and_then(|s| s.parse::<usize>().ok()).unwrap_or(1).max(1);
-    let engine = if opts.audio_only {
-        eprintln!("audio-only: no LLM engine spawned, no pack loaded");
+    let engine = if no_engine {
+        eprintln!("{}: no LLM engine spawned, no pack loaded", if opts.embed_only { "embed-only" } else { "audio-only" });
         EnginePool::empty()
     } else {
         match EnginePool::spawn(&opts.engine, &opts.pack, pool_size, &opts.engine_env).await {
@@ -267,8 +276,9 @@ async fn main() {
         .file_name()
         .map(|s| s.to_string_lossy().into_owned())
         .unwrap_or_else(|| "mojo-baro".into());
-    let identity = if opts.audio_only {
-        checkpoints::Identity { pack: "audio-only".into(), runtime: "audio-only".into(), tokenizer_sha: None, weights_uuid: None, portable: false }
+    let identity = if no_engine {
+        let w = if opts.embed_only { "embed-only" } else { "audio-only" };
+        checkpoints::Identity { pack: w.into(), runtime: w.into(), tokenizer_sha: None, weights_uuid: None, portable: false }
     } else {
         checkpoints::Identity::compute(&opts.pack, &tok_path)
     };
@@ -277,7 +287,15 @@ async fn main() {
     let dflt = |k: &str| std::env::var(k).unwrap_or_else(|_| "-".into());
     eprintln!("sampling defaults: top_k {} top_p {} min_p {}", dflt("BARO_DEFAULT_TOP_K"), dflt("BARO_DEFAULT_TOP_P"), dflt("BARO_DEFAULT_MIN_P"));
     let audio = audio::AudioSidecar::from_env();
-    let app = Arc::new(App { engine, text, model, ckpts, identity, audio, last_prompt: Default::default(), metrics: turn::Metrics::default(), max_inflight: opts.max_inflight });
+    let embed = embed::EmbedSidecar::from_env();
+    if opts.embed_only {
+        if let Err(e) = embed.start().await {
+            eprintln!("FAIL embed-only: {e}");
+            std::process::exit(1);
+        }
+        eprintln!("embed-only: {} ready", embed::MODEL);
+    }
+    let app = Arc::new(App { engine, text, model, ckpts, identity, audio, embed, last_prompt: Default::default(), metrics: turn::Metrics::default(), max_inflight: opts.max_inflight });
     if opts.warm {
         early.set("warming");
         let tools = match opts.warm_tools.as_ref().map(|p| std::fs::read_to_string(p).map_err(|e| e.to_string()).and_then(|s| serde_json::from_str::<Value>(&s).map_err(|e| e.to_string()))) {
@@ -504,7 +522,8 @@ async fn models(State(app): State<Shared>) -> Json<Value> {
     Json(json!({
         "object": "list",
         "data": [
-            {"id": app.model.clone(), "object": "model", "created": 0, "owned_by": "mojo-baro"}
+            {"id": app.model.clone(), "object": "model", "created": 0, "owned_by": "mojo-baro"},
+            {"id": embed::MODEL, "object": "model", "created": 0, "owned_by": "mojo-baro"}
         ]
     }))
 }
@@ -2376,6 +2395,7 @@ mod sse_tests {
             ckpts: checkpoints::Registry::new(std::env::temp_dir(), 1),
             identity: checkpoints::Identity { pack: "t".into(), runtime: "t".into(), tokenizer_sha: None, weights_uuid: None, portable: false },
             audio: audio::AudioSidecar::from_env(),
+            embed: embed::EmbedSidecar::from_env(),
             last_prompt: Default::default(),
             metrics: turn::Metrics::default(),
             max_inflight: 1,

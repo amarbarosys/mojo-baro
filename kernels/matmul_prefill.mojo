@@ -5,7 +5,7 @@ from bexp import exp
 from std.memory import bitcast
 from std.sys.intrinsics import llvm_intrinsic
 from layout import TileTensor, TensorLayout, row_major
-from arch import mma
+from arch import mma, acc_row
 
 comptime f32 = DType.float32
 comptime bf16 = DType.bfloat16
@@ -90,7 +90,7 @@ def amar_matmul_prefill_q4[
             var c = col0 + tn * 16 + h
             if c < N:
                 comptime for i in range(8):
-                    var r = row0 + tm * 16 + 2 * i + half
+                    var r = acc_row(row0 + tm * 16, i, half)
                     if r < M:
                         comptime if ACC:
                             C[r, c] = rebind[C.ElementType](
@@ -166,7 +166,7 @@ def amar_matmul_prefill_q8[
             var c = col0 + tn * 16 + h
             if c < N:
                 comptime for i in range(8):
-                    var r = row0 + tm * 16 + 2 * i + half
+                    var r = acc_row(row0 + tm * 16, i, half)
                     if r < M:
                         comptime if ACC:
                             C[r, c] = rebind[C.ElementType](

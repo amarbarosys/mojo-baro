@@ -6,7 +6,7 @@ from std.math import ceildiv, fma
 from std.memory import bitcast
 from std.sys.intrinsics import llvm_intrinsic
 from layout import TileTensor, TensorLayout, row_major, stack_allocation
-from arch import mma
+from arch import mma, acc_row, GFX12_ROWS
 
 comptime f32 = DType.float32
 comptime f16 = DType.float16
@@ -155,6 +155,8 @@ def amar_matmul_lds_q4[
     var b_half = tid % 2
     var b_col = min(block_col + b_c, N - 1)
     var s_row = block_row + tid if tid < BM else block_row + tid - BM
+    comptime if GFX12_ROWS:
+        s_row = block_row + mmq_scale_slot(tid % BM)
 
     for step in range(nb + 1):
         comptime if ABL != 4:
@@ -272,7 +274,7 @@ def amar_matmul_lds_q4[
             var c = col0 + tn * 16 + h
             if c < N:
                 comptime for i in range(8):
-                    var r = row0 + tm * 16 + 2 * i + half
+                    var r = acc_row(row0 + tm * 16, i, half)
                     if r < M:
                         comptime if ACC:
                             C[r, c] = rebind[C.ElementType](

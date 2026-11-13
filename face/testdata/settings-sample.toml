@@ -1,0 +1,74 @@
+# 5-entry fixture that follows the shared contract in docs/lanes/2026-11-12-face-settings-plan.md.
+# Used by face/settings_test.mojo and the tab gate until F3's docs/settings.toml lands.
+
+[[setting]]
+key = "sampling.temperature"
+group = "sampling"
+label = "Temperature"
+type = "float"
+default = 0.7
+min = 0.0
+max = 2.0
+choices = []
+restart = false
+level = "basic"
+status = "stable"
+summary = "How random the next word is: 0 always picks the likeliest."
+help = """Lower for code and facts, higher for stories.
+Sent with every chat request; no restart.
+Cost: none. Measured effect: unmeasured."""
+
+[[setting]]
+key = "sampling.stream"
+group = "sampling"
+label = "Stream tokens"
+type = "bool"
+default = true
+choices = []
+restart = false
+level = "advanced"
+status = "stable"
+summary = "Show the answer while it is written."
+help = "Off waits for the whole answer. Unmeasured."
+
+[[setting]]
+key = "BARO_TMAX"
+group = "engine"
+label = "Context window"
+type = "int"
+default = 16384
+min = 16384
+max = 262144
+choices = []
+restart = true
+level = "basic"
+status = "stable"
+summary = "Longest prompt + answer the engine keeps, in tokens."
+help = """Needs an engine restart (Apply). The floor is 16384 (CLAUDE.md).
+Cost: KV cache VRAM grows with every token; check pack-fit first."""
+
+[[setting]]
+key = "BARO_KVQ"
+group = "engine"
+label = "KV cache type"
+type = "enum"
+default = "f32"
+choices = ["f32", "int8"]
+restart = true
+level = "advanced"
+status = "experimental"
+summary = "Number format of the attention cache."
+help = "int8 halves the cache VRAM when f32 does not fit. Unmeasured here."
+
+[[setting]]
+key = "BARO_PACK"
+group = "model"
+label = "Pack directory"
+type = "path"
+default = ""
+choices = []
+restart = true
+level = "basic"
+status = "stable"
+summary = "Folder of the baked weights the engine loads."
+help = "Built by tools/baro from a GGUF. Empty: the engine default."

@@ -1,0 +1,1 @@
+PASS chat_test: sse parse, 5 stream shapes, refused, stop closes the socket

@@ -1,0 +1,96 @@
+
+== kernel census (no orphaned kernels)
+167 kernels, 71 in registry, 0 orphans
+  OK  every amar_* kernel is reachable
+
+== docs/KERNELS.md is current
+  OK  generated census matches the committed file
+
+== pre-tokenizer regexes match llama.cpp (serve/pretok-table.json)
+  OK  pretok-check: 80 implemented, 0 differ; 2 llama.cpp names not implemented (load-time error on those files)
+
+== self-describing GGUF transitive closure resolution (tools/embed-files.py)
+  OK  all GGUF self-describing closure roots resolve
+
+== python sources parse
+  OK  158 files
+
+== shell scripts parse
+  OK  295 scripts
+
+== issue templates are valid yaml
+  OK  all .github yaml loads
+
+== protocol rules P1-P20 present
+  OK  P1-P20 all present
+
+== tools/itools links resolve (iTools the repo calls, linked so they are tracked here)
+  OK  17 links, every target executable
+
+== vendored tools/gguf_reader.mojo matches its upstream
+  OK  vendored copy is in sync
+
+== vendored uregex/, toml/ and the front libraries match their upstream
+  OK  uregex: vendored copy is in sync
+  OK  toml: vendored copy is in sync
+  OK  aio: vendored copy is in sync
+  OK  json: vendored copy is in sync
+  OK  posix: vendored copy is in sync
+  OK  systemd: vendored copy is in sync
+  OK  bento: vendored copy is in sync
+  OK  imkit: vendored copy is in sync with v0.9.0
+
+== latentos/ is the one copy (plan 12 M1): AMDHQ src/latentos points here
+  OK  AMDHQ src/latentos -> ../../latentos (another checkout of this repo)
+
+== docs/settings-template.toml matches source settings (tools/settings-check.py)
+  OK  PASS settings-check: 170 settings, all documented
+
+== referenced protocol and doc files exist
+  1139 referenced paths
+  OK  every referenced repo path resolves
+
+== hardware receipts are well-formed
+  OK  2 receipts consistent
+
+== bench sources compile (no GPU needed to build)
+  OK  45 bench sources build
+  skip ('# ci-checks: needs' marker, extra link flags): kv_ipc_bench.mojo latentos-ipc-probe.mojo sample-spark-device.mojo
+
+== LatentOS standalone reference lifecycle
+REFERENCE_LIFECYCLE_PASS
+route=payload best=payload margin=0.7220843672456575 wrong=False
+route=recipe best=recipe margin=0.7988281249999999 wrong=False
+route=text best=text margin=0.8704856787048568 wrong=False
+route=recipe best=recipe margin=0.018867924528302115 wrong=False
+route=recipe best=recipe margin=0.018867924528302115 wrong=False
+router cases=5 wrong=0 regret=0.0
+ROUTER_FIXTURE_PASS
+IPC_SMALL_PASS
+CRYPTO_SMOKE_PASS
+GOLDEN_BINDING_PASS
+TRANSPORT_SMOKE_PASS
+STANDALONE_REFERENCE_PASS
+  OK  reference lifecycle, router, AEAD chunks and relay fixture
+
+== rectangular semantic binding export parity
+LATENT_BINDING_PASS max_abs=0.0 worst=0 positions=8
+dimensions=2560->2048 positions=8 parity=PASS negatives=PASS
+  OK  CPU exporter/runtime parity and malformed-input negatives
+
+== semantic binding loader
+  OK  semantic manifest/loader contract
+
+== prefill tune table parser
+  OK  T3b IPC header: wrong pack/prefix refused before HIP
+  OK  buckets, fallthrough, malformed rows raise
+
+== VRAM pool size default check
+  OK  MODULAR_DEVICE_CONTEXT_MEMORY_MANAGER_SIZE_PERCENT default is capped (<= 10)
+
+== CPU tier imports no max and no gpu (cpu/, kernels/bexp.mojo)
+  OK  cpu/ and bexp import neither max nor gpu
+  OK  cpu/ takes fexp32/flog32/frsq32/fsincos32, never bexp's BARO_SHARED_EXP-dependent names
+
+all non-GPU checks passed
+exit 0

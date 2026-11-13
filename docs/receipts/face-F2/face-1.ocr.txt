@@ -1,0 +1,17 @@
+
+.work/dash-gate/face-1.png  1280x720
+  text: 329 chars ≈ 83 tokens  (as pixels: 1196 tokens — saved 1113, 93%)
+  --- text ---
+Chat Engine
+Chat placeholder: the conversation will appear here. m queue 0
+Messages, input and streaming arrive in F1. Model card
+model engine-pack-q4
+pack ~-lanes/F2/.work/engine-pack-q4
+tmax 16384 seqs 1 spec_k 2
+Lastrun
+tok/s 143.9
+path spec fail 0
+tok/s, last 60 runs
+VRAM
+14.8/24.0GiB
+front: ok, engine idle, queue 0 frame 1

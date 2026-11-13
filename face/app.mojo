@@ -20,10 +20,16 @@ from imkit.layer import Layer
 from imkit.theme import amarbaro
 from imkit.ui import Ui
 from imkit.window import Input, Window
+from chat import Chat
 from json import parse
 from net import http_get
+from dash import Dash, dash_pane
+from settings import Settings
+from widgets import settings_bar, settings_pane
+from presets_ui import PresetsUi, presets_pane, model_pane
 
 comptime SPLIT = Float32(840)  # the chat pane ends here; the engine panel starts 20 px later
+comptime PANE_Y = Float32(52)  # the panes start under the tab row (F4)
 comptime BG = UInt32(0xFF1A140E)  # opaque ABGR: the amarbaro backdrop under the translucent panels
 
 
@@ -50,15 +56,19 @@ def health_line(host: String, port: Int) -> String:
         return "front: bad reply (" + String(e) + ")"
 
 
-def draw(mut ui: Ui, inp: Input, status: String, frame: Int):
+def draw(mut ui: Ui, inp: Input, status: String, frame: Int, mut chat: Chat, mut dash: Dash, host: String, port: Int, mut st: Settings, mut pu: PresetsUi) raises:
     ui.begin(inp)
     var t = ui.theme.copy()
-    ui.panel(20, 16, SPLIT, Float32(UH - 56), "Chat")
-    _ = ui.text(40, 70, "Chat placeholder: the conversation will appear here.", 2, t.text)
-    _ = ui.text(40, 110, "Messages, input and streaming arrive in F1.", 1, t.muted)
-    ui.panel(SPLIT + 20, 16, Float32(UW - 20), Float32(UH - 56), "Engine")
-    _ = ui.text(SPLIT + 40, 70, "Engine placeholder: live state.", 2, t.text)
-    _ = ui.text(SPLIT + 40, 110, "The panel arrives in F2.", 1, t.muted)
+    if st.tab == 0:
+        chat.draw(ui, inp, 20, PANE_Y, SPLIT, Float32(UH - 56))  # F1
+        dash_pane(ui, dash, host, port, SPLIT + 20, PANE_Y, Float32(UW - 20), Float32(UH - 56))
+    elif st.tab == 5:
+        presets_pane(ui, st, pu, dash, host, port, 20, PANE_Y, Float32(UW - 20), Float32(UH - 56))
+    elif st.tab == 3:
+        model_pane(ui, st, pu, dash, 20, PANE_Y, Float32(UW - 20), Float32(UH - 56))
+    else:
+        settings_pane(ui, st, 20, PANE_Y, Float32(UW - 20), Float32(UH - 56))  # F4
+    settings_bar(ui, st, 20, 12)  # tabs across the top
     _ = ui.text(24, Float32(UH - 40), status, 1, t.text)
     _ = ui.text(Float32(UW - 200), Float32(UH - 40), "frame " + String(frame), 1, t.muted)
     ui.finish()
@@ -118,10 +128,14 @@ def main() raises:
     var layer = Layer(DeviceContext(), ui)
     var bg = List[UInt32](length=UW * UH, fill=BG)
     var keys = SIMD[DType.uint64, 2](0)
+    var chat = Chat(host, port)  # dropped at exit: an answer still streaming is cancelled at the front
+    var dash = Dash()
+    var st = Settings.load_default()
+    var pu = PresetsUi()
     if shots:
         var status = health_line(host, port)
         for f in range(1, 4):
-            draw(ui, Input(0, 0, 0, 0, 0, 0, 0, 0, keys, False), status, f)
+            draw(ui, Input(0, 0, 0, 0, 0, 0, 0, 0, keys, False), status, f, chat, dash, host, port, st, pu)
             layer.render(ui)
             if ui.d.dropped:
                 raise Error("FAIL face: " + String(ui.d.dropped) + " draw commands dropped")
@@ -132,6 +146,7 @@ def main() raises:
     var status = health_line(host, port)
     var last = Int(perf_counter_ns())
     var frame = 0
+    var typing = False
     var period = 1_000_000_000 // fps if fps > 0 else 0
     var next = Int(perf_counter_ns())
     var t0 = next
@@ -145,7 +160,10 @@ def main() raises:
         frame += 1
         if stats and frame % 120 == 0:  # measured frame rate, read back by face/window-cost.sh
             print("fps", Float64(frame) * 1e9 / Float64(Int(perf_counter_ns()) - t0), "frames", frame, flush=True)
-        draw(ui, inp, status, frame)
+        draw(ui, inp, status, frame, chat, dash, host, port, st, pu)
+        if ui.field_focused != typing:  # SDL text events only while a field has focus
+            typing = ui.field_focused
+            win.text_input(typing)
         layer.render(ui)
         win.present(Int(bg.unsafe_ptr()), Int(layer.pixels.unsafe_ptr()))
         if max_frames > 0 and frame >= max_frames:

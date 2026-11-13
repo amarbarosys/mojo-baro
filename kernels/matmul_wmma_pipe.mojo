@@ -5,7 +5,7 @@ from max.gpu.sync import barrier, schedule_group_barrier, AMDScheduleBarrierMask
 from max.gpu import block_idx, thread_idx
 from std.math import ceildiv
 from layout import TileTensor, TensorLayout, row_major, stack_allocation
-from arch import mma
+from arch import mma, acc_row
 from std.sys import get_defined_int
 from std.sys.intrinsics import llvm_intrinsic
 from std.utils import StaticTuple
@@ -876,7 +876,7 @@ def amar_matmul_wmma_pipe[
     comptime for tm in range(WTILE_M):
         comptime for tn in range(WTILE_N):
             comptime for i in range(8):
-                var row = block_row + (warp_m * WTILE_M + tm) * WMMA_M + 2 * i + half
+                var row = acc_row(block_row + (warp_m * WTILE_M + tm) * WMMA_M, i, half)
                 var col = block_col + (warp_n * WTILE_N + tn) * WMMA_N + h
                 if ALIGNED == 1 or (row < M and col < N):
                     C[row, col] = rebind[C.ElementType](

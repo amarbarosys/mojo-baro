@@ -1,0 +1,118 @@
+baro-serve: port bound (127.0.0.1:18433); /health answers "starting" until the engine is ready
+tokenizer: none ($HOME/Projects/mojo/mojo-baro-lanes/F2/.work/engine-pack-q4/tokenizer.json missing); text endpoints disabled
+engine child pid: 326650 ($HOME/Projects/mojo/mojo-baro-lanes/F2/.work/engine-9b)
+engine: MODULAR_DEVICE_CONTEXT_MEMORY_MANAGER_SIZE_PERCENT: 2
+engine: GTT: card /sys/class/drm/card1/device/ gtt_used 1124843520
+engine: loading pack: 6639194112 bytes  tier tensors: 0  device bytes: 6639194112
+engine: pack loaded in 0.670795416 s
+engine: BARO_DRAFT_Q4: False
+engine: BARO_FR: False k 0
+engine: BARO_DOT: False
+engine: pack q4 trunk: True
+engine: pack kq trunk: False
+engine: compute units: 96  megakernel grid: 96
+engine: BARO_MEGA: True
+engine: BARO_TURBO: False
+engine: BARO_MEGA_WIN: False
+engine: BARO_SERVE: True
+engine: spec k: 2  ngram min: 1
+engine: att split: 1088
+engine: BARO_REPLAY_M: 4  (replay window rows cap, MROWS 8 )
+engine: BARO_PREFILL: True  chunk 1024  min rows 16
+engine: BARO_PF_GEMM: wmma
+engine: BARO_SPEC: True
+engine: BARO_EXPERTS: off
+engine: TUNE rows 0 (no tune.txt)
+engine: BARO_MOE_DOT: False
+engine: BARO_KVTAB: identity  kv pages: 128
+engine: BARO_KVQ: f32  kv dtype: float32  kv pool bytes: 1073741824  kv bytes/token: 65536  seq_cap: 4
+engine: BARO_KV_SHARE: pages 0
+engine: state load stage: pinned 1.3949666 GB (buf + 2 x KV staging) for TMAX 16384
+engine: checkpoints: cap 8 , bytes 52.690944 MB each, period 1024
+engine pid 326650: starting -> idle (ready line)
+engine pool ready: 1 engine(s), limits Limits { tmax: 16384, mrows: 8, kmax: 8, spec_k: 2, pack: "$HOME/Projects/mojo/mojo-baro-lanes/F2/.work/engine-pack-q4", kv: "f32", tier: Some("off"), seqs: Some(1) }
+checkpoints: dir .work/checkpoints cap 8 identity Identity { pack: "715d4c347b86787922198190be0fff3ed2fede708cfd07629f812c97d59c7698", runtime: "5c5715e", tokenizer_sha: None, weights_uuid: Some("715d4c347b86787922198190be0fff3e"), portable: true }
+sampling defaults: top_k - top_p - min_p -
+listening on http://127.0.0.1:18433
+ready
+access: GET /health 200 0ms
+access: GET /health 200 0ms
+access: GET /health 200 0ms
+access: GET /v1/models 200 0ms
+engine: BARO_SEQS: 1
+engine: prompt tokens: 13  n: 64  spec: True  temperature: 0.0
+engine: TMAX: 16384  kv dtype: float32  prefill chunk: 1024  prefill rows: 0  cached: 0  replay rows: 12
+engine: BARO_MARGIN: False
+engine: path: spec 
+engine: host_enqueue_s: 0.49660698  gpu_total_s: 0.49662991
+engine: mega fail word: 0 
+engine: mega barrier gen: 0
+engine: tokens: 64  prefill_s: 0.067821364  decode_s: 0.428808546
+engine: tok/s_total: 128.86859754379273  tok/s_gen: 146.91871369559877
+engine: GENERATED: 279 36405 7035 314 2919 16327 279 42900 7035 13 2332 4918 4644 19965 11 42900 7035 40664 11 748 2919 85895 506 264 4570 9039 13 15767 421 279 42900 7035 506 279 1844 314 10113 83489 369 12805 220 15 13 18 20 21 67425 11 10724 279 48161 1406 314 2919 506 411 34669 1608 279 64755 8883 12 4904 1959 
+engine: mtp: drafted 59  accepted 34  k 2
+access: POST /v1/completions 200 505ms
+engine: prompt tokens: 13  n: 64  spec: True  temperature: 0.0
+engine: TMAX: 16384  kv dtype: float32  prefill chunk: 1024  prefill rows: 0  cached: 0  replay rows: 12
+engine: BARO_MARGIN: False
+engine: path: spec 
+engine: host_enqueue_s: 0.492246505  gpu_total_s: 0.492275055
+engine: mega fail word: 0 
+engine: mega barrier gen: 0
+engine: tokens: 64  prefill_s: 0.057914058  decode_s: 0.434360997
+engine: tok/s_total: 130.0086188604458  tok/s_gen: 145.040646916095
+engine: GENERATED: 279 36405 7035 314 2919 16327 279 42900 7035 13 2332 4918 4644 19965 11 42900 7035 40664 11 748 2919 85895 506 264 4570 9039 13 15767 421 279 42900 7035 506 279 1844 314 10113 83489 369 12805 220 15 13 18 20 21 67425 11 10724 279 48161 1406 314 2919 506 411 34669 1608 279 64755 8883 12 4904 1959 
+engine: mtp: drafted 59  accepted 34  k 2
+access: POST /v1/completions 200 501ms
+engine: prompt tokens: 13  n: 64  spec: True  temperature: 0.0
+engine: TMAX: 16384  kv dtype: float32  prefill chunk: 1024  prefill rows: 0  cached: 0  replay rows: 12
+engine: BARO_MARGIN: False
+engine: path: spec 
+engine: host_enqueue_s: 0.490802067  gpu_total_s: 0.490823987
+engine: mega fail word: 0 
+engine: mega barrier gen: 0
+engine: tokens: 64  prefill_s: 0.05661247  decode_s: 0.43421151700000005
+engine: tok/s_total: 130.39297527241675  tok/s_gen: 145.09057805576353
+engine: GENERATED: 279 36405 7035 314 2919 16327 279 42900 7035 13 2332 4918 4644 19965 11 42900 7035 40664 11 748 2919 85895 506 264 4570 9039 13 15767 421 279 42900 7035 506 279 1844 314 10113 83489 369 12805 220 15 13 18 20 21 67425 11 10724 279 48161 1406 314 2919 506 411 34669 1608 279 64755 8883 12 4904 1959 
+engine: mtp: drafted 59  accepted 34  k 2
+access: POST /v1/completions 200 499ms
+engine: prompt tokens: 13  n: 64  spec: True  temperature: 0.0
+engine: TMAX: 16384  kv dtype: float32  prefill chunk: 1024  prefill rows: 0  cached: 0  replay rows: 12
+engine: BARO_MARGIN: False
+engine: path: spec 
+engine: host_enqueue_s: 0.492532077  gpu_total_s: 0.492554747
+engine: mega fail word: 0 
+engine: mega barrier gen: 0
+engine: tokens: 64  prefill_s: 0.05654283  decode_s: 0.436011917
+engine: tok/s_total: 129.93479484220666  tok/s_gen: 144.49146352116793
+engine: GENERATED: 279 36405 7035 314 2919 16327 279 42900 7035 13 2332 4918 4644 19965 11 42900 7035 40664 11 748 2919 85895 506 264 4570 9039 13 15767 421 279 42900 7035 506 279 1844 314 10113 83489 369 12805 220 15 13 18 20 21 67425 11 10724 279 48161 1406 314 2919 506 411 34669 1608 279 64755 8883 12 4904 1959 
+engine: mtp: drafted 59  accepted 34  k 2
+access: POST /v1/completions 200 502ms
+engine: prompt tokens: 13  n: 64  spec: True  temperature: 0.0
+engine: TMAX: 16384  kv dtype: float32  prefill chunk: 1024  prefill rows: 0  cached: 0  replay rows: 12
+engine: BARO_MARGIN: False
+engine: path: spec 
+engine: host_enqueue_s: 0.490678036  gpu_total_s: 0.490702866
+engine: mega fail word: 0 
+engine: mega barrier gen: 0
+engine: tokens: 64  prefill_s: 0.057355375  decode_s: 0.43334749100000003
+engine: tok/s_total: 130.4251603861633  tok/s_gen: 145.37986560074486
+engine: GENERATED: 279 36405 7035 314 2919 16327 279 42900 7035 13 2332 4918 4644 19965 11 42900 7035 40664 11 748 2919 85895 506 264 4570 9039 13 15767 421 279 42900 7035 506 279 1844 314 10113 83489 369 12805 220 15 13 18 20 21 67425 11 10724 279 48161 1406 314 2919 506 411 34669 1608 279 64755 8883 12 4904 1959 
+engine: mtp: drafted 59  accepted 34  k 2
+access: POST /v1/completions 200 500ms
+engine: prompt tokens: 13  n: 64  spec: True  temperature: 0.0
+engine: TMAX: 16384  kv dtype: float32  prefill chunk: 1024  prefill rows: 0  cached: 0  replay rows: 12
+engine: BARO_MARGIN: False
+engine: path: spec 
+engine: host_enqueue_s: 0.494250247  gpu_total_s: 0.494278277
+engine: mega fail word: 0 
+engine: mega barrier gen: 0
+engine: tokens: 64  prefill_s: 0.056606291  decode_s: 0.437671986
+engine: tok/s_total: 129.48171703689903  tok/s_gen: 143.94341428103192
+engine: GENERATED: 279 36405 7035 314 2919 16327 279 42900 7035 13 2332 4918 4644 19965 11 42900 7035 40664 11 748 2919 85895 506 264 4570 9039 13 15767 421 279 42900 7035 506 279 1844 314 10113 83489 369 12805 220 15 13 18 20 21 67425 11 10724 279 48161 1406 314 2919 506 411 34669 1608 279 64755 8883 12 4904 1959 
+engine: mtp: drafted 59  accepted 34  k 2
+access: POST /v1/completions 200 504ms
+access: GET /health 200 0ms
+shutting down
+engine pid 326650: idle -> stopping (shutdown)
+engine pid 326650: stopping -> dead (child exited after stdin EOF)

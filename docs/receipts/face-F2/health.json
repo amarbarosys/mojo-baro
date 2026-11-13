@@ -1,0 +1,1 @@
+{"status":"ok","engine_state":"idle","engines":[{"state":"idle","depth":0,"reason":null}],"queue":0,"pool":[0],"tokenizer":false,"limits":{"tmax":16384,"mrows":8,"kmax":8,"spec_k":2,"seqs":1,"tier":"off"},"capacity":1,"pack":"$HOME/Projects/mojo/mojo-baro-lanes/F2/.work/engine-pack-q4"}

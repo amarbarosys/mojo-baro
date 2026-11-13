@@ -144,6 +144,25 @@ for pkg_up in "uregex:$M/mojo-uregex/src/uregex" "toml:$HOME/Projects/imports/da
   else bad "$pkg: drifted from $up:$drift"; fi
 done
 
+step "embed/ (bge-small embedder) matches newera tools/, norm.tsv matches its oracle"
+# embed/bge.mojo, wordpiece.mojo and oracle/bge_*.py are vendored from newera tools/ (one header line added).
+# wordpiece.mojo carries one patch, encode(max_len=256 default), so the server can cut at 512; the sed below is that patch.
+NE=$HOME/Projects/newera/tools
+if [ ! -d "$NE" ]; then ok "upstream not on this machine, nothing to compare"
+else
+  drift=""
+  diff -q <(tail -n +2 embed/bge.mojo) "$NE/bge.mojo" >/dev/null || drift="$drift bge.mojo"
+  diff -q <(tail -n +2 embed/wordpiece.mojo) <(sed -e 's/def encode(self, text: String) raises/def encode(self, text: String, max_len: Int = 256) raises/' \
+    -e 's/truncated to 256 like tokenizer.enable_truncation(256)/truncated to max_len like tokenizer.enable_truncation(max_len)/' \
+    -e 's/if len(ids) > 255:/if len(ids) > max_len - 1:/' -e 's/ids.resize(255, 0)/ids.resize(max_len - 1, 0)/' "$NE/wordpiece.mojo") >/dev/null || drift="$drift wordpiece.mojo"
+  for f in bge_onnx_oracle.py bge_tokenizer_oracle.py bge_cosine_oracle.py bge_norm_oracle.py; do
+    diff -q <(tail -n +2 "embed/oracle/$f") "$NE/$f" >/dev/null || drift="$drift oracle/$f"
+  done
+  if [ -z "$drift" ]; then ok "vendored copy is in sync with $NE"; else bad "embed/ drifted from $NE:$drift"; fi
+fi
+if python3 -I embed/oracle/bge_norm_oracle.py | cmp -s - embed/norm.tsv; then ok "embed/norm.tsv equals bge_norm_oracle.py output"
+else bad "embed/norm.tsv differs from embed/oracle/bge_norm_oracle.py output"; fi
+
 step "latentos/ is the one copy (plan 12 M1): AMDHQ src/latentos points here"
 # serve/latent.mojo and serve/engine.mojo import latentos, whose package and
 # boot actors live here. AMDHQ keeps design, receipts, labiso/ and its
@@ -159,6 +178,16 @@ else bad "AMDHQ src/latentos is a directory, a second copy; run AMDHQ tools/late
 step "docs/settings-template.toml matches source settings (tools/settings-check.py)"
 if s_out=$(python3 tools/settings-check.py 2>&1); then ok "$s_out"
 else bad "$s_out"; fi
+
+step "docs/settings.toml matches the code, presets valid, README table current (tools/settings-check.mojo)"
+if "$MOJO" build tools/settings-check.mojo -I . -o .work/settings-check > .work/ci-settings-build.log 2>&1; then
+  if s_out=$(.work/settings-check 2>&1); then ok "$s_out"; else bad "$s_out"; fi
+  # falsifiers: a deleted entry and an invented entry must each fail the check
+  awk '/^\[\[setting\]\]/{buf=$0; getline; if($0 ~ /key = "BARO_TMAX"/){skip=1} else {skip=0; print buf}} /^\[\[preset\]\]/{skip=0} !skip{print}' docs/settings.toml > .work/ci-settings-deleted.toml
+  sed 's/^key = "BARO_POOL"/key = "BARO_ZZ_NOT_IN_CODE"/' docs/settings.toml > .work/ci-settings-invented.toml
+  if .work/settings-check --toml .work/ci-settings-deleted.toml 2>&1 | grep -q 'missing from docs/settings.toml: BARO_TMAX'; then ok "falsifier: a deleted entry fails"; else bad "settings-check passed a docs/settings.toml with BARO_TMAX deleted"; fi
+  if .work/settings-check --toml .work/ci-settings-invented.toml 2>&1 | grep -q 'not read by the code: BARO_ZZ_NOT_IN_CODE'; then ok "falsifier: an invented entry fails"; else bad "settings-check passed a docs/settings.toml with an entry the code does not read"; fi
+else bad "tools/settings-check.mojo failed to build, see .work/ci-settings-build.log"; fi
 
 step "referenced protocol and doc files exist"
 if python3 - <<'PY'

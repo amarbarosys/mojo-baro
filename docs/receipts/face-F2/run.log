@@ -1,0 +1,10 @@
+dash done tok_s_gen=146.9 raw=146.91871369559877 path=spec fail=0
+dash done tok_s_gen=145.0 raw=145.040646916095 path=spec fail=0
+dash done tok_s_gen=145.1 raw=145.09057805576353 path=spec fail=0
+dash done tok_s_gen=144.5 raw=144.49146352116793 path=spec fail=0
+dash done tok_s_gen=145.4 raw=145.37986560074486 path=spec fail=0
+dash done tok_s_gen=143.9 raw=143.94341428103192 path=spec fail=0
+dash vram used=15880708096 total=25753026560 state=idle queue=0
+frame 1 commands 296 status: front: ok, engine idle, queue 0
+frame 2 commands 296 status: front: ok, engine idle, queue 0
+frame 3 commands 296 status: front: ok, engine idle, queue 0

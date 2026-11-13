@@ -12,14 +12,71 @@ use tokenizers::Tokenizer;
 
 /// Python `json.dumps` layout (`", "` and `": "`, insertion order, raw UTF-8): what HF and llama.cpp
 /// templates get from `tojson`. minijinja's own filter is compact and HTML-escapes `<`, `>`, `&`, `'`.
-struct PyJson;
+/// `indent: Some(n)` is `json.dumps(indent=n)`: one item per line, `","` at line end, empty containers stay `[]`/`{}`.
+struct PyJson {
+    indent: Option<usize>,
+    level: usize,
+    has_value: bool,
+}
+
+impl PyJson {
+    fn newline<W: ?Sized + std::io::Write>(&self, w: &mut W) -> std::io::Result<()> {
+        w.write_all(b"\n")?;
+        w.write_all(" ".repeat(self.indent.unwrap_or(0) * self.level).as_bytes())
+    }
+    fn open<W: ?Sized + std::io::Write>(&mut self, w: &mut W, c: &[u8]) -> std::io::Result<()> {
+        self.level += 1;
+        self.has_value = false;
+        w.write_all(c)
+    }
+    fn close<W: ?Sized + std::io::Write>(&mut self, w: &mut W, c: &[u8]) -> std::io::Result<()> {
+        self.level -= 1;
+        if self.indent.is_some() && self.has_value {
+            self.newline(w)?;
+        }
+        self.has_value = true;
+        w.write_all(c)
+    }
+    fn item<W: ?Sized + std::io::Write>(&mut self, w: &mut W, first: bool) -> std::io::Result<()> {
+        match (self.indent, first) {
+            (None, true) => Ok(()),
+            (None, false) => w.write_all(b", "),
+            (Some(_), f) => {
+                if !f {
+                    w.write_all(b",")?;
+                }
+                self.newline(w)
+            }
+        }
+    }
+}
 
 impl serde_json::ser::Formatter for PyJson {
+    fn begin_array<W: ?Sized + std::io::Write>(&mut self, w: &mut W) -> std::io::Result<()> {
+        self.open(w, b"[")
+    }
+    fn end_array<W: ?Sized + std::io::Write>(&mut self, w: &mut W) -> std::io::Result<()> {
+        self.close(w, b"]")
+    }
+    fn begin_object<W: ?Sized + std::io::Write>(&mut self, w: &mut W) -> std::io::Result<()> {
+        self.open(w, b"{")
+    }
+    fn end_object<W: ?Sized + std::io::Write>(&mut self, w: &mut W) -> std::io::Result<()> {
+        self.close(w, b"}")
+    }
     fn begin_array_value<W: ?Sized + std::io::Write>(&mut self, w: &mut W, first: bool) -> std::io::Result<()> {
-        if first { Ok(()) } else { w.write_all(b", ") }
+        self.item(w, first)
+    }
+    fn end_array_value<W: ?Sized + std::io::Write>(&mut self, _w: &mut W) -> std::io::Result<()> {
+        self.has_value = true;
+        Ok(())
     }
     fn begin_object_key<W: ?Sized + std::io::Write>(&mut self, w: &mut W, first: bool) -> std::io::Result<()> {
-        if first { Ok(()) } else { w.write_all(b", ") }
+        self.item(w, first)
+    }
+    fn end_object_value<W: ?Sized + std::io::Write>(&mut self, _w: &mut W) -> std::io::Result<()> {
+        self.has_value = true;
+        Ok(())
     }
     fn begin_object_value<W: ?Sized + std::io::Write>(&mut self, w: &mut W) -> std::io::Result<()> {
         w.write_all(b": ")
@@ -37,12 +94,32 @@ impl serde_json::ser::Formatter for PyJson {
     }
 }
 
-fn py_tojson(v: minijinja::Value) -> Result<minijinja::Value, minijinja::Error> {
+/// HF's `tojson(x, ensure_ascii=False, indent=None, ...)`: Llama 3.x passes `indent=4`, Granite `ensure_ascii=False`.
+/// `ensure_ascii=True` escapes every non-ASCII char as `\uXXXX` (surrogate pairs above U+FFFF), like Python;
+/// JSON punctuation is ASCII, so escaping the whole text only touches string contents.
+fn py_tojson(v: minijinja::Value, kw: minijinja::value::Kwargs) -> Result<minijinja::Value, minijinja::Error> {
+    let indent: Option<usize> = kw.get("indent")?;
+    let ensure_ascii = kw.get::<Option<minijinja::Value>>("ensure_ascii")?.map(|x| x.is_true());
+    kw.assert_all_used()?;
+    let bad = |e: String| minijinja::Error::new(minijinja::ErrorKind::BadSerialization, e);
     let mut buf = Vec::new();
-    let mut ser = serde_json::Serializer::with_formatter(&mut buf, PyJson);
-    v.serialize(&mut ser)
-        .map_err(|e| minijinja::Error::new(minijinja::ErrorKind::BadSerialization, e.to_string()))?;
-    let s = String::from_utf8(buf).map_err(|e| minijinja::Error::new(minijinja::ErrorKind::BadSerialization, e.to_string()))?;
+    let mut ser = serde_json::Serializer::with_formatter(&mut buf, PyJson { indent, level: 0, has_value: false });
+    v.serialize(&mut ser).map_err(|e| bad(e.to_string()))?;
+    let mut s = String::from_utf8(buf).map_err(|e| bad(e.to_string()))?;
+    if ensure_ascii == Some(true) {
+        let mut out = String::with_capacity(s.len());
+        for c in s.chars() {
+            if c.is_ascii() {
+                out.push(c);
+            } else {
+                let mut u = [0u16; 2];
+                for unit in c.encode_utf16(&mut u) {
+                    out.push_str(&format!("\\u{:04x}", unit));
+                }
+            }
+        }
+        s = out;
+    }
     Ok(minijinja::Value::from_safe_string(s))
 }
 
@@ -538,21 +615,46 @@ mod tests {
 
     /// Expected strings are Python `json.dumps(x, ensure_ascii=False)` output (HF's `tojson`), not llama.cpp's,
     /// which prints floats with 6 digits (`123456789.0` -> `1.23457e+08`, `1.0` -> `1`).
+    fn tj(v: &Value, args: &str) -> Result<String, minijinja::Error> {
+        let mut env = Environment::new();
+        env.add_filter("tojson", py_tojson);
+        env.render_str(&format!("{{{{ v | tojson{args} }}}}"), minijinja::context! { v => v })
+    }
+
     #[test]
     fn tojson_is_python_json_dumps() {
         let v = serde_json::json!({"z": "é→😀", "a": ["<b>&'\"\\/\t\n\u{1}\u{7f}", 1, 2.5, null, true, {}, []], "é": {"k": -3}});
-        let got = py_tojson(minijinja::Value::from_serialize(&v)).unwrap().to_string();
+        let got = tj(&v, "").unwrap();
         let want = format!(
             "{}{}{}",
             r#"{"z": "é→😀", "a": ["<b>&'\"\\/\t\n\u0001"#, "\u{7f}", r#"", 1, 2.5, null, true, {}, []], "é": {"k": -3}}"#
         );
         assert_eq!(got, want);
         let f: Value = serde_json::from_str("[1.0, 0.1, -0.0, 100.0, 123456789.0, 3.14159265358979, 1e22, 1e-07, 1e16, 1e15, 0.0001, 0.00001, 1.5e300, -2.5e-10]").unwrap();
-        let got = py_tojson(minijinja::Value::from_serialize(&f)).unwrap().to_string();
+        let got = tj(&f, "").unwrap();
         assert_eq!(
             got,
             "[1.0, 0.1, -0.0, 100.0, 123456789.0, 3.14159265358979, 1e+22, 1e-07, 1e+16, 1000000000000000.0, 0.0001, 1e-05, 1.5e+300, -2.5e-10]"
         );
+    }
+
+    /// Expected strings are Python 3 `json.dumps` output for the same value (Llama 3.x `indent=4`, Granite
+    /// `ensure_ascii=False`); an unknown keyword stays an error instead of being ignored.
+    #[test]
+    fn tojson_keywords_match_python() {
+        let v = serde_json::json!({"z": "é→😀", "a": [1, {"k": []}, {}], "n": null});
+        assert_eq!(
+            tj(&v, "(indent=4)").unwrap(),
+            "{\n    \"z\": \"é→😀\",\n    \"a\": [\n        1,\n        {\n            \"k\": []\n        },\n        {}\n    ],\n    \"n\": null\n}"
+        );
+        assert_eq!(tj(&v, "(ensure_ascii=False)").unwrap(), tj(&v, "").unwrap());
+        assert_eq!(
+            tj(&v, "(ensure_ascii=True)").unwrap(),
+            "{\"z\": \"\\u00e9\\u2192\\ud83d\\ude00\", \"a\": [1, {\"k\": []}, {}], \"n\": null}"
+        );
+        assert_eq!(tj(&serde_json::json!([]), "(indent=2)").unwrap(), "[]");
+        assert_eq!(tj(&serde_json::json!({"a": {}}), "(indent=2)").unwrap(), "{\n  \"a\": {}\n}");
+        assert!(tj(&v, "(sort_keys=true)").is_err());
     }
 
     /// Pack tokenizer for the streaming-detokenizer tests. Panics when the pack is absent, like

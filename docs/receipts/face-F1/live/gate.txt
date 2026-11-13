@@ -1,0 +1,2 @@
+PASS chat gate: 2 prompts streamed and OCR-read back, Stop and close each cancelled at the front (2 'client dropped' lines, .work/F1-gate-live)
+rc=0

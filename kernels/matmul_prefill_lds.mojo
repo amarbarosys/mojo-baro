@@ -3,7 +3,7 @@ from max.gpu.sync import barrier
 from max.gpu import block_idx, thread_idx, WARP_SIZE
 from std.math import ceildiv, fma
 from layout import TileTensor, TensorLayout, row_major, stack_allocation
-from arch import mma
+from arch import mma, acc_row
 
 from matmul_prefill import f32x16_to_bf16_trunc
 
@@ -155,7 +155,7 @@ def amar_matmul_prefill_lds[
             var c = col0 + tn * 16 + h
             if c < N:
                 comptime for i in range(8):
-                    var r = row0 + tm * 16 + 2 * i + half
+                    var r = acc_row(row0 + tm * 16, i, half)
                     if r < M:
                         comptime if ACC:
                             C[r, c] = rebind[C.ElementType](

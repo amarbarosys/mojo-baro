@@ -7,7 +7,16 @@ from max.gpu.host import DeviceContext, DeviceBuffer
 from layout import row_major, stack_allocation
 from layout.tensor_core import mma
 from std.sys import get_defined_int
+from std.sys.info import _is_amd_rdna4
 from ops import F, I, THREADS, grid
+
+
+@always_inline
+def _acc_row(base: Int, i: Int, half: Int) -> Int:
+    comptime if _is_amd_rdna4():
+        return base + i + 8 * half
+    else:
+        return base + 2 * i + half
 
 comptime DM = get_defined_int["LAT_D", 256]()
 comptime DL = DM // 32
@@ -95,7 +104,7 @@ def tgemm_k[ta: Bool, tb: Bool, WM: Int, WN: Int, TM: Int, TN: Int](a: F, b: F, 
     comptime for tm in range(TM):
         comptime for tn in range(TN):
             comptime for i in range(8):
-                var row = r0 + (wm * TM + tm) * 16 + 2 * i + half
+                var row = _acc_row(r0 + (wm * TM + tm) * 16, i, half)
                 var col = c0 + (wn * TN + tn) * 16 + h
                 if row < M and col < N:
                     var o = row * N + col

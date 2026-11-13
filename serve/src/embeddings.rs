@@ -1,5 +1,6 @@
-//! `/api/embeddings` and `/v1/embeddings` (P0a gate 4, landed once P0a-e's
-//! engine wire merged to main). One engine request per input string: `n:1`,
+//! `/api/embeddings` and `/v1/embeddings`. With `model` absent or bge-small they go to the standard embedder
+//! (`bge_embeddings`, `serve/src/embed.rs`); naming the loaded chat model takes the path below (P0a gate 4, landed once
+//! P0a-e's engine wire merged to main). One engine request per input string: `n:1`,
 //! `spec:false`, `embed:true`. The vector is the engine's last-prompt-token
 //! post-final-norm hidden state, already L2-normalized on the engine side
 //! (`serve/PROTOCOL.md`); this layer does not normalize it again.
@@ -76,8 +77,28 @@ fn base64_f32(v: &[f32]) -> String {
     out
 }
 
+fn vector_json(vector: &[f32], as_base64: bool) -> Value {
+    if as_base64 { json!(base64_f32(vector)) } else { json!(vector) }
+}
+
+/// The standard embedder (`serve/src/embed.rs`): one batch to the bge-small child. Token counts are the child's.
+async fn bge_embeddings(app: &Shared, inputs: &[String], as_base64: bool) -> Result<Json<Value>, ApiError> {
+    let rows = app.embed.embed(inputs).await.map_err(|e| ApiError::Plain(StatusCode::BAD_GATEWAY, format!("embedder: {e}")))?;
+    let total: usize = rows.iter().map(|(n, _)| n).sum();
+    let data: Vec<Value> = rows
+        .iter()
+        .enumerate()
+        .map(|(i, (_, v))| json!({"object": "embedding", "index": i, "embedding": vector_json(v, as_base64)}))
+        .collect();
+    Ok(Json(json!({
+        "object": "list",
+        "model": embed::MODEL,
+        "data": data,
+        "usage": {"prompt_tokens": total, "total_tokens": total},
+    })))
+}
+
 pub async fn embeddings(State(app): State<Shared>, Json(r): Json<EmbeddingsReq>) -> Result<Json<Value>, ApiError> {
-    let t = need_text(&app)?;
     let inputs = input_strings(&r)?;
     if inputs.is_empty() {
         return Err(bad("input must not be empty"));
@@ -87,6 +108,17 @@ pub async fn embeddings(State(app): State<Shared>, Json(r): Json<EmbeddingsReq>)
         Some("base64") => true,
         Some(other) => return Err(bad(format!("encoding_format must be float or base64, got {other}"))),
     };
+    match embed::route(r.model.as_deref(), &app.model) {
+        embed::Route::Bge => return bge_embeddings(&app, &inputs, as_base64).await,
+        embed::Route::Chat => {}
+        embed::Route::Unknown => {
+            return Err(ApiError::Plain(
+                StatusCode::NOT_FOUND,
+                format!("model {:?} not found: embeddings serve {} (or the loaded chat model {:?})", r.model.as_deref().unwrap_or(""), embed::MODEL, app.model),
+            ))
+        }
+    }
+    let t = need_text(&app)?;
     let model = r.model.clone().unwrap_or_else(|| app.model.clone());
     let mut data = Vec::with_capacity(inputs.len());
     let mut total_prompt_tokens = 0usize;
@@ -114,7 +146,7 @@ pub async fn embeddings(State(app): State<Shared>, Json(r): Json<EmbeddingsReq>)
         };
         let (_req_id, rx) = check_and_submit(&app, &g)?;
         let vector = collect_embed(rx).await?;
-        let embedding = if as_base64 { json!(base64_f32(&vector)) } else { json!(vector) };
+        let embedding = vector_json(&vector, as_base64);
         data.push(json!({"object": "embedding", "index": i, "embedding": embedding}));
     }
     Ok(Json(json!({
@@ -247,5 +279,37 @@ mod tests {
         .unwrap();
         drop(tx);
         assert!(collect_embed(rx).await.is_err());
+    }
+
+    #[test]
+    fn vector_json_float_and_base64() {
+        assert_eq!(vector_json(&[1.0], false), json!([1.0]));
+        assert_eq!(vector_json(&[1.0], true), json!("AACAPw=="));
+    }
+
+    #[tokio::test]
+    async fn a_model_that_is_neither_bge_nor_the_chat_model_is_404() {
+        let r = EmbeddingsReq { model: Some("text-embedding-3-small".into()), input: Some(json!("x")), prompt: None, encoding_format: None };
+        match embeddings(State(crate::sse_tests::test_app()), Json(r)).await {
+            Err(ApiError::Plain(code, msg)) => {
+                assert_eq!(code, StatusCode::NOT_FOUND);
+                assert!(msg.contains(embed::MODEL), "{msg}");
+            }
+            _ => panic!("expected a 404"),
+        }
+    }
+
+    #[tokio::test]
+    async fn a_missing_embed_binary_is_a_502_with_the_build_hint() {
+        std::env::set_var("BARO_EMBED_BIN", "/nonexistent/serve_embed");
+        let app = crate::sse_tests::test_app();
+        let r = EmbeddingsReq { model: None, input: Some(json!("x")), prompt: None, encoding_format: None };
+        match embeddings(State(app), Json(r)).await {
+            Err(ApiError::Plain(code, msg)) => {
+                assert_eq!(code, StatusCode::BAD_GATEWAY);
+                assert!(msg.contains("embed/build.sh"), "{msg}");
+            }
+            _ => panic!("expected a 502"),
+        }
     }
 }

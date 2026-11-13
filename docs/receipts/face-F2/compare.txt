@@ -1,0 +1,3 @@
+frame 1: tok/s panel 143.9 vs done line 143.9434; VRAM panel 14.8 / 24.0 vs rocm-smi 14.3544 / 23.9844 GiB
+frame 2: tok/s panel 143.9 vs done line 143.9434; VRAM panel 14.8 / 24.0 vs rocm-smi 14.3544 / 23.9844 GiB
+frame 3: tok/s panel 143.9 vs done line 143.9434; VRAM panel 14.8 / 24.0 vs rocm-smi 14.3544 / 23.9844 GiB
