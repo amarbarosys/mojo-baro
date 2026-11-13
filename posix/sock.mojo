@@ -9,7 +9,7 @@ from posix._sys import CLOEXEC, NONBLOCK, EINTR, EAGAIN, errno, error, cstr
 from posix.poll import PollSet, POLLOUT
 
 comptime _ADDR = 110  # sizeof(struct sockaddr_un)
-comptime _MAX_PATH = 107
+comptime _MAX_PATH = 108  # sun_path size; Linux and Python accept a full, unterminated path
 comptime _DONTWAIT = 0x40
 comptime _NOSIGNAL = 0x4000
 comptime _STALLS = 50  # send_all waits 100 ms for room, 5 s in all
