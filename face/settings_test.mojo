@@ -20,7 +20,11 @@ def refused(text: String, word: String) raises:
 
 def main() raises:
     var real = Settings.load("docs/settings.toml")
-    check(len(real.items) == 182, "real docs/settings.toml loads all 182 entries, got " + String(len(real.items)))
+    var want = 0
+    with open("docs/settings.toml", "r") as f:
+        for ln in f.read().split("\n"):
+            want += 1 if ln == "[[setting]]" else 0
+    check(len(real.items) == want, "real docs/settings.toml loads all " + String(want) + " entries, got " + String(len(real.items)))
     var s = Settings.load("face/testdata/settings-sample.toml")
     check(len(s.items) == 5, "5 entries")
     check(s.items[0].key == "sampling.temperature" and s.items[0].type == "float" and s.items[0].ranged, "temperature")

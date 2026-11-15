@@ -647,6 +647,10 @@ same gguf on 12 of 64 p04 tokens, so a bar against it was unreachable; it stays 
 
 ## Megakernel on K-quant packs (2026-10-26, lane mega-kq, `bench/mega-kq-check.sh`)
 
+2026-11-15, Mojo 1.2.0, engine at `304d60d`, BARO_SPEC=0, BARO_TMAX=16384, one gpu-wait job each, fail 0 on every run:
+- kq (Ornith-1.5-9B Q4_K_M, 1 prompt x 64): launch 93.17 vs mega 84.89 tok/s, ids 64/64. Unset BARO_MEGA on a kq pack now means launch.
+- dense q4 (Qwythos-9B, 3 mtp-prompts x 64, 2 runs): mega 142.7 to 146.4 (one 96.7 outlier) vs launch 98.9 to 100.5 tok/s, ids equal. Mega stays the dense default.
+
 `amar_mega_token[KQ=True]` reads Q4_K / Q6_K rows of an `engine-pack --kq` trunk with `gemv_kq.kq_lane_part`'s
 per-element order, so `BARO_MEGA=1` generates the launch path's ids. Ornith-1.5-9B Q4_K_M, 20 mtp-prompts, 64
 tokens, f32 KV, TMAX 16384, launch and megakernel interleaved in one gpu-wait job (`.work/kq/mega11-check.out`):

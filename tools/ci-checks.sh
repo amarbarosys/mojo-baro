@@ -189,6 +189,12 @@ if "$MOJO" build tools/settings-check.mojo -I . -o .work/settings-check > .work/
   if .work/settings-check --toml .work/ci-settings-invented.toml 2>&1 | grep -q 'not read by the code: BARO_ZZ_NOT_IN_CODE'; then ok "falsifier: an invented entry fails"; else bad "settings-check passed a docs/settings.toml with an entry the code does not read"; fi
 else bad "tools/settings-check.mojo failed to build, see .work/ci-settings-build.log"; fi
 
+step "docs/OPERATE-AUDIT.md matches docs/settings.toml and docs/operate-capabilities.toml, four planted defects fail (tools/operate-audit-check.sh)"
+if o_out=$(tools/operate-audit-check.sh 2>&1); then ok "$(tail -1 <<<"$o_out")"; else bad "$(tail -2 <<<"$o_out" | tr '\n' ' ')"; fi
+step "WindowState is built only by WindowState.fresh() (serve/window.mojo)"
+w_hits=$(git grep -n 'WindowState(pos=' -- '*.mojo' | grep -v '^serve/window.mojo:' || true)
+if [ -z "$w_hits" ]; then ok "no field-by-field WindowState outside window.mojo"; else bad "built by hand: $(head -3 <<<"$w_hits" | tr '\n' ' ')"; fi
+
 step "referenced protocol and doc files exist"
 if python3 - <<'PY'
 import pathlib, re, sys

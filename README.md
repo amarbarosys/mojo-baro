@@ -400,7 +400,7 @@ fails if that file and the source disagree, and generates the table below. The o
 | `BARO_DEFAULT_MIN_P` | unset | baro-serve: min-p for requests that leave it out (llama-server's default: 40 / 0.95 / 0.05). Unset: untruncated. |
 | `BARO_KVQ` | `f32` | KV cache dtype: f32, or int8 (dense only; RULER 100.0 at 64k and 128k; state files become BAROST03 = pool pages, 32k load 0.061 s, P7-int8-pool-sta... |
 | `BARO_TMAX` | `16384` | Context window the KV pool is sized for, in tokens (engine default 1088, baro-serve 32768, face default 16384). |
-| `BARO_MEGA` | `1` | Persistent megakernel; default 1 on dense, 0 on MoE (the table shows the dense value). 0 selects the launch path. |
+| `BARO_MEGA` | `1` | Persistent megakernel; default 1 on dense, 0 on MoE and on native K-quant packs (the table shows the dense value). 0 selects the launch path. |
 | `BARO_PREFILL` | `1` | Batched prefill (up to BARO_PREFILL_C rows per chunk). |
 | `BARO_SPEC` | `1` | Speculative decoding with the model's MTP draft head (dense |
 | `BARO_TIER` | unset | Experts in host RAM with this many cached per layer in VRAM (64 = 5.2 GB) |

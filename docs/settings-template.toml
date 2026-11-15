@@ -286,8 +286,8 @@ group = "serving"
 kind = "env"
 type = "int"
 default = "1088"
-doc = "Context length the KV pool is sized for, in tokens (MoE f32 KV costs 40,960 bytes per token per sequence)."
-models = ["qwen35", "qwen35moe"]
+doc = "Context length the KV pool is sized for, in tokens (MoE f32 KV costs 40,960 bytes per token per sequence). Dense spark models: tools/baro serve rebuilds the engine with the value (cache slot -t<N>); the bare spark engine ignores it."
+models = ["qwen35", "qwen35moe", "spark"]
 group = "memory"
 
 [settings.BARO_TUNE]
@@ -1284,8 +1284,8 @@ group = "serving"
 [settings.BARO_NEURONS]
 kind = "server-env"
 type = "bool"
-default = "0"
-doc = "1 = a non-streaming chat request without tools of its own gets a brain_ask retrieval loop; the request field neurons:false turns it off per request."
+default = "1"
+doc = "1 = a non-streaming chat request without tools of its own gets a brain_ask retrieval loop; the request field neurons:false turns it off per request. tools/baro serve and run export 1 unless set; the bare baro-serve binary treats an unset variable as off."
 models = ["all"]
 group = "serving"
 
@@ -1294,6 +1294,22 @@ kind = "server-env"
 type = "string"
 default = "$HOME/Brain/mojo/mojo-baro/checked-answers.md"
 doc = "File POST /v1/neurons appends a checked answer to; an unchecked answer is refused."
+models = ["all"]
+group = "serving"
+
+[settings.BARO_MCP_URL]
+kind = "env"
+type = "string"
+default = "http://127.0.0.1:8080"
+doc = "Base URL of the running baro-serve front that the baro-mcp server reads and controls."
+models = ["all"]
+group = "serving"
+
+[settings.BARO_MCP_REPO]
+kind = "env"
+type = "string"
+default = ""
+doc = "Checkout baro-mcp reads docs from and keeps .work/gui-front.pid in; default two levels above the binary."
 models = ["all"]
 group = "serving"
 

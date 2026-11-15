@@ -175,7 +175,7 @@ def run_main() raises:
 
     var errs = List[String]()
     var by_key = Dict[String, Dict[String, TomlValue]]()
-    var groups = words("sampling engine model front")
+    var groups = words("sampling engine model front tools")
     var types = words("int float bool enum path string")
     var levels = words("basic advanced")
     var stats = words("stable experimental bench-only")

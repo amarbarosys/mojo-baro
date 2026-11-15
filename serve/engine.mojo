@@ -707,7 +707,7 @@ def slens_step(row: HostBuffer[f32], mut base: List[List[Float32]], mut acc: Lis
 
 
 def a3b_state() -> WindowState:
-    return WindowState(pos=0, pos_prev=0, ring=0, n_drafted=0, n_accepted=0, n_spec_windows=0, n_dumped=0, tp=0, tq=0, pf_att=0, pf_ssm=0, pf_ffn=0, pf_head=0, pf_proc=0, pf_draft=0, fc=[0, 0, 0, 0, 0, 0], pc=[0, 0, 0, 0, 0, 0, 0, 0], ac=[0, 0, 0, 0, 0, 0], p3=[0, 0, 0, 0], pfx=[0, 0, 0, 0], grammar=None, grammar_mask=Bitset(1), grammar_pending_think=False, grammar_think_buf=List[UInt8](), grammar_stop=False, grammar_masked_draws=0, grammar_accepted=0, tool_re="", tool_buf=List[UInt8](), grammar_tool=False)
+    return WindowState.fresh()
 
 
 def parse_a3b_request(line: String, tmax: Int, mut req_id: Int, mut prompt: List[Int], mut gen_n: Int, mut sample: SampleParams) raises -> String:
@@ -1704,6 +1704,11 @@ def main() raises:
         # window.mojo picks amar_mega_token[KQ=True] from off[2]'s kind; it would decode a q8 trunk weight as Q4_K.
         print("kq pack carries q8 trunk weights: BARO_MEGA forced off (the kq megakernel reads Q4_K / Q6_K only)")
         mega = False
+    if pack_kq and mega and getenv("BARO_MEGA", "") == "":
+        # Mojo 1.2: the kq megakernel reads 87.90 tok/s against the launch path's 98.29 (docs/BASELINE.md
+        # "Megakernel on K-quant packs"), so unset BARO_MEGA means launch on kq packs; BARO_MEGA=1 still selects it.
+        print("kq pack: BARO_MEGA unset, launch path (faster than the kq megakernel on Mojo 1.2)")
+        mega = False
     if pack_kq:
         if getenv("BARO_SPEC", "1") == "1":
             raise Error("kq pack: the MTP draft reads q4/q8 only; set BARO_SPEC=0")
@@ -1937,7 +1942,7 @@ def main() raises:
         ctx.synchronize()
     var toks_d = bufs.toks_d
 
-    var wst = WindowState(pos=0, pos_prev=0, ring=0, n_drafted=0, n_accepted=0, n_spec_windows=0, n_dumped=0, tp=0, tq=0, pf_att=0, pf_ssm=0, pf_ffn=0, pf_head=0, pf_proc=0, pf_draft=0, fc=[0, 0, 0, 0, 0, 0], pc=[0, 0, 0, 0, 0, 0, 0, 0], ac=[0, 0, 0, 0, 0, 0], p3=[0, 0, 0, 0], pfx=[0, 0, 0, 0], grammar=None, grammar_mask=Bitset(1), grammar_pending_think=False, grammar_think_buf=List[UInt8](), grammar_stop=False, grammar_masked_draws=0, grammar_accepted=0, tool_re="", tool_buf=List[UInt8](), grammar_tool=False)
+    var wst = WindowState.fresh()
     var ckpt_cap = atol(getenv("BARO_CKPT", "8")) if serve else 0
     if ckpt_cap < 0:
         ckpt_cap = 0

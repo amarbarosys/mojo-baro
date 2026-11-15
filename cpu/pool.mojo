@@ -1,14 +1,20 @@
 """Persistent pthread pool for the CPU tier (Mojo 1.2 std has no parallelize, and max is not in the import graph).
 
 `Pool[body](n).run(ctx, rows, chunk)` calls `body(ctx, lo, hi)` over [0, rows) in chunks taken from one atomic counter,
-on n threads (the caller is one of them). Workers spin on a generation word between jobs, so a job costs no
-thread start. A row is computed by one thread in its serial order, so results do not depend on n.
+on n threads (the caller is one of them). Workers spin on a generation word for SPIN yields between jobs, so a
+job costs no thread start, then sleep on a futex until the next job wakes them (an idle engine leaves the cores free). A row is computed by one thread in its serial order, so results do not depend on n.
 """
 from std.atomic import Atomic
 from std.ffi import external_call
 from std.memory import Layout, alloc
 
 comptime A = Atomic[Int64]
+comptime SPIN = 4096
+
+
+def futex(addr: Int, op: Int, val: Int):
+    """FUTEX_WAIT_PRIVATE (128) sleeps while the low 32 bits at addr equal val; FUTEX_WAKE_PRIVATE (129) wakes val waiters."""
+    _ = external_call["syscall", Int](202, addr, op, val, 0, 0, 0)
 
 
 struct Shared:
@@ -41,11 +47,17 @@ def take[body: def(Int, Int, Int) thin -> None](s: MutPointer[Shared, MutUntrack
 def worker[body: def(Int, Int, Int) thin -> None](arg: OpaquePointer[MutAnyOrigin]) abi("C") -> OpaquePointer[MutAnyOrigin]:
     var s = MutPointer[Shared, MutUntrackedOrigin](unsafe_from_address=Int(arg))
     var seen = Int64(0)
+    var idle = 0
     while True:
         var g = s[].gen.load()
         if g == seen:
-            _ = external_call["sched_yield", Int32]()
+            idle += 1
+            if idle < SPIN:
+                _ = external_call["sched_yield", Int32]()
+            else:
+                futex(Int(s), 128, Int(seen & 0xFFFFFFFF))
             continue
+        idle = 0
         seen = g
         if s[].quit:
             return arg
@@ -76,6 +88,7 @@ struct Pool[body: def(Int, Int, Int) thin -> None](Movable):
         self.s[].next.store(0)
         self.s[].done.store(0)
         _ = self.s[].gen.fetch_add(1)
+        futex(Int(self.s), 129, self.n)
         take[Self.body](self.s)
         while self.s[].done.load() < Int64(self.n - 1):
             continue
@@ -83,5 +96,6 @@ struct Pool[body: def(Int, Int, Int) thin -> None](Movable):
     def __deinit__(deinit self):
         self.s[].quit = True
         _ = self.s[].gen.fetch_add(1)
+        futex(Int(self.s), 129, self.n)
         for i in range(1, self.n):
             _ = external_call["pthread_join", Int32](self.tids[i], Int(0))

@@ -433,10 +433,10 @@ max = 262144
 restart = true
 level = "basic"
 status = "stable"
-models = ["qwen35", "qwen35moe"]
-sources = ["cpu/engine_cpu.mojo", "serve/engine.mojo", "serve/front/main.mojo", "serve/front/stub_engine.mojo", "serve/src/main.rs", "serve/src/state.rs"]
+models = ["qwen35", "qwen35moe", "spark"]
+sources = ["tools/baro", "serve/spark.mojo", "cpu/engine_cpu.mojo", "serve/engine.mojo", "serve/front/main.mojo", "serve/front/stub_engine.mojo", "serve/src/main.rs", "serve/src/state.rs"]
 summary = "Context window the KV pool is sized for, in tokens (engine default 1088, baro-serve 32768, face default 16384)."
-help = """Longest prompt plus answer the engine keeps, in tokens: the KV pool is sized for it at start, so a change needs an engine restart. Engine default is 1088 and baro-serve passes 32768; the face default is the 16K floor (CLAUDE.md, bench/min16k.sh refuses less). Cost: VRAM per token per sequence (MoE f32 KV 40,960 bytes). Size it against FREE VRAM, desktop included: read rocm-smi, then run `pack-fit PACK --tmax N --used-gb <measured>`; BARO_KVQ=int8 halves the KV part. The 262144 ceiling is the plan's contract value; the real limit is VRAM. A pack that no longer fits spills to GTT and decode drops about 10x with no log line (README Troubleshooting). Context length the KV pool is sized for, in tokens (MoE f32 KV costs 40,960 bytes per token per sequence)."""
+help = """Longest prompt plus answer the engine keeps, in tokens: the KV pool is sized for it at start, so a change needs an engine restart. Engine default is 1088 and baro-serve passes 32768; the face default is the 16K floor (CLAUDE.md, bench/min16k.sh refuses less). Cost: VRAM per token per sequence (MoE f32 KV 40,960 bytes). Size it against FREE VRAM, desktop included: read rocm-smi, then run `pack-fit PACK --tmax N --used-gb <measured>`; BARO_KVQ=int8 halves the KV part. The 262144 ceiling is the plan's contract value; the real limit is VRAM. A pack that no longer fits spills to GTT and decode drops about 10x with no log line (README Troubleshooting). Context length the KV pool is sized for, in tokens (MoE f32 KV costs 40,960 bytes per token per sequence). Dense models (llama, qwen2, granite; harness spark.mojo) compile TMAX into the engine: tools/baro serve rebuilds the engine once with the requested value (own cache slot engine-k<commit>-t<N>, about 35 s) and warns above the model's trained context; the bare spark engine ignores the variable. Prefill grows with the square of the prompt: Qwen2.5-7B q4_K_M on the 7900 XTX took 39 s for 14.8k tokens and 617 s for 61k tokens."""
 
 [[setting]]
 key = "BARO_TUNE"
@@ -553,8 +553,8 @@ level = "basic"
 status = "stable"
 models = ["qwen35", "qwen35moe"]
 sources = ["serve/PROTOCOL.md", "serve/engine.mojo", "tools/baro"]
-summary = "Persistent megakernel; default 1 on dense, 0 on MoE (the table shows the dense value). 0 selects the launch path."
-help = """1 on dense, 0 on MoE (the TOML default is the dense value); 0 selects the launch path. Persistent megakernel: one launch per token. On MoE 113.94 vs 110.90 tok/s, opt-in; refuses BARO_TIER and BARO_EXPERTS. (template default: "1 on dense, 0 on qwen35moe")"""
+summary = "Persistent megakernel; default 1 on dense, 0 on MoE and on native K-quant packs (the table shows the dense value). 0 selects the launch path."
+help = """1 on dense, 0 on MoE and on native K-quant (--kq) packs, where the launch path is faster on Mojo 1.2 (98.29 vs 87.90 tok/s); the TOML default is the dense value; 0 selects the launch path. Persistent megakernel: one launch per token. On MoE 113.94 vs 110.90 tok/s, opt-in; refuses BARO_TIER and BARO_EXPERTS. (template default: "1 on dense, 0 on qwen35moe")"""
 
 [[setting]]
 key = "BARO_MEGA_WIN"
@@ -2629,14 +2629,44 @@ group = "front"
 label = "BARO_NEURONS"
 type = "bool"
 kind = "server-env"
-default = false
+default = true
 restart = true
 level = "advanced"
 status = "stable"
 models = ["all"]
 sources = ["serve/src/main.rs", "tools/baro"]
-summary = "1 = a non-streaming chat request without tools of its own gets a brain_ask retrieval loop"
-help = """1 = a non-streaming chat request without tools of its own gets a brain_ask retrieval loop; the request field neurons:false turns it off per request."""
+summary = "1 (the default of tools/baro serve and run) = a non-streaming chat request without tools of its own gets a brain_ask retrieval loop"
+help = """1 = a non-streaming chat request without tools of its own gets a brain_ask retrieval loop; the request field neurons:false turns it off per request. tools/baro exports 1 unless the variable is set; the bare baro-serve binary treats an unset variable as off. Set BARO_NEURONS=0 for plain chat."""
+
+[[setting]]
+key = "BARO_MCP_URL"
+group = "tools"
+label = "BARO_MCP_URL"
+type = "string"
+kind = "env"
+default = "http://127.0.0.1:8080"
+restart = false
+level = "advanced"
+status = "stable"
+models = ["all"]
+sources = ["tools/mcp/baro_mcp.mojo"]
+summary = "Front that baro-mcp talks to"
+help = """Base URL of the running baro-serve front that the baro-mcp server reads and controls. Set it in the MCP client's server environment."""
+
+[[setting]]
+key = "BARO_MCP_REPO"
+group = "tools"
+label = "BARO_MCP_REPO"
+type = "string"
+kind = "env"
+default = ""
+restart = false
+level = "advanced"
+status = "stable"
+models = ["all"]
+sources = ["tools/mcp/baro_mcp.mojo"]
+summary = "Checkout baro-mcp reads docs from and restarts the engine in"
+help = """Checkout that baro-mcp reads docs/settings.toml and docs/operate-capabilities.toml from, and where it keeps .work/gui-front.pid and .work/gui-front.log. Default: two levels above the binary."""
 
 [[setting]]
 key = "BARO_NEURONS_INBOX"

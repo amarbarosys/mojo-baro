@@ -938,6 +938,11 @@ struct WindowState(Copyable, Movable):
     var tool_buf: List[UInt8]
     var grammar_tool: Bool
 
+    @staticmethod
+    def fresh() -> WindowState:
+        """The state a new request starts from; every caller builds it here, never field by field."""
+        return WindowState(pos=0, pos_prev=0, ring=0, n_drafted=0, n_accepted=0, n_spec_windows=0, n_dumped=0, tp=0, tq=0, pf_att=0, pf_ssm=0, pf_ffn=0, pf_head=0, pf_proc=0, pf_draft=0, fc=[0, 0, 0, 0, 0, 0], pc=[0, 0, 0, 0, 0, 0, 0, 0], ac=[0, 0, 0, 0, 0, 0], p3=[0, 0, 0, 0], pfx=[0, 0, 0, 0], grammar=None, grammar_mask=Bitset(1), grammar_pending_think=False, grammar_think_buf=List[UInt8](), grammar_stop=False, grammar_masked_draws=0, grammar_accepted=0, tool_re="", tool_buf=List[UInt8](), grammar_tool=False,)
+
     def reset(mut self, t0: Int):
         # per request; n_dumped spans requests (BARO_DUMP)
         self.pos = 0

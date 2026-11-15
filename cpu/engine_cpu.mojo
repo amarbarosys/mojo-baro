@@ -60,18 +60,24 @@ def is_attn(i: Int) -> Bool:
 
 
 def gemv_rows(ctx: Int, lo: Int, hi: Int):
-    """Rows [lo, hi) of the job at ctx (a, w, n, k, dst, add as 6 Ints): dst[r] = 0 + dot, or dst[r] += 0 + dot
-    (the q4rowb partial and its NSPLIT=1 reduce)."""
+    """Rows [lo, hi) of the job at ctx: a, k, add, m, then m segments (w, n, dst). Rows number across the segments, so
+    one pool run covers several GEMVs on the same input (one barrier, not m). Per row: dst[r] = 0 + dot, or dst[r] += 0 + dot
+    (the q4rowb partial and its NSPLIT=1 reduce); each row is still one thread in serial order, so results match one run each."""
     var j = MutPointer[Int, MutUntrackedOrigin](unsafe_from_address=ctx)
     var a = j[unsafe_offset=0]
-    var w = j[unsafe_offset=1]
-    var n = j[unsafe_offset=2]
-    var k = j[unsafe_offset=3]
-    var o = fp(j[unsafe_offset=4])
-    for r in range(lo, hi):
-        var d = Float32(0) + q4_row_dot(bp(a), MutPointer[UInt8, MutUntrackedOrigin](unsafe_from_address=w + r * (k // 2)),
-                                         MutPointer[Float16, MutUntrackedOrigin](unsafe_from_address=w + n * (k // 2) + r * (k // 16)), k // 32)
-        o[unsafe_offset=r] = o[unsafe_offset=r] + d if j[unsafe_offset=5] == 1 else d
+    var k = j[unsafe_offset=1]
+    var add = j[unsafe_offset=2] == 1
+    var base = 0
+    for sg in range(j[unsafe_offset=3]):
+        var w = j[unsafe_offset=4 + 3 * sg]
+        var n = j[unsafe_offset=5 + 3 * sg]
+        var o = fp(j[unsafe_offset=6 + 3 * sg])
+        for g in range(max(lo, base), min(hi, base + n)):
+            var r = g - base
+            var d = Float32(0) + q4_row_dot(bp(a), MutPointer[UInt8, MutUntrackedOrigin](unsafe_from_address=w + r * (k // 2)),
+                                             MutPointer[Float16, MutUntrackedOrigin](unsafe_from_address=w + n * (k // 2) + r * (k // 16)), k // 32)
+            o[unsafe_offset=r] = o[unsafe_offset=r] + d if add else d
+        base += n
 
 
 def say(s: String):
@@ -149,7 +155,7 @@ struct Engine(Movable):
     def __init__(out self, dir: String, tmax: Int, threads: Int) raises:
         self.pack = Pack(dir)
         self.pool = Pool[gemv_rows](threads)
-        self.job = List[Int](length=8, fill=0)
+        self.job = List[Int](length=4 + 3 * 4, fill=0)
         self.d4 = 0
         self.d4l = Int(getenv("BARO_DUMP_LAYER", "-1"))
         self.tmax = tmax
@@ -172,13 +178,25 @@ struct Engine(Movable):
         self.sst = List[Float32](length=N_SSM * NH_V * SS * SS, fill=0)
 
     def mv(mut self, a: Int, w: Int, n: Int, k: Int, dst: Int, add: Bool):
+        self.seg(0, w, n, dst)
+        self.mv_multi(a, k, add, 1)
+
+    def seg(mut self, sg: Int, w: Int, n: Int, dst: Int):
+        """Segment sg of the next mv_multi: weight w (n rows), output dst."""
+        self.job[4 + 3 * sg] = w
+        self.job[5 + 3 * sg] = n
+        self.job[6 + 3 * sg] = dst
+
+    def mv_multi(mut self, a: Int, k: Int, add: Bool, m: Int):
+        """m GEMVs set with seg() on the same input a (k columns) as one pool run: one barrier instead of m."""
         self.job[0] = a
-        self.job[1] = w
-        self.job[2] = n
-        self.job[3] = k
-        self.job[4] = dst
-        self.job[5] = Int(add)
-        self.pool.run(Int(self.job.unsafe_ptr()), n, max(16, n // (8 * self.pool.n)))
+        self.job[1] = k
+        self.job[2] = Int(add)
+        self.job[3] = m
+        var rows = 0
+        for sg in range(m):
+            rows += self.job[5 + 3 * sg]
+        self.pool.run(Int(self.job.unsafe_ptr()), rows, max(16, rows // (8 * self.pool.n)))
 
     def lw(self, i: Int, j: Int) -> Int:
         return self.w[i * NW + j]
@@ -206,8 +224,9 @@ struct Engine(Movable):
                 for j in range(H):
                     fp(dump + 2 * i * H * 4)[unsafe_offset=j] = x[unsafe_offset=j]
             rmsnorm_cast(x, fp(self.lw(i, o + 1)), bp(cur), H, EPS)
-            self.mv(cur, self.lw(i, o + 2), FFN, H, fa + OG * 4, False)
-            self.mv(cur, self.lw(i, o + 3), FFN, H, fa + OU * 4, False)
+            self.seg(0, self.lw(i, o + 2), FFN, fa + OG * 4)
+            self.seg(1, self.lw(i, o + 3), FFN, fa + OU * 4)
+            self.mv_multi(cur, H, False, 2)
             for j in range(FFN):
                 bp(cur)[unsafe_offset=j] = swiglu(self.f[OG + j], self.f[OU + j])
             self.mv(cur, self.lw(i, o + 4), H, FFN, fa + OX * 4, True)
@@ -219,9 +238,10 @@ struct Engine(Movable):
             self.mv(cur, self.top[2], VOCAB, H, fa + OLOG * 4, False)
 
     def attn(mut self, i: Int, a: Int, pos: Int, fa: Int, cur: Int):
-        self.mv(cur, self.lw(i, 0), QF, H, fa + OQF * 4, False)
-        self.mv(cur, self.lw(i, 1), KV, H, fa + OK * 4, False)
-        self.mv(cur, self.lw(i, 2), KV, H, fa + OV * 4, False)
+        self.seg(0, self.lw(i, 0), QF, fa + OQF * 4)
+        self.seg(1, self.lw(i, 1), KV, fa + OK * 4)
+        self.seg(2, self.lw(i, 2), KV, fa + OV * 4)
+        self.mv_multi(cur, H, False, 3)
         for h in range(NQH):
             for d in range(HD):
                 self.f[OQ + h * HD + d] = self.f[OQF + h * 2 * HD + d]
@@ -246,10 +266,11 @@ struct Engine(Movable):
         self.mv(cur, self.lw(i, 5), H, ATT, fa + OX * 4, True)
 
     def ssm(mut self, i: Int, s: Int, fa: Int, cur: Int):
-        self.mv(cur, self.lw(i, 0), CONV, H, fa + OQKV * 4, False)
-        self.mv(cur, self.lw(i, 1), INNER, H, fa + OZ * 4, False)
-        self.mv(cur, self.lw(i, 2), NH_V, H, fa + OGB * 4, False)
-        self.mv(cur, self.lw(i, 3), NH_V, H, fa + (OGB + NH_V) * 4, False)
+        self.seg(0, self.lw(i, 0), CONV, fa + OQKV * 4)
+        self.seg(1, self.lw(i, 1), INNER, fa + OZ * 4)
+        self.seg(2, self.lw(i, 2), NH_V, fa + OGB * 4)
+        self.seg(3, self.lw(i, 3), NH_V, fa + (OGB + NH_V) * 4)
+        self.mv_multi(cur, H, False, 4)
         for h in range(NH_V):
             var g = ssm_gates(self.f[OGB + h], self.f[OGB + NH_V + h], fp(self.lw(i, 5))[unsafe_offset=h], fp(self.lw(i, 6))[unsafe_offset=h])
             self.f[OGB + h] = g[0]
