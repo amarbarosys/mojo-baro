@@ -21,6 +21,7 @@ trap 'rc=$?; [ $rc = 0 ] || echo "FAIL $KEY: exit $rc at line $LINENO, see $OUT"
 field() { "$PY" -c "import json,sys; print(json.load(open('bench/quality-models.json'))['$KEY']['$1'])"; }
 gpu() { local t=$1; shift; gpu-wait run --vram "$((vram + 2))" --priority 20 --timeout "$t" -- "$@"; }
 baro_gguf=$(field baro_gguf); llama_gguf=$(field llama_gguf); engine=$(field engine); vram=$(field vram_gb)
+baro_gguf=${baro_gguf/#\~/$HOME}; llama_gguf=${llama_gguf/#\~/$HOME}
 llama_sha=$(git -C $HOME/llama.cpp rev-parse --short HEAD)
 echo "KEY=$KEY engine=$engine quick=$QUICK llama_gguf=$llama_gguf llama.cpp=$llama_sha head=$(git rev-parse --short HEAD)" | tee "$OUT/arm.txt"
 
@@ -42,7 +43,7 @@ TOK=http://127.0.0.1:$TOKP
 chunks=$([ "$QUICK" -gt 0 ] && echo 2 || echo 8)
 if [ "$engine" = spark ]; then
   mkdir -p "$OUT/prof"; .work/gen-profile "$baro_gguf" "$OUT/prof/profile.mojo" > "$OUT/build.log" 2>&1 || die build "$OUT/build.log"
-  "$MOJO" build "${ACCEL[@]}" serve/spark.mojo -I . -I kernels -I serve -I "$OUT/prof" -o "$OUT/engine-head" >> "$OUT/build.log" 2>&1 || die build "$OUT/build.log"
+  "$MOJO" build "${ACCEL[@]}" serve/spark.mojo -I "$OUT/prof" -I . -I kernels -I serve -I tools -o "$OUT/engine-head" >> "$OUT/build.log" 2>&1 || die build "$OUT/build.log"
 else
   dflag=(); [ "$engine" = moe ] && dflag=(-D BARO_MODEL=qwen35moe)
   "$MOJO" build "${ACCEL[@]}" serve/engine.mojo -I . -I kernels "${dflag[@]}" -o "$OUT/engine-head" > "$OUT/build.log" 2>&1 || die build "$OUT/build.log"

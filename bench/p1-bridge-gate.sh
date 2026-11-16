@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# usage: bench/p1-bridge-gate.sh MODEL [OUT]        MODEL = qwen25 | lily | ornith
+# usage: bench/p1-bridge-gate.sh MODEL [OUT]        MODEL = llama1b | ornith  (qwen25 and lily deleted 2026-11-15; the protocol's three-model matrix is now two)
 #
 # P1 gate 4 (bench/p1-bridge-protocol.md, frozen 599d8fd + amendment 1): E15's three models
 # continue in llama.cpp from OUR exported state.
@@ -20,7 +20,7 @@
 #        score end to end before any GPU minute (P15). No control N; never a gate result.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-name=${1:?usage: bench/p1-bridge-gate.sh qwen25|lily|ornith [OUT]}
+name=${1:?usage: bench/p1-bridge-gate.sh llama1b|ornith [OUT]}
 pre=${PREFLIGHT:-0}; falsify=${FALSIFY:-0}; quick=${QUICK:-20}; phase=${PHASE:-all}
 out=${2:-.work/fork/g4-gate/$name$([ "$pre" = 1 ] && echo -preflight || true)}
 server=${LLAMA_SERVER:-$HOME/llama.cpp/build/bin/llama-server}
@@ -31,8 +31,7 @@ tok=.work/fork/baro-tokenize
 refcache=$HOME/iTools/harness/refcache/refcache.sh
 py=./.venv/bin/python
 case "$name" in
-  qwen25) gguf=$HOME/Models/qwen2.5-7b-instruct-gguf/Qwen2.5-7B-Instruct-Q4_K_M.gguf; engine=.work/fork/g4/qwen25-spark/engine; pack=.work/fork/g4/qwen25-spark/pack; attn_only=1 ;;
-  lily)   gguf=$HOME/Models/lily-cybersecurity-7b-v0.2-q6_k/lily-cybersecurity-7b-v0.2-q6_k-BARO-04867e2.gguf; engine=.work/fork/g4/lily-spark/engine; pack=.work/fork/g4/lily-spark/pack; attn_only=1 ;;
+  llama1b) gguf=$HOME/Models/llama-3.2-1b-instruct-q4_K_M/Llama-3.2-1B-Instruct-Q4_K_M-BARO-38e5113.gguf; engine=.work/fork/g4/llama1b-spark/engine; pack=.work/llama1b/pack-kq; attn_only=1 ;;
   ornith) gguf=$HOME/Models/ornith-1.5-9b-q4_K_M/Ornith-1.5-9B-Q4_K_M-BARO-04867e2.gguf; engine=.work/fork/engine; pack=.work/fork/g4/ornith/pack; attn_only=0 ;;
   *) echo "FAIL setup: unknown model $name"; exit 1 ;;
 esac

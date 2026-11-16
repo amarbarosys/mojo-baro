@@ -11,7 +11,7 @@ set -euo pipefail
 OUT=${1:?out dir}; NP=${2:-3}; NT=${3:-32}
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 . "$REPO/bench/min16k.sh"; min16k "${Q4X_TMAX:-8192}" 16000
-GGUF=${Q4X_GGUF:-$HOME/Models/qwen3.8-flash-next/UD-IQ1_M/Qwen3.8-Flash-Next-UD-IQ1_M-00001-of-00003.gguf}
+GGUF=${Q4X_GGUF:-$HOME/Models/qwen3.8-flash-next/UD-IQ1_M/Qwen3.8-Flash-Next-UD-IQ1_M-BARO-d37ec15-00001-of-00003.gguf}
 SRV=$HOME/Projects/imports/llama.cpp-master/build/bin/llama-server
 if [ -z "${Q4X_GATE_INNER:-}" ]; then
   mkdir -p "$OUT"

@@ -13,7 +13,7 @@ set -euo pipefail
 ARM=${1:?arm}; SEL=${2:?sel}; ROOT=${3:?out root}; N=${4:-0}
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 C=$HOME/.cache/baro/latent-bridge; ITEMS=$C/data/items.tsv
-GGUF=$HOME/Models/qwen3.8-flash-next-gsq/Q2_0/Qwen3.8-Flash-Next-GSQ-RCO-Q2_0-00001-of-00002.gguf
+GGUF=$HOME/Models/qwen3.8-flash-next/UD-IQ1_M/Qwen3.8-Flash-Next-UD-IQ1_M-BARO-d37ec15-00001-of-00003.gguf
 Q4X=${Q4X_BIN:-$REPO/.work/lb/q4x-next}; LD=$REPO/.work/latent-data
 TAGN=$([ "$N" = 0 ] && echo "" || echo "-$N"); O=$ROOT/$ARM-$SEL$TAGN; mkdir -p "$O"
 SOFT_NORM=0.469174; IM_END=248046

@@ -52,8 +52,10 @@ def score_one(task, text):
     return exact, subset_match(parsed, task["expected"]), "" if exact else f"parsed {parsed!r} vs {task['expected']!r}"
 
 
-EOG_STRINGS = ["<|im_end|>", "<|eot_id|>", "<|endoftext|>", "<|end_of_text|>", "</s>", "<|end|>"]
-MAX_TOKENS = 300
+EOG_STRINGS = ["<|im_end|>", "<|eot_id|>", "<|endoftext|>", "<|end_of_text|>", "</s>", "<|end|>", "<turn|>", "<end_of_turn>"]
+# 300 is the repo's cap (thinking off). QUALITY_MAX_TOKENS overrides it: lane nerkyor-vs-forge sets 16000, because at 300 a reasoning-trained
+# model truncates most tasks (A: 93 of 120 finish=length) and a truncated task is void, not wrong.
+MAX_TOKENS = int(os.environ.get("QUALITY_MAX_TOKENS", "300"))
 
 
 def post(url, path, body, timeout=600):
@@ -79,6 +81,9 @@ def prep(a):
         toks = post(a.tok_url, "/tokenize", {"content": s, "add_special": False, "parse_special": True})["tokens"]
         if len(toks) == 1:
             eog.add(toks[0])
+    if not eog:
+        # an empty stop list lets every task of an engine arm run to the generation cap (lane nerkyor-vs-forge: 30 GPU minutes on Gemma, 2026-11-16)
+        sys.exit(f"FAIL prep: no end-of-turn token id found for this model (tried {EOG_STRINGS}); add its end-of-turn string to EOG_STRINGS")
     Path(a.out).mkdir(parents=True, exist_ok=True)
     (Path(a.out) / "prompts.json").write_text(json.dumps({"eog": sorted(eog), "items": items,
                                                           "chat_template_head": str(props.get("chat_template", ""))[:200]}))
@@ -148,6 +153,8 @@ def llama(a):
 
 
 def score(a):
+    # a degenerate digit loop (15,284 digits on Gemma, lane nerkyor-vs-forge) must score wrong or void, not crash the scorer
+    sys.set_int_max_str_digits(0)
     tasks = {t["id"]: t for t in json.loads(Path(a.tasks).read_text())}
     p = json.loads((Path(a.out) / "prompts.json").read_text())
     eog = set(p["eog"])
@@ -162,19 +169,23 @@ def score(a):
             toks = toks[:cut]
             text = post(a.tok_url, "/detokenize", {"tokens": toks})["content"] if toks else ""
             t = tasks[it["id"]]
+            trunc = (it.get("done") or {}).get("finish") == "length" or it.get("stop_type") == "limit"  # hit the cap: void, not wrong
             ok, sub, reason = score_one(t, text)
             exact += ok
             subset += sub
             items.append({"id": it["id"], "type": t["type"], "n_tokens": len(toks), "text": text,
-                          "correct_exact": ok, "correct_subset": sub, "reason": reason})
+                          "correct_exact": ok, "correct_subset": sub, "reason": reason, "truncated": trunc})
         n = len(items)
-        res[arm] = {"arm": arm, "n": n, "exact": exact, "subset": subset, "exact_pct": 100.0 * exact / n,
+        void = sum(1 for x in items if x["truncated"])
+        scored = sum(1 for x in items if not x["truncated"] and x["correct_exact"])
+        res[arm] = {"arm": arm, "n": n, "void": void, "exact_scored": scored, "exact": exact, "subset": subset, "exact_pct": 100.0 * exact / n,
                     "by_type": {ty: sum(1 for x in items if x["type"] == ty and x["correct_exact"]) for ty in ("math", "json")},
                     "items": items}
         (Path(a.out) / f"{arm}.json").write_text(json.dumps(res[arm], indent=1))
     same = sum(1 for x, y in zip(res["ours"]["items"], res["llama"]["items"]) if x["text"] == y["text"])
     print(f"ours {res['ours']['exact']}/{res['ours']['n']} {res['ours']['by_type']}  llama {res['llama']['exact']}/{res['llama']['n']} {res['llama']['by_type']}  "
-          f"delta_pp {res['ours']['exact_pct'] - res['llama']['exact_pct']:.1f}  identical outputs {same}/{res['ours']['n']}")
+          f"delta_pp {res['ours']['exact_pct'] - res['llama']['exact_pct']:.1f}  identical outputs {same}/{res['ours']['n']}  "
+          f"truncated (void) ours {res['ours']['void']} llama {res['llama']['void']}  correct on non-void ours {res['ours']['exact_scored']} llama {res['llama']['exact_scored']}")
 
 
 def main():

@@ -6,7 +6,7 @@
 set -euo pipefail
 OUT=${1:?usage: q4x-trace.sh OUT_DIR}
 REPO=$(cd "$(dirname "$0")/.." && pwd); . "$REPO/bench/min16k.sh"
-GGUF=${Q4X_GGUF:-$HOME/Models/qwen3.8-flash-next-gsq/Q2_0/Qwen3.8-Flash-Next-GSQ-RCO-Q2_0-00001-of-00002.gguf}
+GGUF=${Q4X_GGUF:-$HOME/Models/qwen3.8-flash-next/UD-IQ1_M/Qwen3.8-Flash-Next-UD-IQ1_M-BARO-d37ec15-00001-of-00003.gguf}
 ENGINE=${ENGINE:?ENGINE}; N1=${N1:-17}; N2=${N2:-49}; TMAX=${TMAX:-16384}; NP=${NP:-20}; EXTRA=${EXTRA:-}
 min16k "$TMAX" 16000
 if [ -z "${Q4X_TRACE_INNER:-}" ]; then

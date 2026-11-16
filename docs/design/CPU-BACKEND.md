@@ -129,6 +129,8 @@ loop), MTP, state export, vision, grammar.
                                                                  cpu/pool.mojo
 0b  Android runtime      trivial mojo binary runs on the phone    gates Android only
 0c  warp.sum order       read gfx1100 lowering, write CPU tree    byte test, one dot
+    (done 2026-11-15: `kernels/test_warp_sum_order.mojo` PASS, gfx1100 `warp.sum` == xor 1,2,4,8,16 tree, 4096 waves, lane 0 and all lanes bit-equal;
+    xor-desc, sequential and halving trees differ on 2562 to 2988 of 4096; receipt `exchange/receipts/away-sonnet/warp-sum-order.txt`)
 1   pack + q4/q8 dots    byte-equal vs q4_dot_lds / q8_row_dot    real layer rows
 2   rms, rope, act       byte-equal vs mega.mojo phases
 3   ssm step, attn step  byte-equal vs ssm_phases / attn_phases (non-dattn path)

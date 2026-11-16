@@ -16,9 +16,6 @@ struct Vocab(Copyable, Movable):
         self.eos_id = -1
         self.pad_id = -1
 
-    def bytes_of(self, token_id: Int) -> List[UInt8]:
-        return self.token_bytes[token_id].copy()
-
 
 def _gpt2_byte_to_cp() -> List[Int]:
     var printable: List[Int] = []

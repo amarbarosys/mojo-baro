@@ -5,6 +5,7 @@
 # EXPLORATORY, no verdict for the rest: the model with no system prompt and no chat template. Raw /v1/completions with plain text (and one lone
 # document-start token). Output ids are decoded with control tokens kept so nothing is hidden.
 set -euo pipefail
+echo "PARKED $(basename $0): runs the OrcaSAQ-2-27B bake (.work/bake27/verify3/pack), deleted 2026-11-15; a Turbo bake pack is needed (tools/baro) and nobody has built the engine arm" >&2; exit 3
 cd "$(dirname "$0")/.."; export LC_ALL=C
 . bench/min16k.sh; min16k 131072 16000
 out=$(realpath -m "${1:?usage: bench/naked.sh OUTDIR}"); mkdir -p "$out"

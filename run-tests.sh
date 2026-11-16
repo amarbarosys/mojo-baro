@@ -23,6 +23,7 @@ t .work/test_gemm "kernels/test_gemm.mojo -I kernels -Xlinker -L$S -Xlinker -lam
 t .work/test_moe_rows "kernels/test_moe_rows.mojo -I kernels" -- ./.work/test_moe_rows
 t .work/test_moe_wmma "kernels/test_moe_wmma.mojo -I kernels" -- ./.work/test_moe_wmma
 t .work/test_ssm_rows "kernels/test_ssm_rows.mojo -I kernels" -- ./.work/test_ssm_rows
+t .work/test_warp_sum_order "kernels/test_warp_sum_order.mojo -I kernels" -- ./.work/test_warp_sum_order
 # GQA-batched prefill attention byte-equal to the per-head decode kernel (MoE int8 KV, dense f32 KV)
 t .work/test_attn_gqa_moe "kernels/test_attn_gqa.mojo -I kernels -I serve -D BARO_MODEL=qwen35moe" -- ./.work/test_attn_gqa_moe
 t .work/test_attn_gqa "kernels/test_attn_gqa.mojo -I kernels -I serve" -- ./.work/test_attn_gqa
@@ -32,6 +33,7 @@ t .work/test_q4x_hostops "kernels/test_q4x_hostops.mojo -I kernels" -- ./.work/t
 t .work/test_gemv_kq "kernels/test_gemv_kq.mojo -I kernels -I tools" -- ./.work/test_gemv_kq
 t .work/test_gemv_kq_rows "kernels/test_gemv_kq_rows.mojo -I kernels -I tools" -- ./.work/test_gemv_kq_rows
 t .work/test_turbo_rows "kernels/test_turbo_rows.mojo -I kernels -I serve -I tools" -- ./.work/test_turbo_rows
+t .work/test_turbo_rows_q8 "kernels/test_turbo_rows_q8.mojo -I kernels -I serve -I tools" -- ./.work/test_turbo_rows_q8
 t .work/test_doorbell "kernels/test_doorbell.mojo -I kernels" -- ./.work/test_doorbell
 # kq batched prefill GEMM (dequant + WMMA) on real Ornith Q4_K / Q6_K rows vs the per-row GEMV, fp64 numpy oracle
 # (bench/llama-stint-protocol.md run 9). Needs a --kq pack; skipped loudly like test_prefix.
@@ -94,6 +96,9 @@ mkdir -p .work/katt
 # fused decode rope (q + k/v append, one launch) byte-equal to the two-launch path
 t .work/test_rope_qkv "kernels/test_rope_qkv.mojo -I kernels -I serve" -- ./.work/test_rope_qkv
 t .work/test_spark_attn "kernels/test_spark_attn.mojo -I kernels -I serve" tools/spark-attn-ref.py -- "./.work/test_spark_attn && ./.venv/bin/python tools/spark-attn-ref.py .work/katt"
+# gemma4 decode attention (8 query heads on 1 KV head; HD 256 / 512, window 512 / full, T up to 16384) vs the in-binary
+# f64 oracle at bar 1e-4: split counts 1..64, reversed page table, NaN outside the attended rows, three mutants that must miss
+t .work/test_gemma4_attn "kernels/test_gemma4_attn.mojo -I kernels -I serve" -- ./.work/test_gemma4_attn
 
 # serve/latent.mojo sat broken from 506e91d to 2e7b5d3 because nothing here
 # built it. This test names both mint and ingest, so the whole sidecar is

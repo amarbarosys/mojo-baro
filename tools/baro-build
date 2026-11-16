@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# usage: tools/baro-build PROFILE OUT [-D K=V ...]   build serve/engine.mojo with a profile's [build] flags
+# PROFILE: profiles/NAME.toml (or NAME). Extra -D flags are appended (a flag already in the profile fails the build:
+# "defined more than once"). Prints the full command, then builds; exit 1 with the log path on failure.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+[ $# -ge 2 ] || { echo "FAIL usage: tools/baro-build PROFILE OUT [-D K=V ...]"; exit 1; }
+p=$1; out=$2; shift 2
+[ -f "$p" ] || p=profiles/$p.toml
+[ -f "$p" ] || { echo "FAIL profile: $p not found"; exit 1; }
+prof=.work/profile
+if [ ! -x "$prof" ] || [ tools/profile.mojo -nt "$prof" ]; then
+  ./.venv/bin/mojo build tools/profile.mojo -I . -o "$prof" > .work/profile-build.log 2>&1 || { echo "FAIL profile tool build: .work/profile-build.log"; exit 1; }
+fi
+"$prof" check "$p" > /dev/null || { echo "FAIL profile: $p does not pass tools/profile check"; exit 1; }
+flags=$("$prof" build "$(basename "$p" .toml)")
+mkdir -p "$(dirname "$out")"
+echo "./.venv/bin/mojo build --target-accelerator gfx1100 serve/engine.mojo -I . -I kernels -I serve $flags $* -o $out"
+./.venv/bin/mojo build --target-accelerator gfx1100 serve/engine.mojo -I . -I kernels -I serve $flags "$@" -o "$out" > "$out.build.log" 2>&1 \
+  || { echo "FAIL build: $out.build.log"; grep -m3 error "$out.build.log" || true; exit 1; }
+echo "PASS baro-build $out ($(sha256sum "$out" | cut -c1-16))"

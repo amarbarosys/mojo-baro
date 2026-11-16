@@ -1,3 +1,4 @@
+from std.memory import bitcast
 from max.gpu import block_idx, thread_idx
 from max.gpu.memory import AddressSpace
 from max.gpu.sync import barrier
@@ -11,7 +12,7 @@ comptime NP_THREADS = 256
 # row of a [rows, stride] buffer, counts non-finite values in its first n
 # columns into Out[row]. Device-side so a probe costs one launch and an m-int
 # copy, not a host scan of the whole buffer.
-def amar_nonfinite_rows[dt: DType](
+def amar_nonfinite_rows[dt: DType, HASH: Bool = False](
     X: UnsafePointer[Scalar[dt], MutAnyOrigin],
     Out: UnsafePointer[Int32, MutAnyOrigin],
     stride: Int32, n: Int32,
@@ -22,8 +23,12 @@ def amar_nonfinite_rows[dt: DType](
     var c: Int32 = 0
     var i = t
     while i < Int(n):
-        if not isfinite(X[r * Int(stride) + i].cast[DType.float32]()):
-            c += 1
+        var v = X[r * Int(stride) + i].cast[DType.float32]()
+        comptime if HASH:
+            c += bitcast[DType.int32, 1](v)[0] * Int32(i | 1)
+        else:
+            if not isfinite(v):
+                c += 1
         i += NP_THREADS
     cnt[t] = c
     barrier()

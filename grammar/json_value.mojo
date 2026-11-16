@@ -288,7 +288,6 @@ def parse_json_bytes(var data: List[UInt8]) raises -> JSONDoc:
 def read_file_bytes(path: String) raises -> List[UInt8]:
     var f = open(path, "r")
     var text = f.read()
-    f.close()
     var b = text.as_bytes()
     var data: List[UInt8] = []
     for i in range(len(b)):

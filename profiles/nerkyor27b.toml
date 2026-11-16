@@ -1,0 +1,27 @@
+[profile]
+name = "nerkyor27b"
+model = "qwen35"
+description = "nerkyor Qwen3.8-27B Coder q4 pack (lane nerkyor-vs-forge): plain megakernel decode, MTP k=2 on the launch window; the defaults are the fastest paths that pass identity (docs/BASELINE.md nerkyor section)."
+source = "file"
+port = 8342
+speed = "2026-11-16: MTP k=2 70.5 tok/s_gen median (20 prompts, bench/kdefault-gate.sh), plain mega 42.1 (3 prompts, bench/gap-ab.sh)"
+receipt = "docs/lanes/2026-11-16-kdefault-report.md"
+
+[env]
+BARO_MEGA = "1"
+BARO_SPEC = "1"
+BARO_TMAX = "16384"
+MODULAR_DEVICE_CONTEXT_MEMORY_MANAGER_SIZE_PERCENT = "2"
+
+[build]
+BARO_MODEL = "qwen35"
+BARO_H = "5120"
+BARO_N_LAYERS = "64"
+BARO_NQH = "24"
+BARO_FFN = "17408"
+BARO_SSM_NH_V = "48"
+BARO_YARN = "0"
+BARO_SEQ_CAP = "1"
+BARO_SLOTS = "9"
+BARO_DOT_UNROLL = "2"
+BARO_TURBO = "1"

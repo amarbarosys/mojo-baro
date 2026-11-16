@@ -1631,23 +1631,22 @@ fn tool_name_regexes(tools: Option<&Value>, force: &str, xml: bool) -> (Option<S
 fn parse_tool_calls(text: &str) -> (String, Vec<ToolCall>) {
     let mut calls = Vec::new();
     let mut rest = text;
-    let mut first_start: Option<usize> = None;
+    let mut pieces: Vec<&str> = Vec::new();
     while let Some(start) = rest.find("<tool_call>") {
-        if first_start.is_none() {
-            first_start = Some(text.len() - rest.len() + start);
-        }
+        pieces.push(&rest[..start]);
         let after_open = &rest[start + "<tool_call>".len()..];
-        let Some(end) = after_open.find("</tool_call>") else { break };
+        let Some(end) = after_open.find("</tool_call>") else {
+            rest = "";
+            break;
+        };
         let body = &after_open[..end];
         if let Some(call) = parse_one_tool_call(body) {
             calls.push(call);
         }
         rest = &after_open[end + "</tool_call>".len()..];
     }
-    let content = match first_start {
-        Some(i) => text[..i].trim().to_string(),
-        None => text.trim().to_string(),
-    };
+    pieces.push(rest);
+    let content = pieces.iter().map(|p| p.trim()).filter(|p| !p.is_empty()).collect::<Vec<_>>().join("\n");
     (content, calls)
 }
 
@@ -1688,6 +1687,80 @@ struct ToolDelta {
 }
 
 /// Where the streaming parser is in one tool call; written only by `ToolStream::next_tool_delta` and `push`.
+/// Splits `<think>...</think>` reasoning off generated text (llama.cpp `reasoning_format: deepseek`).
+/// `open` starts true when the rendered prompt ends inside `<think>` (Qwen3 templates open it there), so the
+/// output carries only the closing tag. Text before `</think>` is reasoning; a partial tag at a chunk edge is held.
+#[derive(Default)]
+struct ThinkSplit {
+    open: bool,
+    started: bool,
+    held: String,
+    /// Set at `</think>`: whitespace before the first content byte is dropped, across chunks.
+    trim: bool,
+}
+
+impl ThinkSplit {
+    fn new(open: bool) -> Self {
+        ThinkSplit { open, started: open, held: String::new(), trim: false }
+    }
+
+    /// (reasoning, content) of this chunk.
+    fn push(&mut self, text: &str) -> (String, String) {
+        let mut buf = std::mem::take(&mut self.held);
+        buf.push_str(text);
+        if !self.started {
+            let lead = buf.trim_start();
+            if lead.is_empty() || "<think>".starts_with(lead) {
+                self.held = buf;
+                return (String::new(), String::new());
+            }
+            self.started = true;
+            if let Some(rest) = lead.strip_prefix("<think>") {
+                self.open = true;
+                buf = rest.to_string();
+            }
+        }
+        if !self.open {
+            return (String::new(), self.lead(buf));
+        }
+        if let Some(i) = buf.find("</think>") {
+            self.open = false;
+            self.trim = true;
+            let content = self.lead(buf[i + "</think>".len()..].to_string());
+            return (buf[..i].to_string(), content);
+        }
+        let keep = (1..="</think>".len()).rev().find(|&k| buf.len() >= k && buf.is_char_boundary(buf.len() - k) && "</think>".starts_with(&buf[buf.len() - k..])).unwrap_or(0);
+        self.held = buf[buf.len() - keep..].to_string();
+        buf.truncate(buf.len() - keep);
+        (buf, String::new())
+    }
+
+    fn lead(&mut self, text: String) -> String {
+        if !self.trim {
+            return text;
+        }
+        let t = text.trim_start();
+        self.trim = t.is_empty();
+        t.to_string()
+    }
+
+    /// The generation ended: whatever is held goes out (reasoning if still open).
+    fn finish(&mut self) -> (String, String) {
+        let rest = std::mem::take(&mut self.held);
+        if self.open { (rest, String::new()) } else { (String::new(), rest) }
+    }
+
+    /// Whole-text form for the non-streaming response.
+    fn split(open: bool, text: &str) -> (String, String) {
+        let mut t = ThinkSplit::new(open);
+        let (mut r, mut c) = t.push(text);
+        let (r2, c2) = t.finish();
+        r.push_str(&r2);
+        c.push_str(&c2);
+        (r.trim().to_string(), c)
+    }
+}
+
 #[derive(Default, Clone, Copy, PartialEq, Debug)]
 enum ToolPhase {
     /// No `<tool_call>` seen: text passes through (holding back a possible marker prefix).
@@ -1713,6 +1786,8 @@ struct ToolStream {
     /// Calls finished so far: the index of the call being parsed.
     call: usize,
     phase: ToolPhase,
+    /// Text found between two calls (A-M13); `take_gap` hands it to the chunk being built.
+    gap: String,
 }
 
 impl ToolStream {
@@ -1720,9 +1795,21 @@ impl ToolStream {
         self.phase != ToolPhase::Text
     }
 
+    fn take_gap(&mut self) -> String {
+        std::mem::take(&mut self.gap)
+    }
+
     fn finish_content(&mut self) -> String {
+        if self.phase == ToolPhase::Closed {
+            // Text after the last `</tool_call>` is message content too (A-M13).
+            let after = self.raw[self.scan..].find("</function>").map_or(self.scan, |i| self.scan + i + "</function>".len());
+            let tail = self.raw[after..].split_once("</tool_call>").map_or("", |(_, t)| t.trim()).to_string();
+            let mut out = self.take_gap();
+            out.push_str(&tail);
+            return out;
+        }
         if self.has_tool() {
-            return String::new();
+            return self.take_gap();
         }
         let content = self.raw[self.content_sent..].to_string();
         self.content_sent = self.raw.len();
@@ -1773,6 +1860,11 @@ impl ToolStream {
                 // Another `<tool_call>` after the closed one is the next call of the same message (as parse_tool_calls does).
                 let after = self.raw[self.scan..].find("</function>").map_or(self.scan, |i| self.scan + i + "</function>".len());
                 let i = self.raw[after..].find("<tool_call>")? + after;
+                let between = self.raw[after..i].replacen("</tool_call>", "", 1);
+                if !between.trim().is_empty() {
+                    self.gap.push_str(between.trim());
+                    self.gap.push('\n');
+                }
                 self.marker = i;
                 self.call += 1;
                 self.params = 0;
@@ -2003,6 +2095,7 @@ async fn chat_once(app: Shared, r: ChatReq) -> Result<Response, ApiError> {
         .apply_chat_template(&msgs, tools.as_ref(), r.chat_template_kwargs.as_ref())
         .map_err(|e| ApiError::Plain(StatusCode::INTERNAL_SERVER_ERROR, e))?;
     rendered.push_str(&force);
+    let think_open = rendered.trim_end().ends_with("<think>");
     let tool_re = if schema.is_some() || !t.tool_wire_known() { (None, None) } else { tool_name_regexes(tools.as_ref(), &force, t.tool_wire_xml()) };
     // A5: the rendered prompt is otherwise invisible to a caller (no
     // endpoint returns it directly); a debug print is the brief's own
@@ -2095,17 +2188,23 @@ async fn chat_once(app: Shared, r: ChatReq) -> Result<Response, ApiError> {
         let created = now();
         let mut first = true;
         let mut tool_stream = ToolStream::default();
+        let mut think = ThinkSplit::new(think_open);
         let sse = sse_stream(app.clone(), rx, move |_, kind| match kind {
             ChunkKind::Delta { text, token, logprob } => {
                 let text = if first { format!("{force}{text}") } else { text };
-                let (content, tool) = tool_stream.push(&text);
+                let (reasoning, text) = think.push(&text);
+                let (mut content, tool) = tool_stream.push(&text);
+                // One chunk can finish several fragments, and a message can hold several calls.
+                let tools: Vec<Value> = tool.into_iter().chain(tool_stream.drain()).map(tool_delta_entry).collect();
+                content.push_str(&tool_stream.take_gap());
                 let mut delta = json!({"content": content});
+                if !reasoning.is_empty() {
+                    delta["reasoning_content"] = json!(reasoning);
+                }
                 if first {
                     first = false;
                     delta["role"] = json!("assistant");
                 }
-                // One chunk can finish several fragments, and a message can hold several calls.
-                let tools: Vec<Value> = tool.into_iter().chain(tool_stream.drain()).map(tool_delta_entry).collect();
                 if !tools.is_empty() {
                     delta["tool_calls"] = Value::Array(tools);
                     if delta["content"] == "" {
@@ -2123,8 +2222,13 @@ async fn chat_once(app: Shared, r: ChatReq) -> Result<Response, ApiError> {
                 "id": id, "object": "chat.completion.chunk", "created": created, "model": model,
                 "logits_topk": logits_topk_json(&values), "choices": []}),
             ChunkKind::Finish { reason, stats, tokens } => {
-                let tail = tool_stream.finish_content();
+                let (reasoning, held) = think.finish();
+                let (mut tail, _) = tool_stream.push(&held);
+                tail.push_str(&tool_stream.finish_content());
                 let mut delta = json!({"content": tail});
+                if !reasoning.is_empty() {
+                    delta["reasoning_content"] = json!(reasoning);
+                }
                 if let Some(close) = tool_stream.finish_tool() {
                     delta["tool_calls"] = tool_delta_json(close);
                 }
@@ -2145,8 +2249,12 @@ async fn chat_once(app: Shared, r: ChatReq) -> Result<Response, ApiError> {
     let reason = acc.finish_reason(stats.get("finish").and_then(Value::as_str));
     // A5: tool_calls parsed out of the generated text for the non-streaming
     // response. The streaming path emits the same calls incrementally.
-    let (content, calls) = parse_tool_calls(&format!("{force}{text_out}"));
+    let (reasoning, text_out) = ThinkSplit::split(think_open, &format!("{force}{text_out}"));
+    let (content, calls) = parse_tool_calls(&text_out);
     let mut message = json!({"role": "assistant", "content": content});
+    if !reasoning.is_empty() {
+        message["reasoning_content"] = json!(reasoning);
+    }
     let reason = if calls.is_empty() { reason } else { "tool_calls".to_string() };
     if !calls.is_empty() {
         message["tool_calls"] = tool_calls_response_json(&calls);
@@ -2174,6 +2282,30 @@ async fn latent_resume(State(_app): State<Shared>, Json(_body): Json<serde_json:
 #[cfg(test)]
 mod a5_tests {
     use super::*;
+
+    #[test]
+    fn think_split_open_prompt_and_tagged_output() {
+        assert_eq!(ThinkSplit::split(true, "plan it\n</think>\n\nAGENT_42"), ("plan it".into(), "AGENT_42".into()));
+        assert_eq!(ThinkSplit::split(false, "<think>x</think>answer"), ("x".into(), "answer".into()));
+        assert_eq!(ThinkSplit::split(false, "plain answer"), ("".into(), "plain answer".into()));
+        assert_eq!(ThinkSplit::split(true, "cut off mid thought"), ("cut off mid thought".into(), "".into()));
+    }
+
+    #[test]
+    fn think_split_streams_a_tag_split_across_chunks() {
+        let mut t = ThinkSplit::new(true);
+        let mut r = String::new();
+        let mut c = String::new();
+        for piece in ["reason", "ing</th", "ink>", "\n\n", "AGENT", "_42"] {
+            let (a, b) = t.push(piece);
+            r.push_str(&a);
+            c.push_str(&b);
+        }
+        let (a, b) = t.finish();
+        r.push_str(&a);
+        c.push_str(&b);
+        assert_eq!((r.as_str(), c.as_str()), ("reasoning", "AGENT_42"));
+    }
 
     #[test]
     fn tool_names_become_the_engine_regexes() {
@@ -2307,6 +2439,30 @@ mod a5_tests {
         assert_eq!(cut.finish_tool().unwrap().arguments, "}");
         assert!(cut.finish_tool().is_none());
         assert_eq!(tool_delta_entry(ToolDelta { index: 1, name: Some("b".into()), arguments: String::new() })["id"], "call_1");
+    }
+
+    /// A-M13: text between two calls and after the last one is message content in both paths (it was dropped).
+    #[test]
+    fn text_between_and_after_calls_is_kept() {
+        let raw = "before\n<tool_call><function=a></function></tool_call>\nmiddle\n<tool_call><function=b></function></tool_call>\nafter";
+        let (content, calls) = parse_tool_calls(raw);
+        assert_eq!((content.as_str(), calls.len()), ("before\nmiddle\nafter", 2));
+        let (content, calls) = parse_tool_calls("x <tool_call><function=a></function></tool_call> y <tool_call><function=b>");
+        assert_eq!((content.as_str(), calls.len()), ("x\ny", 1));
+        let mut stream = ToolStream::default();
+        let mut streamed = String::new();
+        let mut names = Vec::new();
+        for chunk in raw.as_bytes().chunks(7) {
+            let (c, first) = stream.push(std::str::from_utf8(chunk).unwrap());
+            streamed.push_str(&c);
+            for d in first.into_iter().chain(stream.drain()) {
+                names.extend(d.name);
+            }
+            streamed.push_str(&stream.take_gap());
+        }
+        streamed.push_str(&stream.finish_content());
+        assert_eq!(names, vec!["a", "b"]);
+        assert_eq!(streamed.split_whitespace().collect::<Vec<_>>(), vec!["before", "middle", "after"]);
     }
 
     #[test]

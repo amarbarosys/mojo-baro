@@ -10,7 +10,7 @@
 set -euo pipefail
 OUT=${1:?usage: q4x-ab.sh OUT_DIR ENV_A ENV_B}; EA=${2:-}; EB=${3:-}
 REPO=$(cd "$(dirname "$0")/.." && pwd); . "$REPO/bench/min16k.sh"; . "$REPO/bench/pcie-link.sh"
-GGUF=${Q4X_GGUF:-$HOME/Models/qwen3.8-flash-next-gsq/Q2_0/Qwen3.8-Flash-Next-GSQ-RCO-Q2_0-00001-of-00002.gguf}
+GGUF=${Q4X_GGUF:-$HOME/Models/qwen3.8-flash-next/UD-IQ1_M/Qwen3.8-Flash-Next-UD-IQ1_M-BARO-d37ec15-00001-of-00003.gguf}
 ENGINE=${ENGINE:?ENGINE}; ENGINE_A=${ENGINE_A:-$ENGINE}; NG=${NG:-64}; TMAX=${TMAX:-16384}; EXTRA=${EXTRA:-}; PROMPTS=${PROMPTS:-bench/q4x-prompts/*.prompt}
 min16k "$TMAX" 16000
 [ "$EA" != "$EB" ] || [ "$ENGINE_A" != "$ENGINE" ] || { echo "REFUSED: both arms have the same env string (champion against itself)"; exit 1; }

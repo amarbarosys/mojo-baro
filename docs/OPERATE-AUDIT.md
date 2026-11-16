@@ -18,7 +18,7 @@ measured the row says so.
 | **Structured output (JSON schema)** | request field response_format with a JSON schema | off | Use it whenever a program parses the answer: a token mask on the device stops the model emitting a token that breaks the schema. Dense engine; the spark engine's version is implemented with its live gate UNVERIFIED. [README.md:329-330; docs/CAPABILITIES.md:130; docs/grammar.md] | WORKS | MISSING | parse the answer with the schema; grammar gate `grammar/` |
 | **Multi-turn prefix cache** | automatic: each message boundary is checkpointed | on | Send the whole history each turn as usual; a follow-up prefills only the new message. [README.md:331-332] | WORKS | Chat tab (uses it) | `usage.baro.cached_tokens` in the response |
 | **Fail word and HTTP 502** | automatic | on | Always read `timings.fail`; a non-zero fail word returns HTTP 502 `engine_invalid_tokens`, never a 200 with bad text. [README.md:333-335; face/dash.mojo] | WORKS | Engine panel (fail word) | `timings.fail`; HTTP status |
-| **Speculative decoding (MTP draft head)** | BARO_SPEC=1, BARO_SPEC_K (draft tokens per window) | on for dense packs, K=2; unconditionally off on MoE | Keep on with K=2 for dense packs that carry an MTP head: Qwythos-9B 148.89 tok/s spec off vs 150.96 at k=2 (README). The 27B models gain most: 46.03 vs 69 to 70 (OrcaSAQ-2-27B), 39.3 vs 63.6 (Qwen3.8-27B). A K=4 verify window on the MoE q4x engine FAILS (B/A 1.095). [README.md:246-250; docs/CAPABILITIES.md:28, 404] | WORKS | Engine tab (BARO_SPEC basic; BARO_SPEC_K advanced); presets Fast, Balanced | GET /health `limits.spec_k`; `timings.path` and tok/s with BARO_SPEC=0 vs 1, same prompt, 20-prompt median |
+| **Speculative decoding (MTP draft head)** | BARO_SPEC=1, BARO_SPEC_K (draft tokens per window), BARO_FR (FR-Spec: 62080-row draft head, on when the pack has frdraft.ids) | on for dense packs, K=2, FR-Spec draft head on (tools/baro adds the FR table to qwen35 packs and exports BARO_FR=1); unconditionally off on MoE | Keep on with K=2 and BARO_FR=1 (2026-11-16: q4 pack 20-prompt 1.088x, identity 20/20, GPU J/tok -10.6%; q8 serving pack +9.6% tok/s, -9.6% J/tok, acceptance -3.7 pt; k=3 no better than k=2). for dense packs that carry an MTP head: Qwythos-9B 148.89 tok/s spec off vs 150.96 at k=2 (README). The 27B models gain most: 46.03 vs 69 to 70 (OrcaSAQ-2-27B), 39.3 vs 63.6 (Qwen3.8-27B). A K=4 verify window on the MoE q4x engine FAILS (B/A 1.095). [README.md:246-250; docs/CAPABILITIES.md:28, 404; docs/BASELINE.md FR-Spec section] | WORKS | Engine tab (BARO_SPEC basic; BARO_SPEC_K advanced); presets Fast, Balanced | engine log `BARO_FR: True k 62080` (tools/fr-serve-check.sh); GET /health `limits.spec_k`; `timings.path` and tok/s with BARO_SPEC=0 vs 1, same prompt, 20-prompt median |
 | **Persistent megakernel** | BARO_MEGA=1 | 1 on dense, 0 on MoE | Leave the default. On Mojo 1.2 the K-quant megakernel is slower than the launch path (87.90 vs 98.29 tok/s, cause open): on a K-quant pack under Mojo 1.2 set BARO_MEGA=0. [docs/CAPABILITIES.md:418; docs/BASELINE.md; docs/releases/v0.6.0.md (known limits)] | WORKS | Engine tab (basic toggle); presets Fast, Balanced | tok/s of the same prompt with BARO_MEGA=0 and 1; `timings.path` |
 | **int8 KV cache** | BARO_KVQ=int8 (dense and MoE; build and engine restart) | f32 | Use int8 when f32 KV does not fit: 33,280 bytes per token instead of 131,072, a dense 27B loads to 163,840 tokens, RULER niah_single 100.0 at 64k and 128k, agreement with f32 99.1% mean and 96.9% worst over 20 prompts. The state handoff needs f32 KV. [docs/CAPABILITIES.md int8 KV row; docs/models/orcasaq-2-27b.md; bench/min16k.sh] | OFF | Engine tab (BARO_KVQ basic); presets Low VRAM, Long context. CAUTION: BARO_KVQ is a build flag (-D); the Apply path passes it as an env variable and tools/baro turns only a profile [build] section into -D flags (tools/baro:153-181, static read, not run): read GET /props after Apply before believing it took effect | no endpoint shows the KV type (README.md:315 says /props does; serve/src/main.rs:506-519 returns only n_ctx and model): compare `pack-fit PACK --tmax N` and the memory used |
 | **Context window** | BARO_TMAX (engine restart). Dense models (llama, qwen2, granite): tools/baro serve rebuilds the engine once per value (about 35 s, own cache slot); the bare dense engine ignores it. Check /health limits.tmax | 16384 in the face and tools/baro; baro-serve 32768; the bare engine 1088 | Never below 16384. Prefill is quadratic in the prompt (Qwen2.5-7B q4_K_M: 14.8k tokens 39 s, 61k tokens 617 s), so a 98304 window is cheap to hold (19.9 GB VRAM) and expensive to fill. Size it against FREE VRAM, measured (`rocm-smi --showmeminfo vram`, then `pack-fit PACK --tmax N --used-gb X`); the desktop and other GPU programs count. [README.md:405-408; face/apply.mojo; bench/min16k.sh] | WORKS | Engine tab (BARO_TMAX basic); Apply shows the pack-fit verdict and blocks on NO | GET /health `limits.tmax` (and /props `default_generation_settings.n_ctx`); `pack-fit` |
@@ -46,7 +46,7 @@ measured the row says so.
 
 ## 2. Every setting
 
-189 entries of `docs/settings.toml`. Kind: env (engine, read at run time), build (`-D` flag, rebuild), server-env (baro-serve),
+208 entries of `docs/settings.toml`. Kind: env (engine, read at run time), build (`-D` flag, rebuild), server-env (baro-serve),
 shell (`tools/baro`), request (a request field), external (read by MAX). Internal = status bench-only (benches, tests, probes).
 In GUI: the face lists every setting of group sampling, engine, model and front, Basic or behind the Advanced toggle (`face/settings.mojo:157-159`).
 
@@ -100,10 +100,10 @@ In GUI: the face lists every setting of group sampling, engine, model and front,
 | `BARO_ATT_SPLIT_T` | env | unset | yes | stable | none recorded | Engine tab, Advanced toggle | - |
 | `BARO_DOT` | env | `false` | yes | stable | none recorded | Engine tab, Advanced toggle | - |
 | `BARO_KVTAB` | env | `identity` | yes | bench-only (internal) | internal, no standard | Engine tab, Advanced toggle | - |
-| `BARO_SPEC` | env | `true` | yes | stable | Speculative decoding (MTP draft head): see section 1 | Engine tab | GET /health `limits.spec_k`; `timings.path` and tok/s with BARO_SPEC=0 vs 1, same prompt, 20-prompt median |
-| `BARO_SPEC_K` | env | `2` | yes | stable | Speculative decoding (MTP draft head): see section 1 | Engine tab, Advanced toggle | GET /health `limits.spec_k`; `timings.path` and tok/s with BARO_SPEC=0 vs 1, same prompt, 20-prompt median |
+| `BARO_SPEC` | env | `true` | yes | stable | Speculative decoding (MTP draft head): see section 1 | Engine tab | engine log `BARO_FR: True k 62080` (tools/fr-serve-check.sh); GET /health `limits.spec_k`; `timings.path` and tok/s with BARO_SPEC=0 vs 1, same prompt, 20-prompt median |
+| `BARO_SPEC_K` | env | `2` | yes | stable | Speculative decoding (MTP draft head): see section 1 | Engine tab, Advanced toggle | engine log `BARO_FR: True k 62080` (tools/fr-serve-check.sh); GET /health `limits.spec_k`; `timings.path` and tok/s with BARO_SPEC=0 vs 1, same prompt, 20-prompt median |
 | `BARO_SPEC_DBG` | env | `false` | yes | bench-only (internal) | internal, no standard | Engine tab, Advanced toggle | - |
-| `BARO_FR` | env | `false` | yes | stable | none recorded | Engine tab, Advanced toggle | - |
+| `BARO_FR` | env | `true` | yes | stable | Speculative decoding (MTP draft head): see section 1 | Engine tab, Advanced toggle | engine log `BARO_FR: True k 62080` (tools/fr-serve-check.sh); GET /health `limits.spec_k`; `timings.path` and tok/s with BARO_SPEC=0 vs 1, same prompt, 20-prompt median |
 | `BARO_NGRAM` | env | `false` | yes | stable | none recorded | Engine tab, Advanced toggle | - |
 | `BARO_NGRAM_MIN` | env | `1` | yes | stable | none recorded | Engine tab, Advanced toggle | - |
 | `BARO_TIER` | env | unset | yes | stable | Expert tier (MoE in host RAM): see section 1 | Engine tab | `pack-fit PACK --tmax N --tier CAP --used-gb X`; GET /health `limits.tier`; tok/s |
@@ -189,6 +189,7 @@ In GUI: the face lists every setting of group sampling, engine, model and front,
 | `BARO_STEER_SERVE` | env | `false` | yes | experimental | none recorded | Engine tab, Advanced toggle | - |
 | `BARO_CAPTURE` | env | unset | yes | experimental | none recorded | Engine tab, Advanced toggle | - |
 | `BARO_CAPTURE_LAYERS` | env | unset | yes | experimental | none recorded | Engine tab, Advanced toggle | - |
+| `BARO_TEST_FAILWORD` | env | unset | yes | experimental | none recorded | Engine tab, Advanced toggle | - |
 | `BARO_CAPTURE_FIELDS` | env | `xyr` | yes | experimental | none recorded | Engine tab, Advanced toggle | - |
 | `BARO_CAPTURE_MODEL` | env | unset | yes | experimental | none recorded | Engine tab, Advanced toggle | - |
 | `BARO_IMPLANTS` | env | unset | yes | experimental | none recorded | Engine tab, Advanced toggle | - |
@@ -211,7 +212,11 @@ In GUI: the face lists every setting of group sampling, engine, model and front,
 | `BARO_VOCAB` | build | `248320` | yes | stable | none recorded | Model tab, Advanced toggle | - |
 | `BARO_PACK` | env | `.work/moe-w1/pack` | yes | stable | Context window: see section 1 | Model tab | GET /health `limits.tmax` (and /props `default_generation_settings.n_ctx`); `pack-fit` |
 | `BARO_GGUF` | env | unset | yes | stable | none recorded | Model tab, Advanced toggle | - |
-| `BARO_TURBO` | build | `false` | yes | stable | none recorded | Model tab, Advanced toggle | - |
+| `BARO_TURBO` | build | `true` | yes | stable | none recorded | Model tab, Advanced toggle | - |
+| `BARO_TURBO_Q8` | build | `false` | yes | experimental | none recorded | Model tab, Advanced toggle | - |
+| `BARO_TURBO_DOT2` | build | `true` | yes | experimental | none recorded | Model tab, Advanced toggle | - |
+| `BARO_WIN_LDS` | build | `true` | yes | experimental | none recorded | Model tab, Advanced toggle | - |
+| `BARO_WIN_DCH` | build | `3` | yes | experimental | none recorded | Model tab, Advanced toggle | - |
 | `BARO_DRAFT_Q4` | env | `false` | yes | stable | none recorded | Model tab, Advanced toggle | - |
 | `BARO_DRAFT_CACHE_ONLY` | env | `false` | yes | stable | none recorded | Model tab, Advanced toggle | - |
 | `BARO_WEIGHTS_EXPORT` | env | unset | yes | stable | none recorded | Model tab, Advanced toggle | - |
@@ -241,6 +246,20 @@ In GUI: the face lists every setting of group sampling, engine, model and front,
 | `BARO_EMBED_BIN` | server-env | `~/.cache/baro/embed/serve_embed` | yes | stable | Embeddings (bge-small-en-v1.5, CPU): see section 1 | Front tab, Advanced toggle | `bench/embed-gate.sh` (30 texts against ONNX, cosine >= 0.9999) |
 | `BARO_EMBED_MODEL` | server-env | `~/Models/bge-small-en-v1.5` | yes | stable | Embeddings (bge-small-en-v1.5, CPU): see section 1 | Front tab, Advanced toggle | `bench/embed-gate.sh` (30 texts against ONNX, cosine >= 0.9999) |
 | `BARO_EMBED_NORM` | server-env | `~/.cache/baro/embed/norm.tsv` | yes | stable | Embeddings (bge-small-en-v1.5, CPU): see section 1 | Front tab, Advanced toggle | `bench/embed-gate.sh` (30 texts against ONNX, cosine >= 0.9999) |
+| `BARO_SUMPROBE` | env | `0` | yes | experimental | none recorded | Engine tab, Advanced toggle | - |
+| `BARO_POISON` | env | empty | yes | experimental | none recorded | Engine tab, Advanced toggle | - |
+| `BARO_PG_FROM` | env | `0` | yes | experimental | none recorded | Engine tab, Advanced toggle | - |
+| `BARO_PG_TO` | env | `1000000` | yes | experimental | none recorded | Engine tab, Advanced toggle | - |
+| `BARO_MEGA_PROF` | env | `0` | yes | experimental | none recorded | Engine tab, Advanced toggle | - |
+| `BARO_PACK_Q4_AUTO` | shell | `true` | yes | stable | none recorded | Model tab, Advanced toggle | - |
+| `BARO_KV_ROUTE` | env | unset | yes | bench-only (internal) | internal, no standard | Engine tab, Advanced toggle | - |
+| `BARO_CTX_MAX` | env | unset | yes | stable | none recorded | Engine tab, Advanced toggle | - |
+| `BARO_TMAX_HEADROOM_GB` | env | unset | yes | stable | none recorded | Engine tab, Advanced toggle | - |
+| `BARO_DFLASH_PACK` | env | `.work/dflash2/draft-pack` | yes | experimental | none recorded | Engine tab, Advanced toggle | - |
+| `BARO_DF_DOT` | env | `true` | yes | experimental | none recorded | Engine tab, Advanced toggle | - |
+| `BARO_DF_PROF` | env | `false` | yes | experimental | none recorded | Engine tab, Advanced toggle | - |
+| `BARO_DF_SHIFT` | env | `0` | yes | experimental | none recorded | Engine tab, Advanced toggle | - |
+| `BARO_FEWROW` | build | `false` | yes | experimental | none recorded | Engine tab, Advanced toggle | - |
 
 ## 3. Command-line flags
 
@@ -267,13 +286,14 @@ In GUI: the face lists every setting of group sampling, engine, model and front,
 
 ## 4. Gaps
 
-### Read by the code, not in `docs/settings.toml` (34)
+### Read by the code, not in `docs/settings.toml` (35)
 
 Found by the scan described at the top of `tools/operate-audit.mojo` (production directories). `tools/settings-check` covers `serve/*.mojo`, `kernels/`,
 `tools/*.mojo`, `serve/src/*.rs` and `tools/baro`, but not `serve/src/bin/`, `face/`, `cpu/`, `embed/` or other shell scripts.
 
 | name | read at |
 | --- | --- |
+| `BARO_BUILD_FLAGS` | tools/bake.sh:68 |
 | `BARO_CHAT_TEMPLATE_FILE` | tools/test_server.sh:37 |
 | `BARO_DEVICES` | tools/baro-multi-serve:17 |
 | `BARO_EMBED_DIR` | embed/build.sh:2 |
@@ -282,23 +302,23 @@ Found by the scan described at the top of `tools/operate-audit.mojo` (production
 | `BARO_KVG` | tools/state_diff.mojo:14 |
 | `BARO_MMPROJ` | serve/src/vision.rs:30 |
 | `BARO_MTMD_EMBED` | serve/src/vision.rs:29 |
-| `BARO_MTP_STATS` | tools/bake.sh:65 |
+| `BARO_MTP_STATS` | tools/bake.sh:66 |
 | `BARO_MULTI_WORK` | tools/baro-multi-serve:29 |
-| `BARO_PACK_TOOL` | tools/bake.sh:71 |
+| `BARO_PACK_TOOL` | tools/baro-rebake.sh:85 |
 | `BARO_REBAKE_REF` | tools/baro-rebake.sh:61 |
 | `BARO_ROUTER_ADMIN_TOKEN` | serve/src/bin/router.rs:987 |
 | `BARO_ROUTER_ADVERTISE_IP` | serve/src/bin/router.rs:1225 |
 | `BARO_ROUTER_ENGINES` | serve/src/bin/router.rs:376 |
 | `BARO_ROUTER_MDNS_HOST` | serve/src/bin/router.rs:295 |
 | `BARO_ROUTER_NODE_ID` | serve/src/bin/router.rs:1143 |
-| `BARO_RUN_ENV` | tools/bake.sh:72 |
+| `BARO_RUN_ENV` | tools/baro-rebake.sh:71 |
 | `BARO_TEXT_GGUF` | serve/src/vision.rs:31 |
 | `BARO_THREADS` | cpu/engine_cpu.mojo:324 |
 | `BARO_TTS_BIN` | serve/src/audio.rs:98 |
 | `BARO_TTS_OUT_DIR` | serve/src/audio.rs:100 |
 | `BARO_TTS_TIMEOUT_SECS` | serve/src/audio.rs:101 |
 | `BARO_TTS_VOICE` | serve/src/audio.rs:99 |
-| `BARO_TUNE_TABLE` | tools/bake.sh:57 |
+| `BARO_TUNE_TABLE` | tools/bake.sh:58 |
 | `BARO_VISION_DIR` | serve/src/vision.rs:33 |
 | `BARO_WHISPER_BEAM` | serve/src/audio.rs:92 |
 | `BARO_WHISPER_BIN` | serve/src/audio.rs:89 |

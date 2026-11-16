@@ -10,7 +10,7 @@
 set -euo pipefail
 OUT=${1:?usage: q4x-spec.sh OUT N_PROMPTS N_TOK [K]}; NP=${2:?}; NT=${3:?}; K=${4:-3}
 REPO=$(cd "$(dirname "$0")/.." && pwd)
-GGUF=${Q4X_GGUF:-$HOME/Models/qwen3.8-flash-next-gsq/Q2_0/Qwen3.8-Flash-Next-GSQ-RCO-Q2_0-00001-of-00002.gguf}
+GGUF=${Q4X_GGUF:-$HOME/Models/qwen3.8-flash-next/UD-IQ1_M/Qwen3.8-Flash-Next-UD-IQ1_M-BARO-d37ec15-00001-of-00003.gguf}
 MTP=${MTP_PATH:-${Q4X_MTP:-$HOME/Models/qwen3.8-flash-next/MTP/mtp-Qwen3.8-Flash-Next-Q8_0.gguf}}
 unset Q4X_MTP
 BASE=${BASE:-$REPO/.work/r5/q4x-base}; NEW=${NEW:-$REPO/.work/r5/q4x}

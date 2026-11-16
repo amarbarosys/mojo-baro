@@ -80,7 +80,8 @@ def hip_register_file(path: String, nbytes: Int) raises -> Int:
     var lib = OwnedDLHandle("/opt/rocm/lib/libamdhip64.so")
     var addr = Int(0)
     with open(path, "r") as f:
-        var fd = Int32(f._get_raw_fd())
+        var cpath = path
+        var fd = external_call["open64", Int32](cpath.as_c_string_slice().unsafe_ptr(), Int32(0))
         var size = Int(f.seek(0, 2))
         if size < nbytes:
             raise Error("expert tier: " + path + " is " + String(size) + " bytes, the index needs " + String(nbytes))
@@ -1183,8 +1184,8 @@ struct ExpertTier(Copyable, Movable):
         """
         var t0 = perf_counter_ns()
         var to0 = perf_counter_ns()
-        var fh = open(self.store_path if not self.pinned else "/dev/null", "r")
-        var fd = fh._get_raw_fd()
+        var fpath = self.store_path if not self.pinned else String("/dev/null")
+        var fd = Int(external_call["open64", Int32](fpath.as_c_string_slice().unsafe_ptr(), Int32(0)))
         self.slot_next = 0
         self.b_open[layer] = self.b_open[layer] + Int(perf_counter_ns() - to0)
         var trb0 = perf_counter_ns()
@@ -1207,7 +1208,7 @@ struct ExpertTier(Copyable, Movable):
             ctx.enqueue_copy(dst_buf=self.cpu.wt_d, src_buf=self.cpu.wt_h)
         self.b_writeback[layer] = self.b_writeback[layer] + Int(perf_counter_ns() - tw0)
         var tc1 = perf_counter_ns()
-        fh.close()
+        _ = external_call["close", Int32](Int32(fd))
         self.b_open[layer] = self.b_open[layer] + Int(perf_counter_ns() - tc1)
         self.fetch_ns += Int(perf_counter_ns() - t0)
 

@@ -7,7 +7,7 @@
 set -euo pipefail
 OUT=${1:?usage: q4x-draft-overlap.sh OUT_DIR}; REPO=$(cd "$(dirname "$0")/.." && pwd); . "$REPO/bench/min16k.sh"
 ENGINE_LOG=${ENGINE_LOG:?ENGINE_LOG}; ENGINE_OFF=${ENGINE_OFF:?ENGINE_OFF}; KS=${KS:-2 4}; NP=${NP:-20}; NI=${NI:-5}; NG=${NG:-64}; TMAX=${TMAX:-16384}; PMIN=${Q4X_SPEC_P:-0.5}
-GGUF=${Q4X_GGUF:-$HOME/Models/qwen3.8-flash-next-gsq/Q2_0/Qwen3.8-Flash-Next-GSQ-RCO-Q2_0-00001-of-00002.gguf}
+GGUF=${Q4X_GGUF:-$HOME/Models/qwen3.8-flash-next/UD-IQ1_M/Qwen3.8-Flash-Next-UD-IQ1_M-BARO-d37ec15-00001-of-00003.gguf}
 MTP=${MTP_PATH:-$HOME/Models/qwen3.8-flash-next/MTP/mtp-Qwen3.8-Flash-Next-Q8_0.gguf}
 WARM=${Q4X_WARM:-$REPO/exchange/receipts/q4x-strata/r3a-warm-l01.txt}
 min16k "$TMAX" 16000

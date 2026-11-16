@@ -98,8 +98,10 @@ a hang, a log line or a number. All fields are additive: a reader that ignores t
 by the front as the warning `grammar_rejected_tokens`. An idle or stale `{"cancel":ID}` is dropped with
 the log line `cancel: id N is not decoding, dropped`; one parser serves every engine.
 
-Not exercised by a run on the card: a live non-zero `fail` (no knob forces the barrier timeout), KV pool
-exhaustion, `captured`, and `grejected` on a served grammar. Their fields are tested on CPU with injected values.
+Exercised on the card 2026-11-15 (`bench/fsm-wire-gate.sh` probes, `bench/fsm-http-502-gate.sh`): a live non-zero `fail`
+(test knob `BARO_TEST_FAILWORD=1` presets the fail word; real front answers 502 `engine_invalid_tokens`), KV pool
+exhaustion mid-decode (`BARO_SEQS=3 BARO_KV_POOL=1`: error line then `finish:"error"`), `captured`, and the `grejected`
+word on a served grammar. Still CPU only: a non-zero `grejected` count and the admission refusal `kv pool full` (429).
 
 HTTP side (`baro-serve`): `/health` carries `engine_state` (`starting`, `idle`, `busy`, `dead`,
 `stopping`) and per engine `{state, depth, reason}`; the port answers `503` with phase `starting` or

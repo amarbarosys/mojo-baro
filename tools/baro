@@ -297,6 +297,7 @@ verify)
 
 serve)
   export BARO_NEURONS=${BARO_NEURONS:-1}
+  export HSA_ENABLE_MWAITX=${HSA_ENABLE_MWAITX:-1}
   t0=$(date +%s)
   idjson=$("$py" "$here/tools/model-id.py" "$model" --json 2>"$work/model-id.err") || die "$(cat "$work/model-id.err")"
   echo "$idjson" > "$work/model-id.json"
@@ -322,6 +323,9 @@ serve)
   # engine never reads BARO_TMAX at run time (only engine.mojo does). A BARO_TMAX that differs from the baked one
   # rebuilds the engine with that TMAX in its own slot (-t<N>); unset keeps the baked engine.
   tmax_ov=""
+  # engine.mojo sizes TMAX itself when BARO_TMAX is unset (auto_tmax): free VRAM, capped by the trained context.
+  ctxmax=$(jq -r '[to_entries[] | select(.key | endswith(".context_length")) | .value][0] // empty' "$meta")
+  [ -z "$ctxmax" ] || export BARO_CTX_MAX=${BARO_CTX_MAX:-$ctxmax}
   if [ "$hname" = spark.mojo ] && [ -n "${BARO_TMAX:-}" ]; then
     case $BARO_TMAX in ''|*[!0-9]*) die "BARO_TMAX=$BARO_TMAX is not an integer" ;; esac
     baked=$(jq -r '.["baro.kernel.src.profile.mojo"] // empty' "$meta" | sed -n 's/^comptime TMAX = \([0-9]*\).*/\1/p')
@@ -400,6 +404,14 @@ PYEOF
   # just id), cached by (path, size, mtime) so a warm `baro serve` never
   # re-hashes a multi-GB file it already hashed this box.
   gsha=$(model_sha "$model")
+  # A bake whose 2D weights are all Q4_0 packs --q4: ggml's Q4_0 re-encode is lossless on such files (287M blocks of
+  # Qwythos-9B, 0 changed), so the q4 pack is byte-exact to the weights while q8 only adds bytes (1.53x slower decode).
+  # Its own dir (<sha>-q4) so a cached q8 pack is never served under the new flags. BARO_PACK_Q4_AUTO=0 keeps the bake's flags.
+  q4auto=0
+  if [ -z "$pack" ] && [ "${BARO_PACK_Q4_AUTO:-1}" = 1 ] && ! grep -qE -- '--(q4|kq|q2b3|tq1|tq2)' <<< "$(kvget baro.run.pack.flags)" \
+     && "$py" -c 'import sys; from gguf import GGUFReader as R; t={x.tensor_type.name for x in R(sys.argv[1]).tensors if len(x.shape) == 2} - {"F32"}; sys.exit(0 if t == {"Q4_0"} else 1)' "$model" 2>/dev/null; then
+    q4auto=1; gsha=$gsha-q4
+  fi
   packdir=${pack:-$cache/packs/$gsha}
   pbuilt=0
   # A bake whose run env sets BARO_TIER serves the expert tier: the pack is split into trunk pack.bin + experts.bin
@@ -414,6 +426,7 @@ PYEOF
     pbuild0=$(date +%s)
     if [ "$rebuild" = 1 ] || [ ! -s "$packdir/index.txt" ]; then
       packflags=$(kvget baro.run.pack.flags)
+      [ "$q4auto" = 1 ] && packflags="$(sed -E 's/(^| )--q8( |$)/ /g' <<< "$packflags") --q4"
       packer=$(fetch_pack_tool "$cache/pack-src")
       rm -rf "$packdir.new"; mkdir -p "$packdir.new"
       echo "building pack ($(basename "$packer") ${packflags:-<no flags>}) ..."
@@ -434,7 +447,20 @@ PYEOF
     pbuild_s=$(( $(date +%s) - pbuild0 ))
     echo "pack: built in ${pbuild_s}s -> $packdir ($(wc -l < "$packdir/index.txt") tensors)"
   fi
+  # FR-Spec (BARO_FR, on by default): a qwen35 pack gets a 62080-row draft head once (tools/fr-draft.mojo: reflink copy of
+  # pack.bin + two tensors; a q8 head's rows are requantized to q4). Output is unchanged, the verify step decides every token.
+  frids=$here/bench/fr/qwen35-ids-62080.txt
+  if [ -z "$tierdir" ] && [ "$(jq -r .arch "$work/model-id.json" 2>/dev/null)" = qwen35 ] && [ -s "$frids" ] && grep -qE '^output\.weight q[48] ' "$packdir/index.txt" \
+     && ! grep -q '^frdraft.ids ' "$packdir/index.txt"; then
+    echo "adding the FR-Spec draft head ..."
+    rm -rf "$packdir.fr"
+    (cd "$here" && "$here/.venv/bin/mojo" run -I . -I serve tools/fr-draft.mojo "$packdir" "$packdir.fr" "$frids") > "$cache/fr.log" 2>&1 \
+      || { tail -5 "$cache/fr.log"; die "FR draft head FAILED, see $cache/fr.log"; }
+    rm -rf "$packdir.old"; mv "$packdir" "$packdir.old"; mv "$packdir.fr" "$packdir"; rm -rf "$packdir.old"
+  fi
   echo "pack: $([ $pbuilt = 1 ] && echo miss || echo hit) $packdir ($(wc -l < "$packdir/index.txt") tensors)"
+  # A pack with the FR table serves FR-Spec: bake-built engines predate the BARO_FR=1 default (their sources are the bake's).
+  grep -q '^frdraft.ids ' "$packdir/index.txt" && export BARO_FR=${BARO_FR:-1}
 
   # Prefill tile table (bench/tile-tune-protocol.md): the file's baro.tune.pf KV
   # becomes the pack's tune.txt, read by serve/tune.mojo at boot. No KV, no table.

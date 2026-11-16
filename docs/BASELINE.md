@@ -377,6 +377,50 @@ hipBLASLt is 0.65 R at 2.9 GHz. The gap is 13% clock (energy per FLOP)
 and 19% issue. Five levers were raced in Round 7 and none kept; details
 and receipts in `bench/wmma-fp16-protocol.md`.
 
+## Energy per token (2026-11-15, `bench/energy-run.sh`)
+
+Qwythos-9B q4 pack, p01, 1024 tokens, one resident engine; GPU = board `power1_average` (100 ms samples), CPU = RAPL package.
+Decode sits at the 290 W cap on the default LACT profile (Ultimate-AI, core 2960 MHz).
+
+| LACT profile | spec off tok/s | J/tok | spec k=2 tok/s | GPU W | J/tok |
+|---|---|---|---|---|---|
+| Ultimate-AI 2960 | 139.48 | 2.096 | 193.44 | 288.8 | 1.527 |
+| AI-2700 | 137.01 | 1.995 | 190.21 | 268.6 | 1.434 (-6.1%, speed -1.7%) |
+| AI-2500 | 132.66 | 1.831 | 181.65 | 228.0 | 1.274 (-16.6%, speed -6.1%) |
+| Eco-2200 | 124.41 | 1.775 | 169.18 | 203.7 | 1.230 (-19.4%, speed -12.5%) |
+
+- **Standing profile since 2026-11-15: AI-2500-uv125** (core 2500 MHz, -125 mV, 290 W cap, mem 1250): against AI-2500, 20-prompt ids identical, 8192-token decode 184.8/185.6 vs 177.1/187.6 tok/s and 1.235/1.210 vs 1.308/1.248 J/tok (~-4.5%). Against Ultimate-AI: about -20% J/tok for about -5% tok/s. Memory OC (1300/1350) and 2600 MHz did not pay.
+- **8192-token greedy decode is not reproducible run to run** (spec k=2, same binary, same profile: 4 of 4 runs differ, first at token 1747); 20 prompts x 64 tokens are. A long-run identity check needs a same-arm control.
+- **Standing profile since 2026-11-15: AI-2500** (the maintainer): -16.6% J/tok for -6.1% tok/s. Speed rows dated before it were measured on Ultimate-AI; compare like with like.
+- Speculation is the cheapest saving: k=2 cuts J/tok 27% at the same watts.
+- CPU: the host thread spins one core in the HIP wait; `HSA_ENABLE_MWAITX=1` (now exported by `tools/baro serve`) takes the
+  package 28.1 -> 25.0 W at the same tok/s (138.97 vs 139.22). `ROC_ACTIVE_WAIT_TIMEOUT=0` alone: no change.
+- `-D BARO_DOT_UNROLL` 1/2/3/4: 139.3 / 132.0 / 71.1 / 63.2 tok/s, ids equal: the default 1 is the optimum.
+- `--parallel 32` (Ornith kq, 32 sessions): 121.6 tok/s aggregate at ~272 W, ~2.2 J/tok (one merged power window, approximate).
+- Two rows per wave for the q4 megakernel FFN gate+up (lane mega2row, not merged): ids equal, 128.9 vs 130.2/132.6 tok/s spec off (-2%). Rejected.
+- Wavewait, megakernel: 60.5% of cycles wait on vmcnt, 11.2% at grid barriers (already `s_sleep 1`).
+
+## Turbo rows on by default (2026-11-15)
+
+`-D BARO_TURBO` now defaults to 1: the window path's Q4_0 GEMVs (m <= 4) run `amar_turbo_rows`. Qwythos-9B q4 pack, launch path
+(`BARO_MEGA=0`), spec k = 2, `bench/ab-resident.sh` with `REQ_SPEC=true`, `BARO_TMAX=16384`, 20 mtp-prompts, 64 tokens, two builds of
+one tree (base sha d6eedcd9, turbo 7a276448): **154.80 -> 168.88 tok/s_gen (1.091x)**, per-prompt 1.073 to 1.206, ids identical 20/20,
+fail word 0. Probe that led here (m = 3 window 1.48x an m = 1 step): Brain `2026-11-15-fewrow-window-probe`.
+
+## nerkyor Qwen3.8-27B q4 pack: decode paths (2026-11-16, lane verify8, `mojo-baro-lanes/verify8/docs/lanes/2026-11-16-verify8-report.md`)
+
+Exploratory, 3 prompts, GEN 256, TMAX 16384, resident (`bench/gap-ab.sh`, receipts `.work/v8/gap-ab2`, `.work/v8/gap-hoist`). Defaults are the fastest measured path.
+
+| path | tok/s_gen | default? |
+|---|---|---|
+| plain, launch (BARO_MEGA=0) | 39.0 | no |
+| plain, megakernel (BARO_MEGA=1) | 42.1 | yes (m=1) |
+| MTP k=2, launch window (BARO_SPEC=1, BARO_MEGA_WIN=0) | 73.3 exact turbo; 86.0 with dot2 window GEMVs (`.work/dot2gate`, 20 prompts, 1.222x over 70.4 same job) | yes, dot2 (`BARO_TURBO_DOT2` default 1 since 2026-11-16: 120-task eval 87/120 vs 79/120 exact, `docs/lanes/2026-11-16-kdefault-report.md`) |
+| MTP k=2, window megakernel (BARO_MEGA_WIN=1) | 32.4 on main; 59.3 on lane-verify8 (3d2191b: all window GEMV activations staged in LDS, ffn_down in 3 chunks) | no: still below the launch window; was latency-bound on global activation loads (`.work/v8/ww-megawin-g1`, matmul_skinny.mojo:466) |
+| DFlash2 (BARO_SPEC=dflash2, opt-in) | 73.6 (20 prompts, D3) | no |
+
+Launch path: GPU 82.6% busy, ~1,100 kernels/token, 3.4 us median gap (rocprofv3 kernel trace `.work/v8/kt`); host 99.2% in the HSA wait (corewait --pid). 8-row q4 GEMM: bf16 WMMA 424/399 GB/s, int8 WMMA 538/447 (not wired), turbo m=1 805/778.
+
 ## Qwen3.8-27B Turbo decode (2026-11-02, lane turbokernel, `docs/lanes/turbokernel-report.md`)
 
 Qwen3.8-27B-TurboFCFusion Q4_K_M (qwen35, H 5120, 64 layers, NQH 24, NH_V 48, FFN 17408, MTP head), engine built with the bake's shape
@@ -398,6 +442,28 @@ every word equal, `kernels/test_turbo_rows.mojo`) takes gate 90.6 -> 80.8 us and
 the bake carries it in `baro.run.build.flags`. Known on this shape: p03/p08-class prompts flip between two runs of ONE binary (same-arm
 repeat `.work/turbokernel/det-q4-mega/`), so identity is read on the stable prompts and the kernel-level byte test is the strict check;
 the megakernel's barrier share is 11.2% (5120 / 8 = 640 row groups over 96 blocks, the delta scan on 48 of 96 blocks), the next m = 1 lever.
+
+## Q4_0 bakes serve a q4 pack (2026-11-16)
+
+`tools/baro` packs a bake whose 2D weights are all Q4_0 (F32 side tensors aside) with `--q4` into `packs/<sha>-q4`, over
+the bake's own q8 pack flags (`BARO_PACK_Q4_AUTO=0` keeps them). ggml's Q4_0 re-encode is lossless on such files: Qwythos-9B
+287,375,360 blocks, 0 changed, so the q4 pack holds the file's weights exactly; q8 rounded them and read 1.89x the bytes.
+Bake engine `engine-keeb082e`, spec k=2, FR on, 1024 tokens x2 mirrored: q8 130.3/131.0 -> q4 180.3/178.7 tok/s (1.38x),
+GPU J/tok 1.711/1.677 -> 1.229/1.245 (-27%); q4 vs q8 ids part at token 64 (q8 is the rounded one), q4 repeats equal.
+Receipts `exchange/receipts/q4serve/`; the q8 serving pack is deleted.
+
+## FR-Spec draft head on by default (2026-11-16)
+
+The MTP draft head runs over 62080 frequency-ranked ids (`bench/fr/qwen35-ids-62080.txt`, `tools/fr-vocab.mojo` on an
+8.4M-token corpus: Brain notes, repo sources, q4x prompts) instead of all 248320 rows; the verify step still decides every
+token, so output is unchanged. Engine default `BARO_FR=1` (acts only when the pack has `frdraft.ids`; build one with
+`tools/fr-draft.mojo SRC_PACK OUT_PACK IDS`). Qwythos-9B q4, spec k=2, LACT AI-2500-uv125:
+- 20-prompt resident A/B (`bench/ab-resident.sh`, 256 tokens): median 168.75 -> 183.59 tok/s (1.088x, per prompt 0.95 to
+  1.099), identity 20/20.
+- energy-run, 1024 tokens x2 each, mirrored: 182.6/181.0 -> 196.3/194.8 tok/s, GPU 1.294/1.277 -> 1.148/1.151 J/tok
+  (-10.6%), acceptance 652/742 -> 651/744, ids equal. Receipts `exchange/receipts/fr2/`. Measured by energy-run (hwmon,
+  RAPL); kernel share from `rocprofv3 --kernel-trace` (`exchange/receipts/barrier/`): q4 GEMV `amar_turbo_rows` = ~78%
+  of decode GPU time.
 
 ## Megakernel decode path (default since 2026-09-06, `BARO_MEGA=1`)
 
@@ -597,11 +663,14 @@ engine and pack `tools/baro serve` caches.
 | Qwen2.5-Coder-7B-Instruct-Q4_K_M | spark | pending (spark logprobs landed after this sweep) | 21/120 / 20/120 | +0.8 pp | task PASS |
 | Qwythos-9B-Claude-Mythos-5-1M-MTP-BF16 | dense | 9.301 / 8.410 (1.106) | 70/120 / 80/120 | -8.3 pp | PASS |
 | RegesCore-1.0-35B-UD-Q4_K_S | moe | 6.233 / 6.242 (0.999) | 11/120 / 12/120 | -0.8 pp | PASS |
+| Ornith-1.5-9B-Q4_K_M (BARO-38e5113, 2026-11-15) | dense | 9.617 / 9.537 (1.008) | 71/120 / 70/120 | +0.8 pp | PASS |
+| granite-4.2-3b-BF16 (BARO-38e5113, 2026-11-15) | spark | 17.453 / 17.328 (1.007) | 37/120 / 37/120 | +0.0 pp | PASS |
+| Spark-X2.5-4B-Q4_K_M (BARO-38e5113, 2026-11-15) | spark | 46.783 / 48.893 (0.957) | 32/120 / 36/120 | -3.3 pp | PASS-informational |
 
 - The Qwythos row compares our q4 pack (`baro.run.pack.flags = --q4`, what the 136 tok/s champion runs)
   against llama.cpp on the BF16 file: the 1.106 PPL ratio and -8.3 pp are mostly 4-bit quantization, not
   engine parity (the q4-both-sides rows land at 0.999 and within 2 pp).
-- Not run this round: Ornith-1.5-9B, Qwythos-9B-v2, Spark-X2.5-4B (cut for time), Granite-4.2-3B (harness
+- 2026-11-15 rows: `bench/quality-sweep.sh` after four harness fixes (paths, `~`, spark include order, llama-perplexity built); Spark-X2.5 is now the Q4_K_M bake (Q8_0 file gone). Qwythos-9B-v2 (now the Q4_0 bake eeb082e) VOID: engine+pack reproduce 49/64 of its `baro.run.ref.tokens`. Round 1 left out: Ornith-1.5-9B, Qwythos-9B-v2, Spark-X2.5-4B (cut for time), Granite-4.2-3B (harness
   script edited mid-run, row void). Spark-family perplexity waits on a rerun now that `serve/spark.mojo`
   has logprobs.
 
@@ -613,13 +682,21 @@ printed PASS on 0/64. Teacher-forced agreement, 20 prompts, min / mean.
 | model | ours q4 vs llama q4 | notes |
 |---|---|---|
 | Qwen2.5-7B-Instruct | 96.9 / 99.4 PASS | bake `qwen2.5-7b-instruct-q4_K_M-BARO-b4271cd.gguf` verifies 64/64 from the file |
-| Qwen2.5-0.5B-Instruct | 68.8 / 85.0 UNVERIFIED | was 0 before the q8 GEMV tail fix `2d1ebbe` (H=896 is not a multiple of the 512-lane tail step) |
+| Qwen2.5-0.5B-Instruct | 92.2 / 97.9 PASS (2026-11-15, q4_K_M, f32 activations) | was 68.8 / 85.0 UNVERIFIED with bf16 activations, and 0 before the q8 GEMV tail fix `2d1ebbe` (H=896 is not a multiple of the 512-lane tail step); `exchange/receipts/away-sonnet/qwen05b/` |
 
 The 0.5B gap is not the quant: llama.cpp's own q4_K_M against its bf16 reads 82.8 / 91.4 on the same
 prompts (the class bar), and our pack built from the bf16 GGUF against llama.cpp bf16 reads 75.0 / 86.4.
 The remaining 5 to 6 points are our numerics (bf16 activations; the 1B floor was 95.3, the 7B 96.9) or a
 shape-specific defect on NQH 14 / NKVH 2 / H 896. Next step if wanted: the per-layer oracle comparison
 (`tools/llama-oracle.py`) on one prompt. No 0.5B bake until then. Receipts: `~/Models/qwen2.5-0.5b-instruct-import{,2,3}/gate/`.
+
+Update 2026-11-15 (lane away-sonnet): at head the 0.5B passes the 90% bar on all 20 prompts, min 92.2 / mean 97.9 (receipt
+`exchange/receipts/away-sonnet/qwen05b/`; llama.cpp CPU f32-KV reference, `bench/dense-run.sh`, TMAX 16384, the pack read back
+`act: float32`). The old 68.8 / 85.0 was measured with bf16 activations, which the paragraph above already named as the likely
+cause; the f32-activation spark lane (2026-10-19) landed after it. Not bisected: which commit moved the number is UNVERIFIED.
+The per-layer comparison on one prompt (`tools/layer-compare-oracle.py`, p01-water, 13 tokens, 24 layers, six columns of the last
+token per layer) finds no layer where our residual leaves llama.cpp's own q4_K_M noise band: so there is no shape-specific defect
+at NQH 14 / NKVH 2 / H 896 to localise. Limits: six of 896 columns per layer, one prompt. A 0.5B bake is now allowed by the gate.
 
 ## Spark engine: native K-quant weights, f32 activations (2026-10-19, lanes sparkq4k + sparkf32, `bench/sparkq4k-protocol.md`)
 
@@ -842,3 +919,5 @@ The 2.5 GT/s numbers in exchange/lane-moe-miss-report.md (B/A 0.3753) are VOID.
   16 GT/s idle table) do not shrink with more streams.
 - Dispatch fusion warm, NG 256 (main vs pre-fusion build): B/A 0.889. Earlier B/A 0.907 (DEVARG) and 0.865 (MISSPAR) were
   measured while three CPU lanes held all 16 threads and are void.
+
+Model deleted 2026-11-15: the Qwen2.5-7B, Qwen2.5-0.5B, MiniCPM5-2B, Granite-4.2-3B, VibeThinker-1.5B, Spark-X2.5-4B, Spark-X2.6, Lily-7B, Nemotron-3.5-bolt, LFM3, Gemma-3-270M and DistilGPT2 rows above stay as history; their weights are gone, so those numbers cannot be re-taken (spark-engine stand-in: Llama-3.2-1B, `bench/llama1b-packs.sh`). Also deleted later that day: OrcaSAQ-2-27B, Qwen3.8-27B-OBLITERATED and Flash-Next-GSQ Q2_0 (stand-ins: the 27B Turbo bake, Flash-Next UD-IQ1_M).

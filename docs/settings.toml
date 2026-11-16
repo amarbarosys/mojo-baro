@@ -787,13 +787,13 @@ group = "engine"
 label = "BARO_FR"
 type = "bool"
 kind = "env"
-default = false
+default = true
 restart = true
 level = "advanced"
 status = "stable"
 models = ["qwen35"]
 sources = ["serve/engine.mojo"]
-summary = "Use the pack's frequency-restricted draft vocabulary, when the pack has one."
+summary = "Use the pack's frequency-restricted draft vocabulary (FR-Spec), when the pack has one; on by default."
 help = """Use the pack's frequency-restricted draft vocabulary, when the pack has one."""
 
 [[setting]]
@@ -2045,6 +2045,20 @@ summary = "Comma list of layers BARO_CAPTURE records (0-based), for example 16,2
 help = """Comma list of layers BARO_CAPTURE records (0-based), for example 16,20."""
 
 [[setting]]
+key = "BARO_TEST_FAILWORD"
+group = "engine"
+label = "BARO_TEST_FAILWORD"
+type = "bool"
+kind = "env"
+restart = true
+level = "advanced"
+status = "experimental"
+models = ["qwen35"]
+sources = ["serve/engine.mojo"]
+summary = "Test only: presets the megakernel fail word to 1 for every request, so the run ends with fail 1 (HTTP 502 engine_invalid_tokens)."
+help = """Test only. Writes a non-zero fail word into the megakernel counters after the per-request reset, so the real barrier path ends with fail:1 on the done line and the front answers 502 engine_invalid_tokens. Off by default; never set it for serving (bench/fsm-http-502-gate.sh)."""
+
+[[setting]]
 key = "BARO_CAPTURE_FIELDS"
 group = "engine"
 label = "BARO_CAPTURE_FIELDS"
@@ -2378,14 +2392,74 @@ group = "model"
 label = "BARO_TURBO"
 type = "bool"
 kind = "build"
-default = false
+default = true
 restart = true
 level = "advanced"
 status = "stable"
 models = ["qwen35"]
 sources = ["serve/engine.mojo", "serve/window.mojo"]
 summary = "Window-path Q4_0 GEMVs (m <= 4) through amar_turbo_rows, the A rows staged once per block in LDS"
-help = """Window-path Q4_0 GEMVs (m <= 4) through amar_turbo_rows, the A rows staged once per block in LDS; same words as the q4rowb path, 1.124x on the 27B Turbo spec path. Build flag -D BARO_TURBO=1, read back as BARO_TURBO:."""
+help = """Window-path Q4_0 GEMVs (m <= 4) through amar_turbo_rows, the A rows staged once per block in LDS; same words as the q4rowb path, 1.124x on the 27B Turbo spec path, 1.091x on the 9B q4 k=2 window (20 prompts, ids 20/20). On by default; -D BARO_TURBO=0 returns q4rowb. Build flag -D BARO_TURBO=1, read back as BARO_TURBO:."""
+
+[[setting]]
+key = "BARO_TURBO_Q8"
+group = "model"
+label = "BARO_TURBO_Q8"
+type = "bool"
+kind = "build"
+default = false
+restart = true
+level = "advanced"
+status = "experimental"
+models = ["qwen35"]
+sources = ["serve/window.mojo"]
+summary = "Round A int8-activation turbo GEMV (killed: slower at m=3), opt-in for study"
+help = """Round A, KILLED 2026-11-16: window-path Q4_0 GEMVs through amar_turbo_rows_q8 (A rows as int8 + f16 scale per 32-block, sudot4). Teacher-forced 99.30% (repeat 100%) but slower at m=3 (gate 89.2 -> 106.0 us, down 88.6 -> 106.6); opt-in for study only, default 0. Build flag -D BARO_TURBO_Q8=1."""
+
+[[setting]]
+key = "BARO_TURBO_DOT2"
+group = "model"
+label = "BARO_TURBO_DOT2"
+type = "bool"
+kind = "build"
+default = true
+restart = true
+level = "advanced"
+status = "experimental"
+models = ["qwen35"]
+sources = ["serve/window.mojo"]
+summary = "m=2..4 window GEMVs on the v_dot2 turbo kernel (1.22x MTP decode on 27B, default on, not bit-exact)"
+help = """Window-path Q4_0 GEMVs with m = 2..4 rows through amar_turbo_rows_dot2 (v_dot2_f32_bf16). Kernel m=3 88.8 -> 65.9 us on 27B FFN shapes, engine MTP k=2 70.4 -> 86.0 tok/s on nerkyor 27B; greedy ids 11/20 vs bar 10; 120-task eval 87/120 with vs 79/120 without, so default 1 since 2026-11-16. m = 1 stays exact; -D BARO_TURBO_DOT2=0 for the exact window path. Build flag -D BARO_TURBO_DOT2=1."""
+
+[[setting]]
+key = "BARO_WIN_LDS"
+group = "model"
+label = "BARO_WIN_LDS"
+type = "bool"
+kind = "build"
+default = true
+restart = true
+level = "advanced"
+status = "experimental"
+models = ["qwen35"]
+sources = ["kernels/mega.mojo"]
+summary = "Window megakernel stages window rows in LDS for the K=H GEMVs"
+help = """Window megakernel (BARO_MEGA window path): stage window rows in LDS for the K=H GEMVs. 32.4 -> 59.3 tok/s on 27B, still below the launch path (73.6). Build flag -D BARO_WIN_LDS=0 turns it off."""
+
+[[setting]]
+key = "BARO_WIN_DCH"
+group = "model"
+label = "BARO_WIN_DCH"
+type = "int"
+kind = "build"
+default = 3
+restart = true
+level = "advanced"
+status = "experimental"
+models = ["qwen35"]
+sources = ["kernels/mega.mojo"]
+summary = "Window megakernel: K chunks of the LDS-staged down projection"
+help = """Number of K chunks the window megakernel stages the down projection through LDS when BARO_WIN_LDS=1; each stage must fit the block LDS budget. Build flag -D BARO_WIN_DCH=N."""
 
 [[setting]]
 key = "BARO_DRAFT_Q4"
@@ -2870,3 +2944,209 @@ name = "Long context"
 group = "fit"
 summary = "int8 KV and a 131072 window, as profiles/turbo27b-coder.toml (pack-fit 2026-11-10: fits at 2.0 GB desktop; int8 speed at this window unmeasured)."
 values = { BARO_KVQ = "int8", BARO_TMAX = 131072, BARO_SPEC = true, BARO_MEGA = true }
+
+[[setting]]
+key = "BARO_SUMPROBE"
+group = "engine"
+label = "BARO_SUMPROBE"
+type = "int"
+kind = "env"
+default = 0
+restart = true
+level = "advanced"
+status = "experimental"
+models = ["qwen35"]
+sources = ["serve/window.mojo"]
+summary = "Debug: print per-row int hashes (SUMTRACE) of window stages, for nondeterminism hunts."
+help = """Debug: 1 prints SUMTRACE lines (int32 hash of each traced row) from the window path. Adds host syncs; slows decode."""
+
+[[setting]]
+key = "BARO_POISON"
+group = "engine"
+label = "BARO_POISON"
+type = "string"
+kind = "env"
+default = ""
+restart = true
+level = "advanced"
+status = "experimental"
+models = ["qwen35"]
+sources = ["serve/harness.mojo"]
+summary = "Debug: fill attention scratch at allocation with nan or a float value."
+help = """Debug: "nan" or a float fills 15 f32 attention/scratch buffers after allocation and prints BARO_POISON: <v>. Empty = off."""
+
+[[setting]]
+key = "BARO_PG_FROM"
+group = "engine"
+label = "BARO_PG_FROM"
+type = "int"
+kind = "env"
+default = 0
+restart = true
+level = "advanced"
+status = "experimental"
+models = ["qwen35"]
+sources = ["serve/window.mojo"]
+summary = "Debug: first position of the split-partials probe (PGNS + pg rows) under BARO_SUMPROBE."
+help = """Debug: with BARO_SUMPROBE=1, hash the attention split partials (pg rows) and print PGNS layer pos m ns from this position on. Its host syncs perturb timing."""
+
+[[setting]]
+key = "BARO_PG_TO"
+group = "engine"
+label = "BARO_PG_TO"
+type = "int"
+kind = "env"
+default = 1000000
+restart = true
+level = "advanced"
+status = "experimental"
+models = ["qwen35"]
+sources = ["serve/window.mojo"]
+summary = "Debug: last position of the split-partials probe."
+help = """Debug: last position (inclusive) of the BARO_PG_FROM probe window."""
+
+[[setting]]
+key = "BARO_MEGA_PROF"
+group = "engine"
+label = "BARO_MEGA_PROF"
+type = "int"
+kind = "env"
+default = 0
+restart = true
+level = "advanced"
+status = "experimental"
+models = ["qwen35"]
+sources = ["serve/engine.mojo"]
+summary = "Debug: print the megakernel's per-phase device stamps (MEGAPROF layer + 16 realtime ticks) after each request."
+help = """Debug: 1 prints MEGAPROF lines: layer then the 16 stamp slots of the last megakernel step (100 MHz realtime, block 0). One copy after the request, no per-step sync."""
+
+[[setting]]
+key = "BARO_PACK_Q4_AUTO"
+group = "model"
+label = "BARO_PACK_Q4_AUTO"
+type = "bool"
+kind = "shell"
+default = true
+restart = true
+level = "advanced"
+status = "stable"
+models = ["qwen35"]
+sources = ["tools/baro"]
+summary = "tools/baro packs an all-Q4_0 bake with --q4 (byte-exact, packs/<sha>-q4) instead of the bake's q8 flags."
+help = """1 (default): a bake whose 2D weights are all Q4_0 is packed --q4; the Q4_0 re-encode is lossless, q8 only adds bytes (1.38x slower decode). 0 keeps the bake's own pack flags."""
+
+[[setting]]
+key = "BARO_KV_ROUTE"
+group = "engine"
+label = "BARO_KV_ROUTE"
+type = "string"
+kind = "env"
+restart = true
+level = "advanced"
+status = "bench-only"
+models = ["gemma4"]
+sources = ["serve/gemma4.mojo"]
+summary = "Reverse arm of the gemma4 gate: own = shared-KV layers attend slot 0 of their pool instead of their source layer."
+help = """Unset (default): a gemma4 layer without its own K/V attends its source layer's slot. own: it attends slot 0, which must fail bench/dense-run.sh (2026-11-16: mean 3.7% forced agreement). Never set for serving."""
+
+[[setting]]
+key = "BARO_CTX_MAX"
+group = "engine"
+label = "BARO_CTX_MAX"
+type = "int"
+kind = "env"
+restart = true
+level = "advanced"
+status = "stable"
+models = ["qwen35", "qwen35moe"]
+sources = ["serve/engine.mojo", "tools/baro"]
+summary = "Cap for the auto-sized BARO_TMAX: the model's trained context (tools/baro reads it from the GGUF)."
+help = """0 (default): no cap. tools/baro exports the GGUF's context_length when it is unset; the auto TMAX is min(fits in VRAM, this)."""
+
+[[setting]]
+key = "BARO_TMAX_HEADROOM_GB"
+group = "engine"
+label = "BARO_TMAX_HEADROOM_GB"
+type = "float"
+kind = "env"
+restart = true
+level = "advanced"
+status = "stable"
+models = ["qwen35", "qwen35moe"]
+sources = ["serve/engine.mojo"]
+summary = "VRAM in GB the auto-sized BARO_TMAX leaves free for later buffers."
+help = """1.5 (default). The auto TMAX takes free VRAM minus this headroom and the measured fixed bytes, divided by the measured bytes per token, in whole KV pages."""
+[[setting]]
+key = "BARO_DFLASH_PACK"
+group = "engine"
+label = "BARO_DFLASH_PACK"
+type = "string"
+kind = "env"
+default = ".work/dflash2/draft-pack"
+restart = true
+level = "advanced"
+status = "experimental"
+models = ["qwen35"]
+sources = ["serve/engine.mojo", "serve/dflash.mojo"]
+summary = "DFlash2 draft pack directory (BARO_SPEC=dflash2)"
+help = """DFlash2 draft pack directory (engine-pack --arch dflash of the Q8_0 draft GGUF), read when BARO_SPEC=dflash2."""
+
+[[setting]]
+key = "BARO_DF_DOT"
+group = "engine"
+label = "BARO_DF_DOT"
+type = "bool"
+kind = "env"
+default = true
+restart = true
+level = "advanced"
+status = "experimental"
+models = ["qwen35"]
+sources = ["serve/engine.mojo", "serve/dflash.mojo"]
+summary = "DFlash2 draft q8 GEMMs on the int8-dot kernel"
+help = """DFlash2 draft q8 GEMMs quantize their activations per 32 and run gemm_q8dot (attn + ffn 8.03 -> 5.3 ms per draft, D2c parity B1 0.9725); 0 keeps the bf16 gemm_q8 route."""
+
+[[setting]]
+key = "BARO_DF_PROF"
+group = "engine"
+label = "BARO_DF_PROF"
+type = "bool"
+kind = "env"
+default = false
+restart = true
+level = "advanced"
+status = "experimental"
+models = ["qwen35"]
+sources = ["serve/engine.mojo", "serve/dflash.mojo"]
+summary = "DFlash2 draft phase split (sync timers)"
+help = """Sync timers after each DFlash2 draft stage (embed, attn, ffn, head, select) and around inject; prints ms per draft at request end. Serialises the draft: never in a timed arm."""
+
+[[setting]]
+key = "BARO_DF_SHIFT"
+group = "engine"
+label = "BARO_DF_SHIFT"
+type = "int"
+kind = "env"
+default = 0
+restart = true
+level = "advanced"
+status = "experimental"
+models = ["qwen35"]
+sources = ["serve/engine.mojo", "serve/dflash.mojo"]
+summary = "DFlash2 reverse arm: features at position + k"
+help = """Injects every DFlash2 feature at position + k (gate reverse arm: acceptance must drop, verified ids must not change). 0 in any real run."""
+
+[[setting]]
+key = "BARO_FEWROW"
+group = "engine"
+label = "BARO_FEWROW"
+type = "bool"
+kind = "build"
+default = false
+restart = true
+level = "advanced"
+status = "experimental"
+models = ["qwen35"]
+sources = ["serve/engine.mojo", "serve/dflash.mojo", "serve/window.mojo"]
+summary = "Q4 window GEMMs with m > 4 on amar_fewrow_wmma D=4"
+help = """Build flag -D BARO_FEWROW=1: Q4 window GEMMs with m > 4 run amar_fewrow_wmma D=4 (8-row window 1.53x on the 27B k=7 window; WMMA order, not bit-exact: forced agreement 0.99844 vs 1.00000 on the shipped route). Serve replays prompts with up to MROWS rows, so it also reaches no-spec runs. Default 0."""

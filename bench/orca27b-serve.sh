@@ -2,6 +2,7 @@
 # One OrcaSAQ-2-27B engine (int8 KV) behind baro-serve for interactive chat (omp provider orca27b, port 8330). No team, no system prompt: the client brings its own.
 # usage: bench/orca27b-serve.sh      stop with Ctrl-C or kill the gpu-wait job
 set -euo pipefail
+echo "PARKED $(basename $0): runs the OrcaSAQ-2-27B bake (.work/bake27/verify3/pack), deleted 2026-11-15; a Turbo bake pack is needed (tools/baro) and nobody has built the engine arm" >&2; exit 3
 cd "$(dirname "$0")/.."; export LC_ALL=C
 W=${W:-65536}
 . bench/min16k.sh; min16k "$W" 16000

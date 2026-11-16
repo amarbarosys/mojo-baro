@@ -122,14 +122,14 @@ settings = []
 [[capability]]
 id = "spec"
 name = "Speculative decoding (MTP draft head)"
-enable = "BARO_SPEC=1, BARO_SPEC_K (draft tokens per window)"
-default = "on for dense packs, K=2; unconditionally off on MoE"
-best = "Keep on with K=2 for dense packs that carry an MTP head: Qwythos-9B 148.89 tok/s spec off vs 150.96 at k=2 (README). The 27B models gain most: 46.03 vs 69 to 70 (OrcaSAQ-2-27B), 39.3 vs 63.6 (Qwen3.8-27B). A K=4 verify window on the MoE q4x engine FAILS (B/A 1.095)."
+enable = "BARO_SPEC=1, BARO_SPEC_K (draft tokens per window), BARO_FR (FR-Spec: 62080-row draft head, on when the pack has frdraft.ids)"
+default = "on for dense packs, K=2, FR-Spec draft head on (tools/baro adds the FR table to qwen35 packs and exports BARO_FR=1); unconditionally off on MoE"
+best = "Keep on with K=2 and BARO_FR=1 (2026-11-16: q4 pack 20-prompt 1.088x, identity 20/20, GPU J/tok -10.6%; q8 serving pack +9.6% tok/s, -9.6% J/tok, acceptance -3.7 pt; k=3 no better than k=2). for dense packs that carry an MTP head: Qwythos-9B 148.89 tok/s spec off vs 150.96 at k=2 (README). The 27B models gain most: 46.03 vs 69 to 70 (OrcaSAQ-2-27B), 39.3 vs 63.6 (Qwen3.8-27B). A K=4 verify window on the MoE q4x engine FAILS (B/A 1.095)."
 status = "WORKS"
 gui = "Engine tab (BARO_SPEC basic; BARO_SPEC_K advanced); presets Fast, Balanced"
-check = "GET /health `limits.spec_k`; `timings.path` and tok/s with BARO_SPEC=0 vs 1, same prompt, 20-prompt median"
-source = "README.md:246-250; docs/CAPABILITIES.md:28, 404"
-settings = ["BARO_SPEC", "BARO_SPEC_K"]
+check = "engine log `BARO_FR: True k 62080` (tools/fr-serve-check.sh); GET /health `limits.spec_k`; `timings.path` and tok/s with BARO_SPEC=0 vs 1, same prompt, 20-prompt median"
+source = "README.md:246-250; docs/CAPABILITIES.md:28, 404; docs/BASELINE.md FR-Spec section"
+settings = ["BARO_SPEC", "BARO_SPEC_K", "BARO_FR"]
 
 [[capability]]
 id = "mega"

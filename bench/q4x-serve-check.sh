@@ -13,7 +13,7 @@ set -euo pipefail
 OUT=${1:?usage: q4x-serve-check.sh OUT_DIR}
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 . "$REPO/bench/min16k.sh"
-GGUF=${Q4X_GGUF:-$HOME/Models/qwen3.8-flash-next-gsq/Q2_0/Qwen3.8-Flash-Next-GSQ-RCO-Q2_0-00001-of-00002.gguf}
+GGUF=${Q4X_GGUF:-$HOME/Models/qwen3.8-flash-next/UD-IQ1_M/Qwen3.8-Flash-Next-UD-IQ1_M-BARO-d37ec15-00001-of-00003.gguf}
 OLD=${OLD:-$REPO/.work/flash-slim/q4x}; NEW=${NEW:-$REPO/.work/q4x-serve/q4x}
 LONG=${LONG:-$REPO/.work/flash-slim/prompts/trace.ids}
 NG=64

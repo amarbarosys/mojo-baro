@@ -209,6 +209,7 @@ def main() raises:
         "serve/spark.mojo",
         "serve/q4x.mojo",
         "serve/window.mojo",
+        "serve/dflash.mojo",
         "kernels/amarbaro.mojo",
     ]
     users += glob("bench", "", False)

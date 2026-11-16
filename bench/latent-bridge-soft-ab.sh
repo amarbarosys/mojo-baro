@@ -5,7 +5,7 @@
 set -euo pipefail
 OUT=${1:?out dir}
 REPO=$(cd "$(dirname "$0")/.." && pwd)
-GGUF=$HOME/Models/qwen3.8-flash-next-gsq/Q2_0/Qwen3.8-Flash-Next-GSQ-RCO-Q2_0-00001-of-00002.gguf
+GGUF=$HOME/Models/qwen3.8-flash-next/UD-IQ1_M/Qwen3.8-Flash-Next-UD-IQ1_M-BARO-d37ec15-00001-of-00003.gguf
 ITEMS=$HOME/.cache/baro/latent-bridge/data/items.tsv
 OLD=${OLD:-.work/lb/q4x-base}; NEW=${NEW:-.work/lb/q4x-soft}
 if [ -z "${AB_INNER:-}" ]; then

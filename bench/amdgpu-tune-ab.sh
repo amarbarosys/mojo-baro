@@ -7,7 +7,7 @@
 set -euo pipefail
 OUT=${1:?usage: amdgpu-tune-ab.sh OUT_DIR}
 REPO=$(cd "$(dirname "$0")/.." && pwd)
-GGUF=${Q4X_GGUF:-$HOME/Models/qwen3.8-flash-next-gsq/Q2_0/Qwen3.8-Flash-Next-GSQ-RCO-Q2_0-00001-of-00002.gguf}
+GGUF=${Q4X_GGUF:-$HOME/Models/qwen3.8-flash-next/UD-IQ1_M/Qwen3.8-Flash-Next-UD-IQ1_M-BARO-d37ec15-00001-of-00003.gguf}
 NEW=${NEW:-$REPO/.work/q4x-serve/q4x2}; PCIEBW=${PCIEBW:-$REPO/.work/amdgpu-tune/pcie-bw}; NP=${NP:-10}
 DEV=/sys/class/drm/card1/device; HW=$(ls -d $DEV/hwmon/hwmon* | head -1)
 ARMS="AUTO:base AUTO:int HIGH:int HIGH:base COMP:base COMP:int COMP:int COMP:base HIGH:base HIGH:int AUTO:int AUTO:base"

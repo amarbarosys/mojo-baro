@@ -37,6 +37,8 @@ comptime i64 = DType.int64
 comptime MEGA_G = 96
 comptime MEGA_G_WIN = 96
 comptime DOT_UNROLL = get_defined_int["BARO_DOT_UNROLL", 1]()
+comptime WIN_LDS = get_defined_int["BARO_WIN_LDS", 1]() == 1
+comptime WIN_DCH = get_defined_int["BARO_WIN_DCH", 3]()
 comptime SPIN_LIMIT = 1 << 22
 comptime QV = 16
 comptime UNROLL = 4
@@ -158,6 +160,75 @@ def stage_a[CBL: TensorLayout, AfL: TensorLayout, BF: Bool = False](
     barrier()
 
 @always_inline
+def stage_rows[MR: Int, KC: Int, CBL: TensorLayout, AfL: TensorLayout](
+    A: TileTensor[bf16, CBL, MutAnyOrigin],
+    mut Af: TileTensor[f32, AfL, MutUntrackedOrigin, address_space = AddressSpace.SHARED],
+    M: Int, col0: Int,
+):
+    # Columns [col0, col0 + KC) of the MR window rows as bf16 in LDS for q4_dot_lds_rows: chunk c8 (8 elements)
+    # of local block blk of row r at vector index (r * 4 + c8) * nb + blk. The window GEMVs otherwise reload every
+    # row from global per block. A caller restaging the same Af syncs the block first.
+    comptime assert A.flat_rank == 2 and Af.flat_rank == 1
+    comptime nb = KC // 32
+    var Av8 = A.vectorize[1, 8]()
+    var Afv = Af.vectorize[4]()
+    var t = Int(thread_idx.x)
+    while t < MR * (KC // 8):
+        var r = t // (KC // 8)
+        var i = t % (KC // 8)
+        var blk = (i * 8) // 32
+        var c8 = ((i * 8) % 32) // 8
+        if r < M:
+            Afv[(r * 4 + c8) * nb + blk] = rebind[Afv.ElementType](bitcast[f32, 4](rebind[SIMD[bf16, 8]](Av8[r, col0 // 8 + i])))
+        t += ROW_THREADS
+    barrier()
+
+
+@always_inline
+def q4_dot_lds_rows[
+    MR: Int, NU: Int, AfL: TensorLayout, QLayout: TensorLayout, SLayout: TensorLayout
+](
+    Af: TileTensor[f32, AfL, MutUntrackedOrigin, address_space = AddressSpace.SHARED],
+    Q: TileTensor[u8, QLayout, MutAnyOrigin],
+    S: TileTensor[f16, SLayout, MutAnyOrigin],
+    row: Int, lane: Int, M: Int, kb0: Int,
+) -> Array[Float32, MR]:
+    # q4_dot_blocks (matmul_skinny) with the MR activation rows read from stage_rows' LDS copy:
+    # same per-lane block order, same nibble form and fma chain, so each row's result is bit for bit the same.
+    comptime QV = 16
+    comptime STEP = WARP_SIZE
+    comptime nb = NU * STEP
+    var Qb = Q.vectorize[1, QV]()
+    var Afv = Af.vectorize[4]()
+    var acc = Array[SIMD[f32, QV], MR](fill=SIMD[f32, QV](0))
+    var qb = Array[SIMD[u8, QV], NU](uninitialized=True)
+    var sd = Array[Scalar[f16], NU](uninitialized=True)
+    comptime for u in range(NU):
+        qb[u] = rebind[SIMD[u8, QV]](Qb[row, kb0 + u * STEP + lane])
+        sd[u] = rebind[Scalar[f16]](S[row, kb0 + u * STEP + lane])
+    comptime for u in range(NU):
+        var blk = u * STEP + lane
+        var d = sd[u].cast[f32]()
+        var w32 = bitcast[u32, 4](qb[u])
+        var lo = bitcast[u8, QV](w32 & 0x0F0F0F0F).cast[f32]()
+        var hi = bitcast[u8, QV]((w32 >> 4) & 0x0F0F0F0F).cast[f32]()
+        var dv = SIMD[f32, QV](d)
+        var m8d = SIMD[f32, QV](d * -8)
+        var wlo = fma(lo, dv, m8d)
+        var whi = fma(hi, dv, m8d)
+        comptime for r in range(MR):
+            if r < M:
+                var a_lo = bf16x16_to_f32(bitcast[bf16, 8](rebind[SIMD[f32, 4]](Afv[(r * 4 + 0) * nb + blk])).join(bitcast[bf16, 8](rebind[SIMD[f32, 4]](Afv[(r * 4 + 1) * nb + blk]))))
+                var a_hi = bf16x16_to_f32(bitcast[bf16, 8](rebind[SIMD[f32, 4]](Afv[(r * 4 + 2) * nb + blk])).join(bitcast[bf16, 8](rebind[SIMD[f32, 4]](Afv[(r * 4 + 3) * nb + blk]))))
+                acc[r] = fma(wlo, a_lo, fma(whi, a_hi, acc[r]))
+    var out = Array[Float32, MR](fill=0)
+    comptime for r in range(MR):
+        if r < M:
+            out[r] = warp.sum(acc[r].reduce_add())
+    return out^
+
+
+@always_inline
 def stage_rms[XL: TensorLayout, GL: TensorLayout, AfL: TensorLayout](
     mut X: TileTensor[f32, XL, MutAnyOrigin],
     Gn: TileTensor[f32, GL, MutAnyOrigin],
@@ -274,6 +345,7 @@ def q4_dot_lds[
 def row_dot_a[
     MR: Int, Q4: Bool, LDSA: Bool, BF: Bool,
     ALayout: TensorLayout, AfL: TensorLayout, QLayout: TensorLayout, SLayout: TensorLayout, KQ: Bool = False, XLDS: Bool = False,
+    WK: Int = 0,
 ](
     A: TileTensor[bf16, ALayout, MutAnyOrigin],
     Af: TileTensor[f32, AfL, MutUntrackedOrigin, address_space = AddressSpace.SHARED],
@@ -294,6 +366,9 @@ def row_dot_a[
         var out = Array[Float32, MR](fill=0)
         out[0] = q4_dot_lds[DOT_UNROLL, BF](Af, rebind[TileTensor[u8, QLayout, MutAnyOrigin]](Q), S, row, lane, K // 32)
         return out^
+    elif (XLDS or WK > 0) and Q4 and MR > 1 and WIN_LDS:
+        comptime KC = WK if WK > 0 else H
+        return q4_dot_lds_rows[MR, KC // 32 // WARP_SIZE](Af, rebind[TileTensor[u8, QLayout, MutAnyOrigin]](Q), S, row, lane, M, 0)
     else:
         return q8_row_dot[MR, Q4](A, Q, S, row, lane, K, M)
 
@@ -493,6 +568,8 @@ def ssm_phases[
         rmsc_phase[MR](X, Gn, CurB, M)
         if not grid_barrier(ctr, gen, fail):
             return False
+        comptime if Q4 and WIN_LDS:
+            stage_rows[MR, H](CurB, Af, M, 0)
     stamp(prof, pbase + 1)
 
     g = bid
@@ -767,6 +844,8 @@ def ssm_phases[
 
     comptime if LDSA:
         stage_a(ResB, Af, INNER)
+    elif Q4 and WIN_LDS and not KQ:
+        stage_rows[MR, INNER](ResB, Af, M, 0)
     stamp(prof, pbase + 13)
     g = bid
     while g < G_OUT:
@@ -781,7 +860,7 @@ def ssm_phases[
                 g += nblk
                 paired = True
         if not paired:
-            var t = row_dot_a[MR, Q4, LDSA, False, KQ=KQ](ResB, Af, Wsoutq, Wsouts, row, lane, INNER, M, Int(kk[4]))
+            var t = row_dot_a[MR, Q4, LDSA, False, KQ=KQ, WK=INNER](ResB, Af, Wsoutq, Wsouts, row, lane, INNER, M, Int(kk[4]))
             if lane == 0:
                 comptime for r in range(MR):
                     if r < M:
@@ -838,6 +917,8 @@ def ffn_phases[
         rmsc_phase[MR](X, Gn, CurB, M)
         if not grid_barrier(ctr, gen, fail):
             return False
+        comptime if Q4 and WIN_LDS:
+            stage_rows[MR, H](CurB, Af, M, 0)
     stamp(prof, pbase + 1)
 
     g = bid
@@ -897,6 +978,30 @@ def ffn_phases[
 
     comptime if LDSA:
         stage_a[BF=True](FgB, Af, FFN)
+    elif Q4 and WIN_LDS and not KQ:
+        # K = FFN does not fit LDS for MR rows: WIN_DCH chunks of whole 32-block lane groups, each staged and
+        # summed into X (the residual add happens per chunk, so the sum order differs from the one-pass dot).
+        comptime NG = FFN // 32 // WARP_SIZE
+        comptime CG = (NG + WIN_DCH - 1) // WIN_DCH
+        comptime for ch in range(WIN_DCH):
+            comptime GA = ch * CG
+            comptime GN = min(CG, NG - GA)
+            barrier()
+            stage_rows[MR, GN * WARP_SIZE * 32](FgB, Af, M, GA * WARP_SIZE * 32)
+            var gg = bid
+            while gg < H // ROW_WAVES:
+                var row = gg * ROW_WAVES + wave
+                var t = q4_dot_lds_rows[MR, GN](Af, rebind[TileTensor[u8, DqL, MutAnyOrigin]](Wdq), Wds, row, lane, M, GA * WARP_SIZE)
+                if lane == 0:
+                    comptime for r in range(MR):
+                        if r < M:
+                            var sx: Float32 = 0
+                            comptime if ch == WIN_DCH - 1:
+                                if sv_on != 0:
+                                    sx = sv[unsafe_offset=row]
+                            X[r, row] = rebind[X.ElementType](rebind[Scalar[f32]](X[r, row]) + t[r] + sx)
+                gg += nblk
+        return True
     stamp(prof, pbase + 8)
     g = bid
     while g < H // ROW_WAVES:
@@ -982,6 +1087,7 @@ def attn_phases[
     comptime assert Q.flat_rank == 2 and Ao.flat_rank == 2 and Gate.flat_rank == 1 and AoB.flat_rank == 2
     comptime assert Kc.flat_rank == 1 and Vc.flat_rank == 1 and Qn.flat_rank == 1 and Kn.flat_rank == 1
     comptime assert MR * (NQH + NKVH) <= MEGA_G
+    comptime assert not KQ or MR == 1, "KQ row paths write row 0 only"
     comptime G_Q = QF // ROW_WAVES
     comptime G_KV = KV // ROW_WAVES
     var tid = Int(thread_idx.x)
@@ -1011,6 +1117,8 @@ def attn_phases[
         rmsc_phase[MR](X, Gn, CurB, M)
         if not grid_barrier(ctr, gen, fail):
             return False
+        comptime if Q4 and WIN_LDS:
+            stage_rows[MR, H](CurB, Af, M, 0)
     stamp(prof, pbase + 1)
 
     g = bid
@@ -1207,6 +1315,8 @@ def attn_phases[
 
     comptime if LDSA:
         stage_a(AoB, Af, ATT)
+    elif Q4 and WIN_LDS and not KQ:
+        stage_rows[MR, ATT](AoB, Af, M, 0)
     g = bid
     while g < H // ROW_WAVES:
         var row = g * ROW_WAVES + wave
@@ -1220,7 +1330,7 @@ def attn_phases[
                 g += nblk
                 paired = True
         if not paired:
-            var t = row_dot_a[MR, Q4, LDSA, False, KQ=KQ](AoB, Af, Woq, Wos, row, lane, ATT, M, Int(kk[3]))
+            var t = row_dot_a[MR, Q4, LDSA, False, KQ=KQ, WK=ATT](AoB, Af, Woq, Wos, row, lane, ATT, M, Int(kk[3]))
             if lane == 0:
                 comptime for r in range(MR):
                     if r < M:
@@ -1404,7 +1514,7 @@ def mega_body[
     comptime LDSA = (MR == 1) and Q4
     # f32 LDS staging holds one K-row: every staged K (H, INNER, ATT) must fit.
     comptime assert max(H, max(INNER, ATT)) <= FFN // 2
-    var Af = stack_allocation[f32, address_space = AddressSpace.SHARED](row_major[(FFN // 2) if ((MR == 1) and Q4) else ((H // 2) if KQ else 4)]())
+    var Af = stack_allocation[f32, address_space = AddressSpace.SHARED](row_major[(FFN // 2) if ((MR == 1) and Q4) else ((H // 2) if KQ else ((MR * max(H, INNER, ATT, ((FFN // 32 // WARP_SIZE + WIN_DCH - 1) // WIN_DCH) * WARP_SIZE * 32) // 2) if (Q4 and WIN_LDS) else 4))]())
     var M = Int(m)
     var fail = Ctr_.ptr.unsafe_offset(2)
     if Atomic[Scalar[u32], scope=GPU_SCOPE].load[ordering=Ordering.ACQUIRE](fail) != 0:
@@ -1530,6 +1640,8 @@ def mega_body[
         rmsc_phase[MR](X_, wf[H](wbuf, ho0), CurB_, M)
         if not grid_barrier(ctrh, genh, fail):
             return
+        comptime if Q4 and WIN_LDS:
+            stage_rows[MR, H](CurB_, Af, M, 0)
     stamp(prof, 16 * NL + 1)
     var Whq = wq[VOCAB, H, Q4](wbuf, ho1)
     var Whs = ws[VOCAB, H, Q4](wbuf, ho1)

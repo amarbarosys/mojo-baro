@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Mojo Baro
+Exec=mojo-baro
+Icon=mojo-baro
+StartupWMClass=mojo-baro
+Categories=Development;

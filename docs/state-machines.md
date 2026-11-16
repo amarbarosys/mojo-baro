@@ -23,11 +23,26 @@ Merged in b921f4d. The tables below are the audit as written; this section is wh
 | Shim | C15 | code; its check compiles and has NOT run on the card |
 | Not touched | C18, P5 | NO CHANGE by plan. P1 to P4 landed with `neuron2b` |
 
-NOT EXERCISED by any run, so UNVERIFIED past a CPU test with injected values: a live non-zero `fail`
-word (B-M1; no knob forces the barrier timeout), KV pool exhaustion (B-M7), `captured` (B-M13),
-`grejected` on a served grammar (C6), B-M4, B-M10, the spark half of B-M14, and B-M2 (its gate probe
-is an identity arm that holds on the pre-fix engine too, so it cannot fail). C8's boot actors compile
-and were not run. The wire words are listed in `serve/PROTOCOL.md`, section State words.
+### Update 2026-11-15 (lane away-sonnet; receipts `exchange/receipts/away-sonnet/`)
+
+Each probe runs three arms: pre-fix engine eb35717 (must show the symptom), the candidate, and a control (candidate
+binary with the feature off, must NOT show it), so none of them can pass inert.
+
+| Row | Result |
+|---|---|
+| B-M1 live fail word | DONE. Test knob `BARO_TEST_FAILWORD=1` (engine.mojo, off by default, logged) presets the fail word, the real barrier path ends `fail:1`; real `baro-serve` answers 502 `engine_invalid_tokens`, control 200 |
+| B-M7 KV exhaustion | DONE for mid-decode exhaustion: `BARO_SEQS=3 BARO_KV_POOL=1`, two n=16000 requests, error line `kv pool exhausted at pos 8191` then `finish:"error"` (base: `finish:"cancelled"`), engine alive. The admission refusal `kv pool full` (429) is a different path and is NOT EXERCISED |
+| B-M13 `captured` | DONE live (cand `captured>0`; control and base lack the field) |
+| C6 `grejected` | DONE for the wire word on a served `schema` (`gdraws 8, gaccepted 8, grejected 0`); a non-zero count is NOT EXERCISED (no knob makes the matcher reject a draw) |
+| C15 | DONE on the card: `shim-tune-count-check` PASS (1, 1, 2, 3) |
+| A-M13 | DONE: parse_tool_calls and the streaming parser keep text between and after calls; `cargo test` 145 + 24 |
+| B-M4 | NOT TESTABLE as a symptom: the fix routes four hand-written writes of the same field values through `Checkpoint.install` / `set_valid`; no request can observe the difference. The invariant stays covered by `test_checkpoint_install` (CPU) |
+| B-M2 | NOT TESTABLE on a served request: the leak window is the lines that `continue` before the reset (control lines that decode nothing, and the a3b/a3c batch modes); every served request resets in its own parse block. The CPU test `test_reset_request_knobs` stays the check |
+| B-M10 | NOT EXERCISED: the hang guard fires after a 5 s doorbell stall; a run needs the qwen35moe pack in tier mode and a knob that withholds a doorbell, a deliberate persistent-kernel stall on the display GPU. Not done |
+| spark half of B-M14 | NOT EXERCISED: needs a pinned semantic manifest, values file and adapter for a spark profile; none on disk |
+
+Before this update these rows were: NOT EXERCISED by any run, so UNVERIFIED past a CPU test with injected values.
+C8's boot actors compile and were not run. The wire words are listed in `serve/PROTOCOL.md`, section State words.
 
 ## The decision: one tag, one writer, one word on the wire
 

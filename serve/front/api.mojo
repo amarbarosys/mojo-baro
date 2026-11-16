@@ -677,10 +677,6 @@ struct Acc[T: TextLike](Movable):
         return "stop" if self.stopped else "length"
 
 
-def _opt_field(src: Json, key: String) -> Json:
-    return src.get(key)
-
-
 def stats_json(done: String) -> Json:
     """The Rust `stats_json` shape, from the engine's raw done line; an absent key is null."""
     var d: Json

@@ -11,7 +11,7 @@ set -euo pipefail
 SRC=${1:?src}; SEL=${2:?sel}; CHUNK=${3:-500}
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 C=$HOME/.cache/baro/latent-bridge; D=$C/dumps/$SRC-$SEL.d; ITEMS=$C/data/items.tsv; mkdir -p "$D"
-GGUF=$HOME/Models/qwen3.8-flash-next-gsq/Q2_0/Qwen3.8-Flash-Next-GSQ-RCO-Q2_0-00001-of-00002.gguf
+GGUF=$HOME/Models/qwen3.8-flash-next/UD-IQ1_M/Qwen3.8-Flash-Next-UD-IQ1_M-BARO-d37ec15-00001-of-00003.gguf
 Q4X=${Q4X_BIN:-$REPO/.work/lb/q4x}; LD=$REPO/.work/latent-data; LS=$HOME/Projects/imports/llama.cpp/build/bin/llama-server
 case $SRC in
   flash-student) cols='$6" "$8" "$9'; W=2560; TAIL=0 ;;

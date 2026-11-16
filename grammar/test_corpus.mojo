@@ -61,7 +61,6 @@ def main() raises:
 
     var f = open("grammar/corpus/manifest.txt", "r")
     var text = f.read()
-    f.close()
     var lines = text.split("\n")
 
     var total_samples = 0

@@ -148,6 +148,7 @@ struct Tokenizer(Movable):
     var is_spm: Bool
     var add_space_prefix: Bool
     var ignore_merges: Bool
+    var is_g4: Bool  # tokenizer.ggml.model gemma4: BPE on raw UTF-8, spaces as U+2581, newline runs split
 
     def __init__(out self, gguf_path: String) raises:
         self.tokens = List[String]()
@@ -172,6 +173,7 @@ struct Tokenizer(Movable):
         self.is_spm = False
         self.add_space_prefix = False
         self.ignore_merges = False
+        self.is_g4 = False
         self._byte_maps()
         self._read_gguf(gguf_path)
         if not self.is_spm:
@@ -237,13 +239,15 @@ struct Tokenizer(Movable):
                     self.merges.reserve(n)
                     for i in range(n):
                         var m = r.string()
-                        var sp = m.find(" ")
+                        var sp = m.find(" ", 1)  # llama.cpp: the first space after the first byte
                         var left = String(m[byte=:sp])
                         var a = self.tok2id.get(left, -1)
                         var right = String(m[byte=sp + 1:])
                         var b = self.tok2id.get(right, -1)
                         left += right
                         var ab = self.tok2id.get(left, -1)
+                        if model == "gemma4" and (sp < 0 or a < 0 or b < 0 or ab < 0):
+                            continue  # a merge of strings no symbol can reach; llama.cpp keeps it as an unused rank
                         if sp < 0 or a < 0 or b < 0 or ab < 0:
                             raise Error("gguf: merge outside the vocab: " + m)
                         self.merges.append((a << 32) | b)
@@ -282,6 +286,8 @@ struct Tokenizer(Movable):
             self.is_spm = False
         elif model == "llama":
             self.is_spm = True
+        elif model == "gemma4":
+            self.is_g4 = True
         else:
             raise Error("tokenizer.ggml.model=" + model + ": only gpt2 (BPE) or llama (SPM) is supported")
         if len(self.tokens) == 0 or len(self.tokens) != len(self.types):
@@ -293,6 +299,8 @@ struct Tokenizer(Movable):
         self.ignore_merges = self.pre == "llama3" or self.pre == "llama-bpe" or self.pre == "minicpm5"
         if not saw_add_bos_key and self.ignore_merges:
             self.add_bos = True
+        if self.is_g4:
+            self.add_bos = True  # llama.cpp overrides add_bos to true for the gemma4 pre-tokenizer
 
     def _compile_pre(mut self) raises:
         comptime CONTR = r"(?i:'s|'t|'re|'ve|'m|'ll|'d)"
@@ -477,6 +485,52 @@ struct Tokenizer(Movable):
         var escaped = String(unsafe_from_utf8=Span(raw))
         self._spm(escaped, out)
 
+    def _g4_encode(self, cps: List[Int], start: Int, end: Int, mut out: List[Int]) raises:
+        """gemma4: spaces become U+2581, the text splits into runs of newlines and runs of anything else, a run that is
+        one token is that token, else BPE merges (lowest rank first) over its codepoints; a codepoint outside the
+        vocab is emitted as <0xNN> byte tokens."""
+        var i = start
+        while i < end:
+            var nl = cps[i] == 10
+            var j = i
+            while j < end and (cps[j] == 10) == nl:
+                j += 1
+            var syms = List[Int]()
+            var sc = List[Int]()
+            for k in range(i, j):
+                var c = 0x2581 if cps[k] == 32 else cps[k]
+                sc.append(c)
+                syms.append(self.tok2id.get(String(Codepoint.from_u32(UInt32(c)).value()), -1))
+            var whole = -1
+            if nl:
+                whole = self.tok2id.get(from_codepoints(cps, i, j), -1)
+            if whole >= 0:
+                out.append(whole)
+                i = j
+                continue
+            while len(syms) > 1:
+                var best = -1
+                var best_m = 1 << 62
+                for k in range(len(syms) - 1):
+                    if syms[k] < 0 or syms[k + 1] < 0:
+                        continue
+                    var m = self.merge_of.get((syms[k] << 32) | syms[k + 1], -1)
+                    if m >= 0 and m < best_m:
+                        best_m = m
+                        best = k
+                if best < 0:
+                    break
+                syms[best] = best_m & 0xFFFFFFFF
+                _ = syms.pop(best + 1)
+                _ = sc.pop(best + 1)
+            for k in range(len(syms)):
+                if syms[k] >= 0:
+                    out.append(syms[k])
+                else:
+                    for b in String(Codepoint.from_u32(UInt32(sc[k])).value()).as_bytes():
+                        out.append(self._byte_tok(b))
+            i = j
+
     def _match_special(self, cps: List[Int], at: Int) -> Int:
         var best = -1
         var best_len = 0
@@ -513,6 +567,8 @@ struct Tokenizer(Movable):
                 if i > start:
                     if self.is_spm:
                         self._spm_encode(from_codepoints(cps, start, i), is_prev_special, out)
+                    elif self.is_g4:
+                        self._g4_encode(cps, start, i, out)
                     else:
                         for piece in self._pieces(from_codepoints(cps, start, i)):
                             self._bpe(piece, out)
@@ -543,7 +599,7 @@ struct Tokenizer(Movable):
                     bytes.append(b)
                 is_prev_special = True
                 continue
-            if self.is_spm:
+            if self.is_spm or self.is_g4:
                 if ty == T_BYTE:
                     bytes.append(self._byte_from_tok(id))
                 else:

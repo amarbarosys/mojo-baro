@@ -49,10 +49,41 @@ from mega import DATT_NLD
 from cert_hook import CertHook
 from slens_kernels import amar_rows_add_vec
 from gemv_kq import amar_gemv_kq, GT_Q4K, GT_Q6K
-from turbo_rows import amar_turbo_rows
+from turbo_rows import amar_turbo_rows, amar_turbo_rows_q8, amar_turbo_rows_dot2
+from fewrow import amar_fewrow_wmma, FW_THREADS, FW_WAVES
 from std.sys import get_defined_int
 
-comptime TURBO = get_defined_int["BARO_TURBO", 0]() == 1
+comptime TURBO = get_defined_int["BARO_TURBO", 1]() == 1
+comptime TURBO_Q8 = get_defined_int["BARO_TURBO_Q8", 0]() == 1  # round A: int8 A rows + sudot4 (not bit-exact, gated)
+# m = 2..4 windows on amar_turbo_rows_dot2 (v_dot2_f32_bf16; m=3 -25% on 27B FFN shapes, not bit-exact); m = 1 stays exact
+comptime TURBO_DOT2 = get_defined_int["BARO_TURBO_DOT2", 1]() == 1
+# dflash2 D1: Q4 windows of m > 4 rows on amar_fewrow_wmma D=4 instead of q4rowb[SM] (WMMA order, not bit-exact)
+comptime FEWROW = get_defined_int["BARO_FEWROW", 0]() == 1
+comptime FEWROW_D = 4
+
+
+@always_inline
+def fewrow_ok[N: Int, K: Int]() -> Bool:
+    return N % 16 == 0 and (K // 32) % (FW_WAVES * FEWROW_D) == 0
+
+
+# dflash2 taps: the draft reads the residual OUTPUT of these target layers (GGUF dflash.target_layers = ids + 1).
+comptime DF_NTAP = 5
+
+
+@always_inline
+def df_tap_slot(layer: Int) -> Int:
+    if layer == 5:
+        return 0
+    if layer == 19:
+        return 1
+    if layer == 33:
+        return 2
+    if layer == 47:
+        return 3
+    if layer == 61:
+        return 4
+    return -1
 
 
 @always_inline
@@ -79,6 +110,21 @@ def gemm_turbo[
     comptime U = turbo_unroll[K]()
     var Wq = tens_q4q(ctx, wbuf, o, N * K, q_l)
     var Ws = tens_q4s(ctx, wbuf, o, N * K, s_l)
+    comptime if TURBO_Q8:
+        # PRE=False never reads Aq/As: non-owning views over the weights stand in for them
+        var Aq = TileTensor(DeviceBuffer[DType.int8](ctx, wbuf.unsafe_ptr().unsafe_offset(o).unsafe_bitcast[Scalar[DType.int8]](), N * K // 2, owning=False), q_l)
+        comptime for mr in range(1, 5):
+            if m == mr or (mr == 4 and m > 4):
+                ctx.enqueue_function[amar_turbo_rows_q8[N, K, mr, U, False, AL, type_of(q_l), type_of(s_l), type_of(q_l), type_of(s_l), PL]](
+                    A, Aq, Ws, Wq, Ws, P, Int32(m), grid_dim=N // ROW_WAVES, block_dim=ROW_THREADS)
+        return
+    comptime if TURBO_DOT2:
+        if m > 1:
+            comptime for mr in range(2, 5):
+                if m == mr or (mr == 4 and m > 4):
+                    ctx.enqueue_function[amar_turbo_rows_dot2[N, K, mr, U, AL, type_of(q_l), type_of(s_l), PL]](
+                        A, Wq, Ws, P, Int32(m), grid_dim=N // ROW_WAVES, block_dim=ROW_THREADS)
+            return
     if m == 1:
         ctx.enqueue_function[amar_turbo_rows[N, K, 1, U, AL, type_of(q_l), type_of(s_l), PL]](A, Wq, Ws, P, Int32(m), grid_dim=N // ROW_WAVES, block_dim=ROW_THREADS)
     elif m == 2:
@@ -383,15 +429,21 @@ def trace_rows[dt: DType](ctx: DeviceContext, on: Bool, stage: StaticString, lay
     [m, stride] buffer (first n columns) at this stage; tools/nan-first.sh reads it."""
     if not on:
         return
+    var hs = getenv("BARO_SUMPROBE", "0") == "1"
     var cnt_d = ctx.enqueue_create_buffer[DType.int32](m)
     var cnt_h = ctx.enqueue_create_host_buffer[DType.int32](m)
-    ctx.enqueue_function[amar_nonfinite_rows[dt]](
-        UnsafePointer[Scalar[dt], MutAnyOrigin](unsafe_from_address=addr), cnt_d.unsafe_ptr(), Int32(stride), Int32(n),
-        grid_dim=m, block_dim=NP_THREADS)
+    if hs:
+        ctx.enqueue_function[amar_nonfinite_rows[dt, True]](
+            UnsafePointer[Scalar[dt], MutAnyOrigin](unsafe_from_address=addr), cnt_d.unsafe_ptr(), Int32(stride), Int32(n),
+            grid_dim=m, block_dim=NP_THREADS)
+    else:
+        ctx.enqueue_function[amar_nonfinite_rows[dt]](
+            UnsafePointer[Scalar[dt], MutAnyOrigin](unsafe_from_address=addr), cnt_d.unsafe_ptr(), Int32(stride), Int32(n),
+            grid_dim=m, block_dim=NP_THREADS)
     ctx.enqueue_copy(dst_buf=cnt_h, src_buf=cnt_d)
     ctx.synchronize()
     for r in range(m):
-        print("NANTRACE", layer, stage, m, r, cnt_h[r])
+        print("SUMTRACE" if hs else "NANTRACE", layer, stage, m, r, cnt_h[r])
 
 
 # BARO_PROFILE=2 attention split: sync and charge the time since st.tq to ac[i].
@@ -418,6 +470,14 @@ def gemm_w[
         comptime if TURBO and turbo_ok[N, K]():
             if m <= 4:
                 gemm_turbo[N, K](ctx, A, wbuf, o, P, m)
+                return
+        comptime if FEWROW and fewrow_ok[N, K]():
+            if m > 4:
+                comptime q_l = row_major[N, K // 2]()
+                comptime s_l = row_major[N, K // 32]()
+                ctx.enqueue_function[amar_fewrow_wmma[N, K, FEWROW_D, AL, type_of(q_l), type_of(s_l), PL]](
+                    A, tens_q4q(ctx, wbuf, o, N * K, q_l), tens_q4s(ctx, wbuf, o, N * K, s_l), P, Int32(m),
+                    grid_dim=N // 16, block_dim=FW_THREADS)
                 return
         gemm_q4(ctx, A, tens_q4q(ctx, wbuf, o, N * K, row_major[N, K // 2]()), tens_q4s(ctx, wbuf, o, N * K, row_major[N, K // 32]()), P, m, N, K)
     else:
@@ -648,6 +708,8 @@ def prefill_forward(
 struct WindowBufs(Copyable, Movable):
     var sv_d: DeviceBuffer[f32]  # BARO_STEER: f32[N_LAYERS * H], row L is added to X after layer L (steer_on)
     var steer_on: Bool
+    var tap_d: DeviceBuffer[f32]  # dflash2: f32[DF_NTAP, MROWS, H], post-layer residual of DF_TAPS per window row (tap_on)
+    var tap_on: Bool
     var cert: CertHook
     var wbuf: DeviceBuffer[DType.uint8]
     var off: List[Int]
@@ -1591,7 +1653,7 @@ def step_window(ctx: DeviceContext, mut b: WindowBufs, cfg: WindowCfg, mut st: W
         var window_pos = st.pos
         var window_ring = st.ring
         var lp_trace = getenv("BARO_PAIR_TRACE", "0") == "1"
-        var np_on = getenv("BARO_NANPROBE", "0") == "1"
+        var np_on = getenv("BARO_NANPROBE", "0") == "1" or getenv("BARO_SUMPROBE", "0") == "1"
         for layer in range(0 if (use_mega or use_mega_win) else N_LAYERS):
             if lp_trace:
                 ctx.synchronize()
@@ -1737,9 +1799,13 @@ def step_window(ctx: DeviceContext, mut b: WindowBufs, cfg: WindowCfg, mut st: W
                         ctx.enqueue_function[append2_k](Kc, Vc, Khd, Vhd, b.kvtab_d.unsafe_ptr(), Int32(st.pos), Int32(att_i), grid_dim=(NKVH, m, 2), block_dim=HD)
                     att_tick(ctx, st, 2, cfg.pf2)
                     if st.pos + 1 > cfg.att_split:
-                        var dns = dattn_nsplit[HD, DATT_NLD, NKVH](st.pos + 1, m, MEGA_G)
+                        var dns = dattn_nsplit[HD, DATT_NLD, NKVH](st.pos + 1, max(m, cfg.kcfg + 1), MEGA_G)
                         var Pa = TileTensor(b.p_ffn_d, p_att_layout)
                         ctx.enqueue_function[datt_k](Q, Kc, Vc, Ao, Pa, b.kvtab_d.unsafe_ptr(), Int32(st.pos + 1), Int32(dns), Float32(0.0625), Int32(att_i), grid_dim=(NKVH, dns, m), block_dim=ROW_THREADS)
+                        var pg_on = np_on and st.pos >= atol(getenv("BARO_PG_FROM", "0")) and st.pos <= atol(getenv("BARO_PG_TO", "1000000"))
+                        if pg_on:
+                            print("PGNS", layer, st.pos, m, dns)
+                        trace_rows[f32](ctx, pg_on, "pg", layer, Int(b.p_ffn_d.unsafe_ptr()), m * NQH * dns, HD + 2, HD + 2)
                         if dns > 1:
                             ctx.enqueue_function[dcomb_k](Pa, Ao, Int32(dns), grid_dim=m * NQH, block_dim=ROW_THREADS)
                     else:
@@ -2122,6 +2188,9 @@ def step_window(ctx: DeviceContext, mut b: WindowBufs, cfg: WindowCfg, mut st: W
                         ctx.enqueue_function[graft_mean_k](row_f32(ctx, b.x_d, 0, H, h_layout), row_f32(ctx, graft_d.value(), 0, H, h_layout), Int32(H), grid_dim=ceildiv(H, 256), block_dim=256)
                     else:
                         ctx.enqueue_copy(dst_buf=x_row, src_buf=graft_d.value())
+                if b.tap_on and df_tap_slot(layer) >= 0:
+                    ctx.enqueue_copy(dst_buf=DeviceBuffer[f32](ctx, b.tap_d.unsafe_ptr().unsafe_offset(df_tap_slot(layer) * MROWS * H), m * H, owning=False),
+                        src_buf=DeviceBuffer[f32](ctx, b.x_d.unsafe_ptr(), m * H, owning=False))
                 if cap >= 0:
                     ctx.enqueue_copy(dst_buf=DeviceBuffer[f32](ctx, b.cap_d.unsafe_ptr().unsafe_offset(cap + 2 * H), H, owning=False), src_buf=DeviceBuffer[f32](ctx, b.x_d.unsafe_ptr(), H, owning=False))
                 if cfg.dump and m == 1 and st.pos + 1 >= cfg.n_prompt:

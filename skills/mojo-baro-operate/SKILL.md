@@ -50,7 +50,7 @@ Read the row of the capability you are about to change, then the Verify section 
 
 These are starting points. The presets in docs/settings.toml say themselves that several values are a convention or unmeasured; measure on your card before you rely on one.
 
-- **Fast chat**: preset Fast or Balanced (docs/settings.toml). Set `BARO_SPEC=1`, `BARO_SPEC_K=2`, `BARO_MEGA=1`, `BARO_PREFILL=1`, `BARO_TMAX=16384`. On a K-quant pack under Mojo 1.2 set `BARO_MEGA=0` (docs/operate-capabilities.toml, mega row).
+- **Fast chat**: preset Fast or Balanced (docs/settings.toml). Set `BARO_SPEC=1`, `BARO_SPEC_K=2`, `BARO_FR=1` (FR-Spec draft head, default; needs the pack FR table, which tools/baro adds), `BARO_MEGA=1`, `BARO_PREFILL=1`, `BARO_TMAX=16384`. On a K-quant pack under Mojo 1.2 set `BARO_MEGA=0` (docs/operate-capabilities.toml, mega row).
 - **Long context**: profile `profiles/turbo27b-coder.toml`: `tools/baro serve MODEL --profile turbo27b-coder`. Int8 KV is a build flag, so it comes from the profile's `[build]` section, not an env variable. Run `pack-fit` first (profiles/turbo27b-coder.toml; docs/operate-capabilities.toml, profiles row).
 - **Many sessions**: build the engine with `-D BARO_SEQ_CAP=N -D BARO_SLOTS=2`, then run `baro-serve --engine E --pack KQPACK --parallel N --kv-pool P`. Dense K-quant packs only. These are flags, not env (docs/operate-capabilities.toml, parallel row).
 - **Embeddings**: `baro-serve --embed-only --port 8081` after `embed/build.sh` (docs/operate-capabilities.toml, embeddings row).

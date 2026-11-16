@@ -527,8 +527,9 @@ def moe_dense_q8(name: String) -> Bool:
 
 
 def pack_moe(idx: ShardIndex, mut o: Out) raises -> String:
-    if idx.gguf.arch != "qwen35moe":
-        raise Error("--arch qwen35moe requires qwen35moe GGUF, got " + idx.gguf.arch)
+    var dflash = idx.gguf.arch == "dflash"  # DFlash2 draft: every Q8_0 matrix to the engine q8 layout
+    if idx.gguf.arch != "qwen35moe" and not dflash:
+        raise Error("--arch qwen35moe|dflash requires that GGUF arch, got " + idx.gguf.arch)
     var names = idx.gguf.tensor_names.copy()
     sort(names)
     var lines = String()
@@ -541,7 +542,7 @@ def pack_moe(idx: ShardIndex, mut o: Out) raises -> String:
         if name == "output.weight":
             _ = emit_quant(o, [t.copy()], False)
             dt = "q8"
-        elif t.gtype == T_Q8_0 and moe_dense_q8(name):
+        elif t.gtype == T_Q8_0 and (dflash or moe_dense_q8(name)):
             var nb = t.nbytes // 34
             var qs = List[UInt8](capacity=nb * 32)
             var ds = List[UInt8](capacity=nb * 2)
@@ -749,7 +750,7 @@ def main() raises:
         print("usage: engine-pack MODEL.gguf OUTDIR [--q8|--q4|--kq|--q2b3|--tq1|--tq2] [--q4-draft] | --dense | --arch qwen35moe;"
               + " engine-pack --identity OUTDIR", file=stderr)
         exit(2)
-    if arch != "" and arch != "qwen35moe":
+    if arch != "" and arch != "qwen35moe" and arch != "dflash":
         raise Error("unsupported architecture: " + arch)
     if (q8 and q4) or ((q8 or q4) and ternary != ""):
         raise Error("--q8, --q4 and ternary quantization flags are exclusive")

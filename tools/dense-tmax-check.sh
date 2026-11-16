@@ -8,7 +8,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 BARO=${BARO:-tools/baro}
-M=${1:-$HOME/Models/qwen2.5-7b-instruct-import/qwen2.5-7b-instruct-q4_K_M-BARO-38e5113.gguf}
+M=${1:-$HOME/Models/llama-3.2-1b-instruct-q4_K_M/Llama-3.2-1B-Instruct-Q4_K_M-BARO-38e5113.gguf}
 N=${TMAX:-98304}
 [ -f "$M" ] || { echo "FAIL model: $M missing"; exit 1; }
 out=$(BARO_TMAX=$N BARO_NEURONS=0 "$BARO" serve "$M" --no-serve --port 8123 2>&1) || { echo "FAIL serve: $(echo "$out" | tail -2)"; exit 1; }

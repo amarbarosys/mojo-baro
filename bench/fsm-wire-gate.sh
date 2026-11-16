@@ -2,14 +2,15 @@
 # fsm-wire-gate: the engine-side state-machine fixes (docs/lanes/2026-11-09-fsm-fixes.md, fix-engine) on the raw wire.
 #   usage: bench/fsm-wire-gate.sh CAND_ENGINE BASE_ENGINE OUT
 #   env:   BARO_PACK (default .work/engine-pack-q4)   EXPLORE=1 (skip the preflight check; best verdict UNVERIFIED, exit 3)
-#          GATE_DRYRUN=1 (CPU: stop at the first engine step)
+#          GATE_DRYRUN=1 (CPU: stop at the first engine step)   ONLY=a,b (run these probes only; a subset never gives PASS: exit 3)
 # One resident engine per probe, requests over stdin, BARO_TMAX=16384. Every probe runs on BASE (the pre-fix champion)
 # and on CAND. PASS needs: every CAND check true AND every BASE symptom seen. A BASE that does not show the symptom
 # means the probe is inert (it would pass without the fix): VOID, exit 1.
 #   probes: ready (B-M9) | plain: done fields B-M1 B-M3 B-M6, idle cancel B-M12 | resume (B-M5) | fork (B-M5)
 #           | window (B-M1 post-extension) | slens (B-M15) | steer: request A with a gain, plain B equals B alone (B-M2 no-regress)
-# NOT EXERCISED here (no knob forces them): B-M1 live NOT-RESIDENT, B-M7 KV exhaustion, B-M13 captured, C6 grejected on a
-# served grammar, B-M4/B-M10 (CPU tests only), spark B-M14. The verdict line lists them.
+# live probes added 2026-11-15: failword (B-M1, knob BARO_TEST_FAILWORD, cand arm only), capture (B-M13), grammar (C6 wire
+# word), kvfull (B-M7 mid-decode exhaustion); the first three also run a control arm (cand binary, feature off).
+# NOT EXERCISED here: a non-zero grejected, admission 429 `kv pool full`, B-M4/B-M10 (CPU tests only), spark B-M14.
 # serve-drive (iTools/harness) was surveyed: it cannot send raw control lines nor expect an error line or EOF, so this
 # gate keeps a small driver of its own (candidate: extend serve-drive with --line).
 # CPU dry run of this script: bench/fsm-wire-stub.sh --make DIR (a stub engine; proves this script, not the engine).
@@ -22,7 +23,7 @@ fail() { echo "FAIL $1: $2" >&2; exit 1; }
 if [ -z "${GPU_WAITING_ROOM_JOB:-}" ] && [ "$dry" != 1 ] && command -v gpu-wait >/dev/null; then
   echo "cost: 2 engines x 7 probes x (pack load ~25 s + 3 short requests) ~ 9 GPU min, one job"
   rc=0
-  gpu-wait run --priority 70 --timeout 1500 --vram 24 -- env EXPLORE="$explore" BARO_PACK="$pack" "$0" "$@" || rc=$?   # 2. env explicit
+  gpu-wait run --priority 70 --timeout 1500 --vram 24 -- env EXPLORE="$explore" ONLY="${ONLY:-}" BARO_PACK="$pack" "$0" "$@" || rc=$?   # 2. env explicit
   gpu-wait stats --days 1 >> "$out/verdict.txt" 2>/dev/null || true
   exit "$rc"
 fi
@@ -50,7 +51,8 @@ TMAX = 16384
 READY_S, REQ_S = 300, 120
 
 class Eng:
-    def __init__(self, path, tag, env_extra):
+    def __init__(self, path, tag, env_extra, ctl=False):
+        self.ctl = ctl
         env = {"PATH": os.environ["PATH"], "HOME": os.environ["HOME"], "BARO_SERVE": "1", "BARO_TMAX": str(TMAX),
                "BARO_SPEC": "0", "BARO_PACK": pack, **env_extra}
         self.log = open(f"{out}/{tag}.log", "w")
@@ -139,6 +141,31 @@ def probe_steer(e):
     e.ask(1, req(1)); e.ask(2, req(2, gain="0:0:2.0")); e.ask(3, req(3))
     return {"steer_B2_equals_B1": len(e.toks[1]) > 0 and e.toks[1] == e.toks[3]}
 
+def probe_failword(e):
+    d = e.ask(1, req(1))
+    return {"failword_done_fail1": bool(d) and d.get("fail") == 1,
+            "failword_knob_logged": any("BARO_TEST_FAILWORD=1" in l for l in e.logs())}
+def probe_capture(e):
+    d = e.ask(1, req(1, n=4) if e.ctl else req(1, n=4, capture="t1"))
+    return {"capture_done_captured": bool(d) and d.get("captured", 0) > 0}
+SCHEMA = {"type": "object", "properties": {"a": {"type": "integer"}}, "required": ["a"], "additionalProperties": False}
+def probe_grammar(e):
+    d = e.ask(1, req(1, n=64) if e.ctl else req(1, n=64, schema=SCHEMA, reasoning=False))
+    return {"grammar_done_grejected": bool(d) and "grejected" in d and d.get("gdraws", 0) > 0}
+
+def probe_kvfull(e):
+    # BARO_SEQS=3 over a pool of ONE sequence of TMAX: two requests of n=16000 each outgrow it near pos 8k (B-M7).
+    e.send(req(1, n=16000)); e.send(req(2, n=16000))
+    err = e.read_until(lambda l: "error" in l and "kv pool exhausted" in str(l.get("error")), 600)
+    res = {"kvfull_error_line": err is not None, "kvfull_pool_read_back": any("BARO_KV_SHARE: pages 128" in l for l in e.logs())}
+    eid = err.get("id") if err else 1
+    d = e.read_until(lambda l: l.get("done") is True and l.get("id") == eid, 60) if err else None
+    res["kvfull_finish_error"] = bool(d) and d.get("finish") == "error"
+    e.send({"cancel": 2 if eid == 1 else 1})
+    e.read_until(lambda l: l.get("done") is True and l.get("id") == (2 if eid == 1 else 1), 120)
+    res["kvfull_engine_alive"] = (not e.dead) and plain_ok(e, 3)
+    return res
+
 # name, fn, extra env, CAND checks that must be True, BASE symptoms {check: value on BASE} (empty = identity arm, must hold on BASE too)
 PROBES = [
     ("ready", probe_ready, {}, ["ready_has_tier_seqs"], {"ready_has_tier_seqs": False}),
@@ -149,14 +176,26 @@ PROBES = [
     ("window", probe_window, {}, ["window_setup", "window_error_with_id", "window_engine_alive"], {"window_engine_alive": False}),
     ("slens", probe_slens, {}, ["slens_error_line", "slens_finish_error", "slens_engine_alive"], {"slens_engine_alive": False}),
     ("steer", probe_steer, {"BARO_STEER_SERVE": "1"}, ["steer_B2_equals_B1"], {}),
+    ("kvfull", probe_kvfull, {"BARO_SEQS": "3", "BARO_KV_POOL": "1", "BARO_KV_SHARE": "1"},
+        ["kvfull_error_line", "kvfull_pool_read_back", "kvfull_finish_error", "kvfull_engine_alive"], {"kvfull_finish_error": False}),
+    # live probes (2026-11-15): BARO_TEST_* env reaches the cand arm only; the ctl arm is the cand binary without it or
+    # without the request field, and must NOT show the feature (a probe whose control passes is inert)
+    ("failword", probe_failword, {"BARO_TEST_FAILWORD": "1"}, ["failword_done_fail1", "failword_knob_logged"], {"failword_done_fail1": False}),
+    ("capture", probe_capture, {"BARO_CAPTURE": f"{out}/capture", "BARO_CAPTURE_LAYERS": "1"}, ["capture_done_captured"], {"capture_done_captured": False}),
+    ("grammar", probe_grammar, {}, ["grammar_done_grejected"], {"grammar_done_grejected": False}),
 ]
+CTL = {"failword", "capture", "grammar"}
 verdict = []; bad = 0; void = 0
+only = [x for x in os.environ.get("ONLY", "").split(",") if x]
 for name, fn, env, want, symptom in PROBES:
+    if only and name not in only: continue
     res = {}
-    for tag, path in (("base", base), ("cand", cand)):
+    arms = [("base", base), ("cand", cand)] + ([("ctl", cand)] if name in CTL else [])
+    for tag, path in arms:
         e = None
+        aenv = env if tag == "cand" else {k: v for k, v in env.items() if not k.startswith("BARO_TEST_") and not (tag == "ctl" and k.startswith("BARO_CAPTURE"))}
         try:
-            e = Eng(path, f"{name}-{tag}", env); res[tag] = fn(e)
+            e = Eng(path, f"{name}-{tag}", aenv, ctl=(tag == "ctl")); res[tag] = fn(e)
         except Exception as ex:
             res[tag] = {"_exception": str(ex)}
         finally:
@@ -169,15 +208,21 @@ for name, fn, env, want, symptom in PROBES:
         seen = res["base"].get(k) == v
         verdict.append(f"{'ok  ' if seen else 'VOID'} base {name}.{k} = {res['base'].get(k)} (symptom wants {v})")
         void += 0 if seen else 1
+    if "ctl" in res:
+        for k, v in symptom.items():
+            held = res["ctl"].get(k) == v
+            verdict.append(f"{'ok  ' if held else 'FAIL'} ctl  {name}.{k} = {res['ctl'].get(k)} (control: cand binary, feature off, wants {v})")
+            bad += 0 if held else 1
     if not symptom:
         k = want[0]; same = res["base"].get(k) is True
         verdict.append(f"{'ok  ' if same else 'FAIL'} base {name}.{k} = {res['base'].get(k)} (identity arm, holds on both)")
         bad += 0 if same else 1
-not_ex = "NOT EXERCISED: B-M1 live NOT-RESIDENT (fail word injected on CPU only), B-M7 KV exhaustion, B-M13 captured, C6 grejected on a served grammar, B-M4, B-M10, spark B-M14"
+not_ex = "NOT EXERCISED: a non-zero grejected, admission 429 kv pool full, B-M4 (no observable symptom), B-M10, spark B-M14"
 open(f"{out}/verdict.txt", "w").write("\n".join(verdict) + "\n" + not_ex + "\n")
 print("\n".join(verdict)); print(not_ex)
 if bad: print(f"FAIL fsm-wire-gate: {bad} candidate check(s) failed, see {out}"); sys.exit(1)
 if void: print(f"FAIL fsm-wire-gate VOID: {void} base symptom(s) not seen, the probe cannot fail on the old engine"); sys.exit(1)
+if only: print("UNVERIFIED fsm-wire-gate: ONLY=" + ",".join(only) + " ran a subset"); sys.exit(3)
 if explore == "1": print("UNVERIFIED fsm-wire-gate: EXPLORE=1 skipped the preflight check, not a gate result"); sys.exit(3)
 print(f"PASS fsm-wire-gate: {len(verdict)} checks, receipts in {out}")
 PY

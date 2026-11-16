@@ -1,0 +1,251 @@
+# mojo-baro
+
+An LLM inference engine for AMD RDNA3 GPUs, with every GPU kernel written in
+[Mojo](https://www.modular.com/mojo). It serves chat over an OpenAI-compatible
+(and Ollama-compatible) HTTP API on one RX 7900 XTX.
+
+On matched Q4_0 weights it decodes the dense Qwythos-9B **1.34x faster than
+llama.cpp** (148.89 against 111.34 tok/s, 20-prompt median, same job). On the
+35B MoE it is level with llama.cpp. On q8 it is 1.07x ahead (same stint, 2026-10-26). From a Q4_K_M file it is
+1.06x ahead on a native K-quant pack (agreement 98.44%, megakernel, same
+stint, 2026-10-26, Mojo 1.1; on the current Mojo 1.2 pin that megakernel is
+slower than the launch path, see below). Every number here has a preregistered protocol in `bench/`
+and a check you can run.
+
+The project is about the kernels. Consumer RDNA3 cards are where most people
+have 24 GB of VRAM, and the vendor libraries are not tuned for them. This repo
+measures how much of that gap is real.
+
+**Have an AMD GPU that is not a 7900 XTX?** Your card is the most useful thing
+you can contribute. See [docs/amd-family.md](docs/amd-family.md): fifteen
+minutes, no model weights needed.
+
+**Contents:** [Quick start](#quick-start) · [How it works](#how-it-works) ·
+[Results](#results) · [What runs](#what-runs) · [The server and its API](#the-server-and-its-api) ·
+[Configuration](#configuration) · [CPU tier](#cpu-tier-decode-without-a-gpu) ·
+[Testing](#testing) · [Troubleshooting](#troubleshooting) ·
+[How numbers get into this repo](#how-numbers-get-into-this-repo) · [Layout](#layout) ·
+[Portability](#portability) · [Contributing](#contributing) · [License](#license)
+
+## Quick start
+
+### What you need
+
+| | |
+|---|---|
+| GPU | AMD Radeon RX 7900 XTX (gfx1100, 24 GB). Other RDNA3 cards should build; their tuning is unmeasured |
+| OS | Linux with ROCm 7.2 (`/dev/kfd` readable by your user) |
+| Toolchain | [`uv`](https://docs.astral.sh/uv/), Rust (cargo) for the HTTP front, CMake and a C++ compiler for the hipBLASLt shim, `jq` and `curl` for the scripts |
+| RAM | 32 GB is enough for 9B models; the 35B MoE and the 27B models use host RAM for part of their weights |
+| Weights | a GGUF file of a [supported architecture](#what-runs). No weights ship with this repo |
+
+Nothing is installed machine-wide. `uv sync` creates a repo-local `.venv` that pins
+`max[all]==26.7.0` (Mojo 1.2.0).
+
+### Install and check
+
+```sh
+git clone https://github.com/amarbarosys/mojo-baro && cd mojo-baro
+uv sync                              # repo-local .venv with the pinned Mojo/MAX toolchain
+(cd serve && cargo build --release)  # the HTTP front, serve/target/release/baro-serve
+bench/preflight.sh                   # CPU only: CI checks, every test builds, both engines build
+```
+
+`bench/preflight.sh` needs no GPU and no weights. If it passes, the toolchain is right.
+
+### Serve a model
+
+```sh
+tools/baro serve ~/Models/Qwen2.5-7B-Instruct-Q4_K_M.gguf --port 8080
+```
+
+On the first run for a model shape this takes a few minutes: `tools/baro` reads the architecture
+and dimensions from the GGUF header, compiles an engine for exactly that shape, and converts the
+weights into a pack. Both go to `~/.cache/baro/<shape-id>/` (override with `$BARO_CACHE`). Every
+later run of the same file starts in seconds, and another checkpoint of the same shape reuses the
+compiled engine. An unsupported architecture or tokenizer is refused before any build starts.
+
+### Talk to it
+
+```sh
+curl -s localhost:8080/v1/chat/completions -H 'content-type: application/json' -d '{
+  "messages": [{"role": "user", "content": "Name the capital of France in one word."}],
+  "max_tokens": 16000
+}' | jq -r '.choices[0].message.content'
+```
+
+Streaming uses server-sent events, the same as the OpenAI API:
+
+```sh
+curl -sN localhost:8080/v1/chat/completions -H 'content-type: application/json' \
+  -d '{"messages":[{"role":"user","content":"Write a haiku about GPUs."}],"stream":true}'
+```
+
+Any OpenAI client works with `base_url="http://localhost:8080/v1"` and any API key. Ollama
+clients work against the same port (`/api/chat`, `/api/generate`, `/api/tags`). `tools/baro chat`
+is a terminal client.
+
+`tools/baro gui [--model MODEL.gguf] [--port N] [--fps N]` opens the face (`face/app.mojo`, built on the vendored
+`imkit/`): one window with a tab row across the top. It uses the front already on the port, or starts `baro serve`
+for `--model`. Tabs:
+
+- **Chat**: the chat pane streams over SSE from the front (Send, Stop, Copy), with the engine panel beside it
+  (engine state, queue depth, model card, last done line with its fail word, tok/s line, VRAM bar).
+- **Sampling, Engine, Front**: one control per setting, taken from [`docs/settings.toml`](docs/settings.toml)
+  (slider, on/off button, one button per enum choice, or a text field), a one-line summary under each row, and a
+  help panel on the right (help text, key, default, range, restart need, status). A Basic/Advanced switch
+  hides the expert settings. A change is only staged: it is marked "staged", or "staged, restart" when the engine
+  must restart.
+- **Presets**: eight presets in three groups (Fast, Balanced, Quality; Chat, Code, Reasoning; Low VRAM, Long
+  context). Choosing one stages its values; Balanced is staged when the face starts. You can save and delete your own
+  presets (`~/.config/mojo-baro/presets.toml`, override with `MOJO_BARO_PRESETS`). **Apply** shows a plan (which staged
+  settings need a restart, which are live, and a `pack-fit` verdict); Confirm is disabled when the verdict is NO. On
+  Confirm the face stops the `tools/baro serve` process it started, starts it again with the staged `BARO_*`
+  values, waits for `/health` and shows the fail word.
+- **Model**: a GGUF path field, a pack lookup in the cache (`tools/baro pack-path`, it never builds) and the
+  model, pack and limits card.
+
+The face checks these claims offscreen (`face/gate.sh`, `face/chat-gate.sh`, `face/settings_gate.sh`: rendered frames
+read back with OCR, no window opened). Not yet verified: an Apply restart on a real engine (the tests use a fake command) and
+`face/dash_gate.sh`, which needs a 9B engine. The face needs the system libraries `libSDL3.so.0` (Arch: `pacman -S sdl3`)
+and `libfreetype.so.6` (`pacman -S freetype2`); it checks both at start and names the missing one. The frame cap defaults
+to 30 fps: at 60 a resident 9B engine lost about 13% on 6 to 7 of 20 prompts, at 30 and 15 on 1 (`face/window-cost.sh`).
+
+## How it works
+
+```
+ HTTP client (curl, OpenAI SDK, Ollama client, tools/baro chat)
+      |
+      v
+ baro-serve  (Rust, serve/src/)            baro-front (Mojo, serve/front/, experimental)
+   chat template, tokenizer, tool calls,     same routes, same engine protocol
+   JSON-schema masks, queue, cancel,
+   per-message checkpoints, /health
+      |
+      |  one JSON line per request on stdin, one JSON line per token on stdout
+      |  (serve/PROTOCOL.md)
+      v
+ engine process (Mojo), compiled for one model shape
+   serve/engine.mojo   qwen35 dense and qwen35moe (MoE): the tuned engine
+   serve/spark.mojo    generic dense: llama, qwen2, granite, spark2_5
+   serve/q4x.mojo      qwen4exp, 512 experts streamed from host RAM
+   cpu/engine_cpu.mojo decode on the CPU, no GPU (qwen35 dense)
+      |
+      v
+ kernels/*.mojo   GEMV and WMMA GEMM per quant format, flash attention, gated-delta SSM scan,
+                  MoE router, device sampler, the persistent megakernel
+```
+
+**One engine per shape, compiled.** Layer count, hidden size, head counts and the architecture are
+compile-time constants (`-D BARO_H=4096 ...`), so loops have fixed trip counts and the compiler
+can unroll and schedule them. The cost: an engine built for a 9B pack refuses a 27B pack
+(`pack/profile mismatch ... implies H 5120`). `tools/baro` hides this by keying its cache on the
+shape.
+
+**Packs, not GGUF at run time.** `tools/baro` converts the GGUF once into a pack: one flat
+`pack.bin` with weights laid out for the kernels that read them, an `index.txt`, the tokenizer and
+an `identity.json` that names the source file by sha256. A pack loads with one sequential read.
+Pack formats: q4 and q8 (requantized), native K-quant (`--kq`, keeps the GGUF's Q4_K / Q6_K blocks
+and decodes them in the kernel) and split packs for MoE experts in host RAM.
+
+**Decode paths.** The engine reports which one served each request (`timings.path`):
+
+| path | what it is |
+|---|---|
+| `mega` | one persistent kernel launch per token for the whole forward pass (dense default) |
+| `launch` | one launch per op; the reference path and the MoE default |
+| `spec` | speculative decode with the model's own MTP draft head: k tokens drafted, one verify pass; output identical to greedy |
+| `prefill` | the prompt in batched chunks through WMMA GEMMs |
+
+**Memory.** KV is f32 by default or int8 (`BARO_KVQ=int8`, dense only, 33,280 bytes per token on
+the 9B). MoE experts can live in host RAM with a VRAM cache per layer (`BARO_TIER`). Each message
+boundary of a chat is checkpointed, so the next turn prefills only the new message.
+
+## Results
+
+### Decode against llama.cpp
+
+Same box, same GGUF, greedy, no speculation on either side.
+
+| model, weights | llama.cpp tok/s | mojo-baro tok/s | ratio |
+|---|---|---|---|
+| **Qwythos-9B, Q4_0 both sides, 20-prompt median, 2026-10-12** | **111.34** | **148.89** | **1.34x** |
+| Qwythos-9B, Q8_0 both sides, 20-prompt median, same stint, 2026-10-26 | 75.46 | 80.38 | 1.07x |
+| Ornith-1.5-9B Q4_K_M, our q8 pack (2x llama.cpp's weight bytes), same stint, 2026-10-26 | 93.40 | 80.48 | 0.86x |
+| Ornith-1.5-9B Q4_K_M, our q4 pack (requantized; FAILS agreement, 92.97% median), same stint, 2026-10-26 | 93.07 | 146.93 | 1.58x, not a claim |
+| Ornith-1.5-9B Q4_K_M, native K-quant pack (`--kq`, launch path), agreement 98.44% median, same stint, 2026-10-26 | 93.25 | 96.64 | 1.04x |
+| **Ornith-1.5-9B Q4_K_M, native K-quant pack on the megakernel (default), same stint, 2026-10-26** | **94.14** | **99.53** | **1.06x** |
+| Ornith-1.5-9B Q4_K_M, native K-quant pack, **prompt prefill** 1024 / 16384 tokens (seconds, K-quant decode inside the WMMA GEMM, run 10), 2026-10-26 | 0.298 s / 5.66 s | 0.259 s / 4.54 s | 0.87x / 0.80x of the time |
+| Qwen2.5-7B Q4_K_M, native K-quant path (3-prompt quick run, 2026-10-21) | 121.2 | 132.8 | 1.10x |
+| RegesCore-35B MoE (different stints) | 109.92 | 111.89 | 1.02x |
+
+The Q4_0 row is one same-stint job ([`bench/llama-stint-protocol.md`](bench/llama-stint-protocol.md)):
+ours faster on 20/20 prompts. llama.cpp ran in its fast configuration (flash
+attention, f16 KV); ours ran with f32 KV. A ratio is only quoted as a claim when
+both sides were measured in the same stint; the other rows are older or shorter
+runs and say so.
+
+**Toolchain.** The rows above were measured on Mojo 1.1.0 or earlier. The repo now pins
+Mojo 1.2.0 / MAX 26.7.0 (2026-10-29); that move was gated on builds and tests,
+not on throughput, and of these rows only the K-quant megakernel was re-timed: on 1.2 it reads
+87.90 tok/s against the launch path's 98.29 on the same pack (`mega-kq-check`,
+2026-10-30), 88.13 after the delta-phase fold, ids 20/20
+([`docs/BASELINE.md`](docs/BASELINE.md) "Megakernel on K-quant packs", cause
+open). `BARO_MEGA=0` selects the launch path. Until the other rows are
+re-timed on 1.2, read them as numbers of the older toolchain.
+
+- **Speculative decode** with the model's own MTP head is on by default and
+  gives output identical to plain greedy decode: 1.104x at k=2 as a 20-prompt
+  median ([`bench/mtp-protocol.md`](bench/mtp-protocol.md)).
+- **Prefill** is within about 1.3x of llama.cpp from 8k to 32k context
+  (17.42 s against 13.18 s at 32k), using f16 WMMA flash attention and a
+  one-wave SSM scan. On a native K-quant pack the prompt runs batched through a
+  WMMA GEMM that decodes Q4_K / Q6_K in its B staging: 1024 tokens in 0.259 s and 16384 in 4.54 s
+  against llama.cpp's 0.298 and 5.66 s ([`bench/llama-stint-protocol.md`](bench/llama-stint-protocol.md) run 10).
+- **Sampling** runs on the device inside the decode loop and composes with
+  speculation: T=0.7, top_p 0.9 at 147.15 tok/s.
+
+### A cold-cache vendor beat at the decode shape
+
+Single-token decode streams weights out of VRAM. At **M=1, K=4096, N=12288**,
+with weights rotated out of the 96 MB Infinity Cache
+([`bench/coldcache-protocol.md`](bench/coldcache-protocol.md)):
+
+| kernel | us per launch |
+|---|---|
+| `amar_matmul_skinny_v2` CPT=8 | 137.8 to 138.9 |
+| **`amar_matmul_skinny_m1` CPT=8** | **121.2 to 121.8** |
+| hipBLASLt f16 | 122.1 to 123.3 |
+
+The ranges do not overlap; the margin is about 1%. The cause is occupancy, not
+bytes: one row drops the LDS staging and shrinks the accumulator, so more waves
+stay resident. It took four preregistered rounds, three of which falsified
+their own predictions.
+
+### An fp16 WMMA GEMM ahead of hipBLASLt
+
+Two LDS buffers, one barrier per K-step, a two-deep global prefetch,
+XOR-swizzled A, 188 VGPR and no spills; the tile shape is picked per launch
+([`bench/wmma-fp16-protocol.md`](bench/wmma-fp16-protocol.md)):
+
+| size | 256 | 512 | 1024 | 1536 | 2048 | 3072 | 3584 |
+|---|---|---|---|---|---|---|---|
+| **ours, GFLOP/s** | 6372 | 30642 | 74824 | 93632 | 91300 | 99307 | 105786 |
+| hipBLASLt | 6288 | 26324 | 63623 | 69332 | 80203 | 97224 | 85671 |
+| ratio | 1.01 | 1.16 | 1.18 | 1.35 | 1.14 | 1.02 | 1.24 |
+
+These sizes fit in the Infinity Cache for both sides, so this is a warm-cache
+comparison. 4096³ is left out: its buffers total 100.7 MB, over the cache, and
+the same binary read anywhere from 91k to 99k GFLOP/s.
+
+## What runs
+
+Fifteen models across six architectures. Agreement is teacher-forced, over
+20 prompts, against llama.cpp on the same GGUF unless the row says otherwise
+(min / mean, in percent). The date is when that row was last measured.
+
+| model | quant | arch, engine | agreement (min / mean) | decode tok/s | date |
+|---|---|---|---|---|---|
+| Qwythos-9B (reference model) | Q4_0, BF16 | `qwen35`, engine.mojo | PPL and task PASS | 148.89 (spec off), 150.96 (MTP k=2) | 2026-10-12 |
+| Qwythos-9B-v2-MTP | Q6_K | `qwen35`, engine.mojo | 99.2 median | | 2026-09-16 |
+| Ornith-1.5-9B | Q4_K_M | `qwen35`, engine.mojo, `--kq` pack | 98.44 median against llama.cpp (teacher-forced, 20 prompts) | 99.53 | 2026-

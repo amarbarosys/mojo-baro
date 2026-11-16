@@ -64,3 +64,34 @@ def build_trie(vocab: Vocab) -> TokenTrie:
             continue
         t.insert(vocab.token_bytes[tid], tid)
     return t^
+
+
+def greedy_tokenize(trie: TokenTrie, text_bytes: List[UInt8]) raises -> List[Int]:
+    var out: List[Int] = []
+    var pos = 0
+    var n = len(text_bytes)
+    while pos < n:
+        var node_idx = trie.root_child(text_bytes[pos])
+        if node_idx < 0:
+            raise Error("no vocab token starts with byte at pos " + String(pos))
+        var best_end = -1
+        var best_token = -1
+        if trie.nodes[Int(node_idx)].token_id >= 0:
+            best_end = pos + 1
+            best_token = Int(trie.nodes[Int(node_idx)].token_id)
+        var cur = Int(node_idx)
+        var i = pos + 1
+        while i < n:
+            var nxt = trie.nodes[cur].find_child(text_bytes[i])
+            if nxt < 0:
+                break
+            cur = Int(nxt)
+            i += 1
+            if trie.nodes[cur].token_id >= 0:
+                best_end = i
+                best_token = Int(trie.nodes[cur].token_id)
+        if best_token < 0:
+            raise Error("cannot tokenize at pos " + String(pos))
+        out.append(best_token)
+        pos = best_end
+    return out^

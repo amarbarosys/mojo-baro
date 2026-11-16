@@ -84,7 +84,7 @@ kind = "build"
 type = "int"
 default = "2048"
 doc = "qwen35moe shape: hidden size (embedding_length). tools/model-id.py reads it from the GGUF and tools/baro passes it as -D only when it differs from the default (RegesCore-1.0-35B)."
-models = ["qwen35moe"]
+models = ["qwen35moe", "qwen35"]
 group = "build"
 
 [settings.BARO_N_LAYERS]
@@ -92,7 +92,7 @@ kind = "build"
 type = "int"
 default = "40"
 doc = "qwen35moe shape: layer count (block_count). tools/model-id.py reads it from the GGUF and tools/baro passes it as -D only when it differs from the default (RegesCore-1.0-35B)."
-models = ["qwen35moe"]
+models = ["qwen35moe", "qwen35"]
 group = "build"
 
 [settings.BARO_ATT_EVERY]
@@ -108,7 +108,7 @@ kind = "build"
 type = "int"
 default = "16"
 doc = "qwen35moe shape: attention query heads. tools/model-id.py reads it from the GGUF and tools/baro passes it as -D only when it differs from the default (RegesCore-1.0-35B)."
-models = ["qwen35moe"]
+models = ["qwen35moe", "qwen35"]
 group = "build"
 
 [settings.BARO_NKVH]
@@ -180,7 +180,7 @@ kind = "build"
 type = "int"
 default = "32"
 doc = "qwen35moe shape: DeltaNet value heads (ssm.time_step_rank). tools/model-id.py reads it from the GGUF and tools/baro passes it as -D only when it differs from the default (RegesCore-1.0-35B)."
-models = ["qwen35moe"]
+models = ["qwen35moe", "qwen35"]
 group = "build"
 
 [settings.BARO_SSM_STATE]
@@ -391,8 +391,40 @@ group = "speed"
 [settings.BARO_TURBO]
 kind = "build"
 type = "bool"
-default = "0"
+default = "1"
 doc = "Window-path Q4_0 GEMVs (m <= 4) through amar_turbo_rows, the A rows staged once per block in LDS; same words as the q4rowb path, 1.124x on the 27B Turbo spec path. Build flag -D BARO_TURBO=1, read back as BARO_TURBO:."
+models = ["qwen35"]
+group = "speed"
+
+[settings.BARO_TURBO_Q8]
+kind = "build"
+type = "bool"
+default = "0"
+doc = "Round A, KILLED 2026-11-16: window-path Q4_0 GEMVs through amar_turbo_rows_q8 (A rows as int8 + f16 scale per 32-block, sudot4). Teacher-forced 99.30% (repeat 100%) but slower at m=3 (gate 89.2 -> 106.0 us, down 88.6 -> 106.6); opt-in for study only, default 0. Build flag -D BARO_TURBO_Q8=1."
+models = ["qwen35"]
+group = "speed"
+
+[settings.BARO_TURBO_DOT2]
+kind = "build"
+type = "bool"
+default = "1"
+doc = "Window-path Q4_0 GEMVs with m = 2..4 rows through amar_turbo_rows_dot2 (v_dot2_f32_bf16). Kernel m=3 88.8 -> 65.9 us on 27B FFN shapes, engine MTP k=2 70.4 -> 86.0 tok/s on nerkyor 27B; not bit-exact (greedy ids 11/20 vs bar 10), so a 120-task eval decided: 87/120 with dot2 vs 79/120 without (same tree, cap 16000), default 1 since 2026-11-16; -D BARO_TURBO_DOT2=0 for the exact path. m = 1 stays exact. Build flag -D BARO_TURBO_DOT2=1."
+models = ["qwen35"]
+group = "speed"
+
+[settings.BARO_WIN_LDS]
+kind = "build"
+type = "bool"
+default = "1"
+doc = "Window megakernel (BARO_MEGA window path): stage window rows in LDS for the K=H GEMVs. Window megakernel 32.4 -> 59.3 tok/s on 27B (still below the launch path, 73.6). Build flag -D BARO_WIN_LDS=0 turns it off."
+models = ["qwen35"]
+group = "speed"
+
+[settings.BARO_WIN_DCH]
+kind = "build"
+type = "int"
+default = "3"
+doc = "Window megakernel: number of K chunks the down projection stages through LDS when BARO_WIN_LDS=1 (LDS per stage must stay within the block budget). Build flag -D BARO_WIN_DCH=N."
 models = ["qwen35"]
 group = "speed"
 
@@ -521,7 +553,7 @@ group = "speculation"
 [settings.BARO_FR]
 kind = "env"
 type = "bool"
-default = "0"
+default = "1"
 doc = "Use the pack's frequency-restricted draft vocabulary, when the pack has one."
 models = ["qwen35"]
 group = "speculation"
@@ -1401,6 +1433,14 @@ doc = "Comma list of layers BARO_CAPTURE records (0-based), for example 16,20."
 models = ["qwen35"]
 group = "research"
 
+[settings.BARO_TEST_FAILWORD]
+kind = "env"
+type = "bool"
+default = "0"
+doc = "Test only: presets the megakernel fail word to 1 for every request, so the run ends with fail 1 (HTTP 502 engine_invalid_tokens)."
+models = ["qwen35"]
+group = "research"
+
 [settings.BARO_CAPTURE_FIELDS]
 kind = "env"
 type = "string"
@@ -1456,3 +1496,106 @@ default = "~/.cache/baro/embed/norm.tsv"
 doc = "baro-serve: the Unicode normaliser table (embed/norm.tsv, copied next to the binary by embed/build.sh)."
 models = ["all"]
 group = "serving"
+
+[settings.BARO_SUMPROBE]
+kind = "env"
+type = "int"
+default = "0"
+doc = "Debug: print per-row int hashes (SUMTRACE) of window stages."
+models = ["qwen35"]
+group = "debug"
+
+[settings.BARO_POISON]
+kind = "env"
+type = "string"
+default = ""
+doc = "Debug: fill attention scratch at allocation with nan or a float value."
+models = ["qwen35"]
+group = "debug"
+
+[settings.BARO_PG_FROM]
+kind = "env"
+type = "int"
+default = "0"
+doc = "Debug: first position of the split-partials probe under BARO_SUMPROBE."
+models = ["qwen35"]
+group = "debug"
+
+[settings.BARO_PG_TO]
+kind = "env"
+type = "int"
+default = "1000000"
+doc = "Debug: last position of the split-partials probe."
+models = ["qwen35"]
+group = "debug"
+
+[settings.BARO_MEGA_PROF]
+kind = "env"
+type = "int"
+default = "0"
+doc = "Debug: print the megakernel per-phase device stamps after each request."
+models = ["qwen35"]
+group = "debug"
+
+[settings.BARO_KV_ROUTE]
+kind = "env"
+type = "string"
+default = ""
+doc = "Reverse arm of the gemma4 gate: own = shared-KV layers attend slot 0 of their pool instead of their source layer."
+models = ["gemma4"]
+group = "debug"
+
+[settings.BARO_CTX_MAX]
+kind = "env"
+type = "int"
+default = "0"
+doc = "Cap for the auto-sized BARO_TMAX: the model's trained context (tools/baro reads it from the GGUF)."
+models = ["qwen35", "qwen35moe"]
+group = "engine"
+
+[settings.BARO_TMAX_HEADROOM_GB]
+kind = "env"
+type = "float"
+default = "1.5"
+doc = "VRAM in GB the auto-sized BARO_TMAX leaves free for later buffers."
+models = ["qwen35", "qwen35moe"]
+group = "engine"
+[settings.BARO_DFLASH_PACK]
+kind = "env"
+type = "string"
+default = ".work/dflash2/draft-pack"
+doc = "DFlash2 draft pack directory (engine-pack --arch dflash of the Q8_0 draft GGUF), read when BARO_SPEC=dflash2."
+models = ["qwen35"]
+group = "speculation"
+
+[settings.BARO_DF_DOT]
+kind = "env"
+type = "bool"
+default = "1"
+doc = "DFlash2 draft q8 GEMMs quantize their activations per 32 and run gemm_q8dot (attn + ffn 8.03 -> 5.3 ms per draft, D2c parity B1 0.9725); 0 keeps the bf16 gemm_q8 route."
+models = ["qwen35"]
+group = "speculation"
+
+[settings.BARO_DF_PROF]
+kind = "env"
+type = "bool"
+default = "0"
+doc = "Sync timers after each DFlash2 draft stage (embed, attn, ffn, head, select) and around inject; prints ms per draft at request end. Serialises the draft: never in a timed arm."
+models = ["qwen35"]
+group = "speculation"
+
+[settings.BARO_DF_SHIFT]
+kind = "env"
+type = "int"
+default = "0"
+doc = "Injects every DFlash2 feature at position + k (gate reverse arm: acceptance must drop, verified ids must not change). 0 in any real run."
+models = ["qwen35"]
+group = "speculation"
+
+[settings.BARO_FEWROW]
+kind = "build"
+type = "bool"
+default = "0"
+doc = "Build flag -D BARO_FEWROW=1: Q4 window GEMMs with m > 4 run amar_fewrow_wmma D=4 (8-row window 1.53x on the 27B k=7 window; WMMA order, not bit-exact: forced agreement 0.99844 vs 1.00000 on the shipped route). Serve replays prompts with up to MROWS rows, so it also reaches no-spec runs. Default 0."
+models = ["qwen35"]
+group = "speculation"

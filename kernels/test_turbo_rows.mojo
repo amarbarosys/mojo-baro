@@ -93,8 +93,8 @@ def main() raises:
     var ctx = DeviceContext()
     var rng = Lcg(7)
     var bad = 0
-    comptime for ks in range(3):
-        comptime K = 5120 if ks == 0 else (6144 if ks == 1 else 17408)
+    comptime for ks in range(5):
+        comptime K = 5120 if ks == 0 else (6144 if ks == 1 else (17408 if ks == 2 else (4096 if ks == 3 else 12288)))
         for m in range(1, 4):
             bad += check[K, 3, 2](ctx, m, rng)
             bad += check[K, 3, 4](ctx, m, rng)
@@ -102,6 +102,7 @@ def main() raises:
         bad += check[K, 2, 2](ctx, 2, rng)
         bad += check[K, 1, 2](ctx, 1, rng)
         bad += check[K, 1, 4](ctx, 1, rng)
+        bad += check[K, 2, 4](ctx, 2, rng)
     if bad != 0:
         raise Error("FAIL test_turbo_rows: " + String(bad) + " mismatching words")
     print("PASS test_turbo_rows: every word equals amar_matmul_skinny_q4rowb")

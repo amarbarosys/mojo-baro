@@ -6,6 +6,7 @@
 #   ACT_BF16=1 builds the engine with bf16 GEMV activations (the pre-A2 numerics, control arm); default f32.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+echo "PARKED sparkq4k-truth: the f64 truth tokens (exchange/receipts/sparkq4k/truth-gen.py) and the arms are vibethinker-1.5b, deleted 2026-11-15; Llama-3.2-1B has no f64 oracle run, so the exact-model arm has no stand-in"; exit 3
 TR=${1:?usage: bench/sparkq4k-truth.sh TRUTHDIR OUT}; OUT=${2:?}; ACT_BF16=${ACT_BF16:-0}
 if [ -z "${GPU_WAITING_ROOM_JOB:-}" ] && [ -x "$HOME/.local/bin/gpu-wait" ]; then
   mkdir -p "$OUT"; exec "$HOME/.local/bin/gpu-wait" run --timeout 1800 -- env ACT_BF16="$ACT_BF16" bash -c "'$0' '$TR' '$OUT' > '$OUT/job.log' 2>&1"

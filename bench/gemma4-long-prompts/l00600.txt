@@ -1,0 +1,35 @@
+# mojo-baro
+
+An LLM inference engine for AMD RDNA3 GPUs, with every GPU kernel written in
+[Mojo](https://www.modular.com/mojo). It serves chat over an OpenAI-compatible
+(and Ollama-compatible) HTTP API on one RX 7900 XTX.
+
+On matched Q4_0 weights it decodes the dense Qwythos-9B **1.34x faster than
+llama.cpp** (148.89 against 111.34 tok/s, 20-prompt median, same job). On the
+35B MoE it is level with llama.cpp. On q8 it is 1.07x ahead (same stint, 2026-10-26). From a Q4_K_M file it is
+1.06x ahead on a native K-quant pack (agreement 98.44%, megakernel, same
+stint, 2026-10-26, Mojo 1.1; on the current Mojo 1.2 pin that megakernel is
+slower than the launch path, see below). Every number here has a preregistered protocol in `bench/`
+and a check you can run.
+
+The project is about the kernels. Consumer RDNA3 cards are where most people
+have 24 GB of VRAM, and the vendor libraries are not tuned for them. This repo
+measures how much of that gap is real.
+
+**Have an AMD GPU that is not a 7900 XTX?** Your card is the most useful thing
+you can contribute. See [docs/amd-family.md](docs/amd-family.md): fifteen
+minutes, no model weights needed.
+
+**Contents:** [Quick start](#quick-start) · [How it works](#how-it-works) ·
+[Results](#results) · [What runs](#what-runs) · [The server and its API](#the-server-and-its-api) ·
+[Configuration](#configuration) · [CPU tier](#cpu-tier-decode-without-a-gpu) ·
+[Testing](#testing) · [Troubleshooting](#troubleshooting) ·
+[How numbers get into this repo](#how-numbers-get-into-this-repo) · [Layout](#layout) ·
+[Portability](#portability) · [Contributing](#contributing) · [License](#license)
+
+## Quick start
+
+### What you need
+
+| | |
+|---|---|

@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
+echo "PARKED semantic latent hardware gate: the sender was granite-4.2-3b (deleted 2026-11-15); sender and receiver are different models by design and Llama-3.2-1B is the only spark model left, so no stand-in" >&2
+exit 3
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 MOJO=${MOJO:-"$ROOT/.venv/bin/mojo"}

@@ -189,22 +189,6 @@ def embed_bwd_k(idx: I, dy: F, part: F, n32: Int32):
         part[unsafe_offset=c * 32 * DM + v * DM + d] = rebind[Float32](acc[v, dl])
 
 
-def embed_sort_k(perm: I, start: I, ids: I, dy: F, g: F):
-    """Large-vocab embedding gradient: group x owns 32 ids, reads only its tokens through the host counting sort."""
-    var c = Int(block_idx.x)
-    var d = Int(block_idx.y) * 256 + Int(thread_idx.x)
-    var dl = Int(thread_idx.x)
-    var acc = stack_allocation[DType.float32, address_space=AddressSpace.SHARED](row_major[32, 256]())
-    for v in range(32):
-        acc[v, dl] = 0
-    for j in range(Int(start[unsafe_offset=c]), Int(start[unsafe_offset=c + 1])):
-        var t = Int(perm[unsafe_offset=j])
-        var v = Int(ids[unsafe_offset=t]) % 32
-        acc[v, dl] = acc[v, dl] + rebind[acc.ElementType](dy[unsafe_offset=t * DM + d])
-    for v in range(32):
-        g[unsafe_offset=(c * 32 + v) * DM + d] = g[unsafe_offset=(c * 32 + v) * DM + d] + rebind[Float32](acc[v, dl])
-
-
 def rope_k[inv: Bool](x: F, cs: F, sn: F, n32: Int32, b32: Int32, r032: Int32, h32: Int32, hd32: Int32):
     var hd = Int(hd32)
     var half = hd // 2

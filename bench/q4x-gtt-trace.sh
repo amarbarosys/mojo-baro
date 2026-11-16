@@ -16,7 +16,7 @@ if [ -z "${GPU_WAITING_ROOM_JOB:-}" ]; then
     PROMPTS="${PROMPTS:-}" PROMPT_DIR="${PROMPT_DIR:-}" NT="${NT:-}" EXTRA="${EXTRA:-}" EXTRA_B="${EXTRA_B-@@}" PLEN="${PLEN:-}" "$REPO/bench/q4x-gtt-trace.sh" "$OUT" "$NPP"
 fi
 cd "$REPO"; "$REPO/bench/preflight.sh" --check
-BIN=$(realpath "${Q4X_BIN:-.work/open3/i3/q4x}"); GGUF=${Q4X_GGUF:-$HOME/Models/qwen3.8-flash-next-gsq/Q2_0/Qwen3.8-Flash-Next-GSQ-RCO-Q2_0-00001-of-00002.gguf}
+BIN=$(realpath "${Q4X_BIN:-.work/open3/i3/q4x}"); GGUF=${Q4X_GGUF:-$HOME/Models/qwen3.8-flash-next/UD-IQ1_M/Qwen3.8-Flash-Next-UD-IQ1_M-BARO-d37ec15-00001-of-00003.gguf}
 PROMPTS=${PROMPTS:-"a-capabilities b-q4x-source"}; PD=${PROMPT_DIR:-exchange/receipts/open3/item3}; NT=${NT:-32}; PLEN=${PLEN:-2048}
 SUF=""; [ "$PLEN" = 2048 ] && SUF=".2k"; [ "$PLEN" = 16384 ] || [ "$PLEN" = 2048 ] || { echo "FAIL setup: PLEN $PLEN has no prompt files"; exit 1; }
 [ "${EXTRA_B-@@}" = "@@" ] && ARMS="A" || ARMS="A B"

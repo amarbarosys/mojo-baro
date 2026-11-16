@@ -15,6 +15,9 @@ import random
 import sys
 from pathlib import Path
 
+print("PARKED jlens_multihop: needs the Qwen2.5-0.5B HF weights (~/Models/qwen2.5-0.5b-instruct-hf), deleted 2026-11-15; no Llama-3.2-1B HF copy exists (gguf only), so no stand-in")
+sys.exit(3)
+
 sys.path.insert(0, str(Path.home() / "Projects/AiTrainer/imports/jacobian-lens-main"))
 import jlens  # noqa: E402
 import torch  # noqa: E402

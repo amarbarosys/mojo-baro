@@ -5,8 +5,8 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 MOJO=${MOJO:-"$ROOT/.venv/bin/mojo"}
 OUT=${1:-"$ROOT/.work/semantic-latent-build"}
 mkdir -p "$OUT"
+# granite-4.2-3b profile dropped 2026-11-15 (model deleted): the granite arch compile is no longer covered here
 profiles=(
-    "$HOME/Models/library/profiles/granite-4.2-3b-bf16__granite-4.2-3b-BF16"
     "$HOME/Models/library/profiles/llama-3.2-1b-instruct-q4_K_M__Llama-3.2-1B-Instruct-Q4_K_M"
 )
 for profile in "${profiles[@]}"; do

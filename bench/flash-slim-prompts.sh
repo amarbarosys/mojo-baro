@@ -13,7 +13,7 @@ set -euo pipefail
 export LC_ALL=C
 OUT=${1:?out dir}
 REPO=$(cd "$(dirname "$0")/.." && pwd)
-GGUF=${Q4X_GGUF:-$HOME/Models/qwen3.8-flash-next-gsq/Q2_0/Qwen3.8-Flash-Next-GSQ-RCO-Q2_0-00001-of-00002.gguf}
+GGUF=${Q4X_GGUF:-$HOME/Models/qwen3.8-flash-next/UD-IQ1_M/Qwen3.8-Flash-Next-UD-IQ1_M-BARO-d37ec15-00001-of-00003.gguf}
 TOK=${BARO_TOKENIZE:-$REPO/.work/baro-tokenize}
 PAPERS=$HOME/Projects/AiTrainer/experiments/mojo-baro/work/research-paper-corpus/chunks-capped.jsonl
 DOCS=$HOME/Projects/AiTrainer/datasets/external/python-3.14-docs-text

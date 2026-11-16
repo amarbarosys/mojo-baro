@@ -121,6 +121,7 @@ Engine and kernels
 Serving (all from the 2026-09-18 board entries; receipts lost unless a test suite is named)
 - **`POST /v1/audio/speech` (TTS): WORKS**, WAV through a configurable runner, Piper verified.
 - **PWA browser voice into `/v1/audio/transcriptions`: WORKS** against the whisper sidecar.
+- **Claude Code as the agent harness: WORKS** (2026-11-16) through the HQ gateway (`amarbaro-proxy.service` :9015, Anthropic `/v1/messages`, route `baro`): `claude -p --model baro` made a Bash tool call and answered in 2 turns. Needs `-D BARO_KVQ=int8` + `BARO_TMAX=131072` (Claude Code sends ~33.8k prompt tokens + max_tokens 32000; f32 KV OOMs at 65536) and `tokenizer.json` in the pack. Receipt `~/Brain/OS/2026-11-14-proxy-standard-service.md`. Reasoning is split into `reasoning_content` (`ThinkSplit`), so no `</think>` reaches content.
 - **Streaming tool-call deltas: WORKS**, OpenAI-shaped name and argument fragments from the
   `<tool_call>` grammar; newline-after-tag fix `6b21092`.
 - **`hidden: true` and `logits_topk: K` on completions: WORKS**, JSON and SSE.

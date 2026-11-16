@@ -13,12 +13,28 @@ Records (JSON lines, t = time.monotonic_ns of this process):
 """
 import json, os, subprocess, sys, threading, time
 
+# Test mode (the Mojo port is compared byte for byte on a fixture, tools/q4x-gtt-trace-gate.sh): GTT_TRACE_ROOT prefixes every
+# /sys and /proc path; GTT_TRACE_FAKE_CLOCK=1 makes every clock read a counter (1 ms per read); GTT_TRACE_TICKS=N runs the engine
+# to the end first, writes its lines, then N samples and the exit record, in that order; GTT_TRACE_ENGINE_PID looks the engine
+# up in the fixture under that pid. All unset: the live behaviour, unchanged.
+ROOT = os.environ.get("GTT_TRACE_ROOT", "")
+FAKE = os.environ.get("GTT_TRACE_FAKE_CLOCK") == "1"
+TICKS = int(os.environ.get("GTT_TRACE_TICKS", "0"))
+_fake = [0]
+
+
+def clock(kind):
+    if FAKE:
+        _fake[0] += 1000000
+        return _fake[0]
+    return {"m": time.monotonic_ns, "b": lambda: time.clock_gettime_ns(time.CLOCK_BOOTTIME), "r": lambda: time.clock_gettime_ns(time.CLOCK_MONOTONIC_RAW)}[kind]()
+
 
 def card():
-    for d in sorted(os.listdir("/sys/class/drm")):
-        f = f"/sys/class/drm/{d}/device/mem_info_vram_total"
+    for d in sorted(os.listdir(ROOT + "/sys/class/drm")):
+        f = f"{ROOT}/sys/class/drm/{d}/device/mem_info_vram_total"
         if d.startswith("card") and "-" not in d and os.path.exists(f) and int(open(f).read()) > 20_000_000_000:
-            return f"/sys/class/drm/{d}/device/"
+            return f"{ROOT}/sys/class/drm/{d}/device/"
     sys.exit("FAIL gtt-trace: no card with more than 20 GB of VRAM")
 
 
@@ -37,11 +53,11 @@ def kv(path, keys):
 
 
 def psi():
-    return [int(ln.split("total=")[1]) for ln in open("/proc/pressure/memory")]
+    return [int(ln.split("total=")[1]) for ln in open(ROOT + "/proc/pressure/memory")]
 
 
 def nvme_sectors():
-    for ln in open("/proc/diskstats"):
+    for ln in open(ROOT + "/proc/diskstats"):
         w = ln.split()
         if w[2] == "nvme0n1":
             return int(w[5])
@@ -52,12 +68,12 @@ def clients(pids):
     for pid in pids:
         seen = {}
         try:
-            names = os.listdir(f"/proc/{pid}/fdinfo")
+            names = sorted(os.listdir(f"{ROOT}/proc/{pid}/fdinfo"))
         except OSError:
             continue
         for n in names:
             try:
-                txt = open(f"/proc/{pid}/fdinfo/{n}").read()
+                txt = open(f"{ROOT}/proc/{pid}/fdinfo/{n}").read()
             except OSError:
                 continue
             if "drm-driver:\tamdgpu" not in txt:
@@ -67,6 +83,26 @@ def clients(pids):
         if seen:
             res[pid] = (sum(v[0] for v in seen.values()), sum(v[1] for v in seen.values()))
     return res
+
+
+def sample(rd, epid, pids):
+    cl, eng = clients(pids), {}
+    if epid in cl:
+        eng = {"gtt": cl[epid][0], "vram": cl[epid][1]}
+    try:
+        st = {ln.split(":")[0]: int(ln.split()[1]) for ln in open(f"{ROOT}/proc/{epid}/status") if ln.startswith(("VmRSS:", "VmLck:"))}
+        eng["rss"], eng["lck"] = st.get("VmRSS", 0), st.get("VmLck", 0)
+        io = kv(f"{ROOT}/proc/{epid}/io", ("read_bytes",))
+        eng["rd"], eng["maj"] = io.get("read_bytes", 0), int(open(f"{ROOT}/proc/{epid}/stat").read().rsplit(")", 1)[1].split()[9])
+    except (OSError, IndexError):
+        pass
+    oth = [[p, open(f"{ROOT}/proc/{p}/comm").read().strip(), v[0]] for p, v in cl.items() if p != epid and v[0] >= 65536]
+    return {"k": "s", "t": clock("m"), "tb": clock("b"), "tr": clock("r"), "gtt": rd("mem_info_gtt_used"), "vram": rd("mem_info_vram_used"), "eng": eng, "cl": oth,
+            "mem": kv(ROOT + "/proc/meminfo", MEM), "vm": kv(ROOT + "/proc/vmstat", VM), "psi": psi(), "nvme": nvme_sectors()}
+
+
+def pid_list():
+    return sorted(int(p) for p in os.listdir(ROOT + "/proc") if p.isdigit())
 
 
 def main():
@@ -81,6 +117,17 @@ def main():
         with lock:
             fh.write(json.dumps(rec, separators=(",", ":")) + "\n")
 
+    if TICKS > 0:
+        r = subprocess.run([binp, gguf, ntok] + ids, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        epid, pids = int(os.environ.get("GTT_TRACE_ENGINE_PID", "0")), pid_list()
+        for line in r.stdout.split("\n")[:-1] if r.stdout.endswith("\n") else r.stdout.split("\n"):
+            put({"k": "l", "t": clock("m"), "line": line})
+        for _ in range(TICKS):
+            put(sample(rd, epid, pids))
+        put({"k": "x", "t": clock("m"), "rc": r.returncode})
+        fh.close()
+        sys.exit(r.returncode or 0)
+
     proc = subprocess.Popen([binp, gguf, ntok] + ids, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
 
     def reader():
@@ -94,20 +141,8 @@ def main():
     while not stop.is_set():
         t0 = time.monotonic()
         if t0 >= rescan:
-            pids, rescan = [int(p) for p in os.listdir("/proc") if p.isdigit()], t0 + 1.0
-        cl, eng = clients(pids), {}
-        if proc.pid in cl:
-            eng = {"gtt": cl[proc.pid][0], "vram": cl[proc.pid][1]}
-        try:
-            st = {ln.split(":")[0]: int(ln.split()[1]) for ln in open(f"/proc/{proc.pid}/status") if ln.startswith(("VmRSS:", "VmLck:"))}
-            eng["rss"], eng["lck"] = st.get("VmRSS", 0), st.get("VmLck", 0)
-            io = kv(f"/proc/{proc.pid}/io", ("read_bytes",))
-            eng["rd"], eng["maj"] = io.get("read_bytes", 0), int(open(f"/proc/{proc.pid}/stat").read().rsplit(")", 1)[1].split()[9])
-        except (OSError, IndexError):
-            pass
-        oth = [[p, open(f"/proc/{p}/comm").read().strip(), v[0]] for p, v in cl.items() if p != proc.pid and v[0] >= 65536]
-        put({"k": "s", "t": time.monotonic_ns(), "tb": time.clock_gettime_ns(time.CLOCK_BOOTTIME), "tr": time.clock_gettime_ns(time.CLOCK_MONOTONIC_RAW), "gtt": rd("mem_info_gtt_used"), "vram": rd("mem_info_vram_used"), "eng": eng, "cl": oth,
-             "mem": kv("/proc/meminfo", MEM), "vm": kv("/proc/vmstat", VM), "psi": psi(), "nvme": nvme_sectors()})
+            pids, rescan = pid_list(), t0 + 1.0
+        put(sample(rd, proc.pid, pids))
         time.sleep(max(0.0, tick - (time.monotonic() - t0)))
     fh.close()
     sys.exit(proc.returncode or 0)

@@ -33,13 +33,17 @@ for tf in "${prompts[@]}"; do i=$((i+1)); printf '{"id":%d,"prompt":[%s],"n":%d,
 run_arm() {  # $1 label $2 env string
   local label=$1 e=$2 log=$out/$1$sfx.log vram=$out/$1$sfx.vram bin=$eng
   [ "$label" = "$lb" ] && bin=$engB
+  # VRAM base read BEFORE the engine starts (rules.md 2026-11-16: the sampler's first line is taken after the pack has loaded); a base above
+  # 2.5 GiB means a co-tenant or an engine that did not exit holds the card, and the arm's peak-base and megakernel residency are void.
+  local vbase=0 w; for w in $(seq 30); do vbase=$(( $(cat "$card/mem_info_vram_used") >> 20 )); [ "$vbase" -le 2560 ] && break; sleep 1; done
+  [ "$vbase" -le 2560 ] || { echo "FAIL $label: vram base $vbase MiB before the arm (a co-tenant or an engine that did not exit holds the card), arm INVALID"; return 1; }
   ( while :; do echo "$(( $(cat "$card/mem_info_vram_used") >> 20 )) $(( $(cat "$card/mem_info_gtt_used") >> 20 )) $(load1)"; sleep 1; done ) > "$vram" 2>/dev/null & local sp=$!
   local want; want=$(wc -l < "$req")
   env BARO_PACK="${BARO_PACK:-.work/moe-ngram/pack}" BARO_SERVE=1 BARO_TMAX="$tmax" $e "$bin" < "$req" > "$log" 2>&1 || { kill $sp 2>/dev/null; echo "FAIL $label: engine exit, see $log"; return 1; }
   kill $sp 2>/dev/null; wait $sp 2>/dev/null || true
   { grep -E '^(BARO_MEGA|BARO_SPEC|BARO_MOE_DOT|mega fail word):' "$log" | sort -u | sed "s/^/$label /"; } >> "$out/arm.txt"
   grep -qE 'mega fail word: [1-9]' "$log" && { echo "FAIL $label: fail word set, arm INVALID"; return 1; }
-  awk -v l="$label" '{ if ($1>v) v=$1; if ($2>g) g=$2; if ($3>ld) ld=$3 } END { printf "%s vram_max %d gtt_max %d load_max %.2f\n", l, v, g, ld }' "$vram" >> "$out/arm.txt"
+  awk -v l="$label" -v b="$vbase" '{ if ($1>v) v=$1; if ($2>g) g=$2; if ($3>ld) ld=$3 } END { printf "%s vram_base %d vram_max %d (peak-base %d MiB) gtt_max %d load_max %.2f\n", l, b, v, v-b, g, ld }' "$vram" >> "$out/arm.txt"
   local n; n=$(grep -c '"done": *true' "$log" || true); [[ $n == "$want" ]] || { echo "FAIL $label: $n of $want requests done, see $log"; return 1; }
   awk -v g="$(tail -1 "$vram" | cut -d' ' -f2)" 'BEGIN{ if (g+0 > 4096) { print "FAIL spill: gtt " g " MiB"; exit 1 } }' || return 1
   { grep -oE 'tok/s_gen: [0-9.]+' "$log" || true; } | cut -d' ' -f2 >> "$out/$label.toks"

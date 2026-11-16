@@ -15,6 +15,7 @@ from kvpage import PageTable
 from std.sys import exit, has_accelerator
 from std.time import perf_counter_ns
 from ngram import ngram_propose
+from dflash import DFlash
 
 from max.algorithm import parallelize
 from max.gpu.host import DeviceContext, DeviceBuffer
@@ -1314,6 +1315,21 @@ def tool_after_step(ctx: DeviceContext, mut st: WindowState, b: WindowBufs, one_
         tool_install(st, grt.value(), pat)
 
 
+def mega_prof(ctx: DeviceContext, bufs: WindowBufs) raises:
+    """BARO_MEGA_PROF=1: print the megakernel's per-phase stamps (16 slots per layer, last step)."""
+    if getenv("BARO_MEGA_PROF", "0") != "1":
+        return
+    var np = len(bufs.prof_d)
+    var ph = ctx.enqueue_create_host_buffer[DType.int64](np)
+    ctx.enqueue_copy(dst_buf=ph, src_buf=bufs.prof_d)
+    ctx.synchronize()
+    for l in range(np // 16):
+        var line = String("MEGAPROF ") + String(l)
+        for k in range(16):
+            line += " " + String(ph[16 * l + k])
+        print(line)
+
+
 def pair_finish(ctx: DeviceContext, q: PairSeq, mut chain: Chain, bufs: WindowBufs, path: Int) raises:
     ctx.synchronize()
     chain.commit()
@@ -1338,6 +1354,7 @@ def pair_finish(ctx: DeviceContext, q: PairSeq, mut chain: Chain, bufs: WindowBu
     ctx.synchronize()
     print("mega fail word:", flw[2], "" if flw[2] == 0 else " NOT-RESIDENT: a grid barrier timed out, tokens after it are invalid")
     print("mega barrier gen:", flw[1], " pair steps:", q.pair_steps, " id", q.id)
+    mega_prof(ctx, bufs)
     var finish = finish_word(q.tag.reason)
     var done_line = String("{\"id\":") + String(q.id) + ",\"done\":true,\"n\":" + String(n_gen)
     done_line += ",\"prefill_s\":" + String(prefill_s) + ",\"decode_s\":" + String(decode_s)
@@ -1655,6 +1672,42 @@ def serve_seqs(
             ai -= 1
 
 
+def vram_used() raises -> Int:
+    with open(find_drm_dev() + "mem_info_vram_used", "r") as f:
+        return atol(f.read().strip())
+
+
+def auto_tmax(ctx: DeviceContext, pack: Pack) raises -> Int:
+    """BARO_TMAX unset or auto: the largest context whose window buffers fit the VRAM free now (pack loaded),
+    capped by the model's trained context BARO_CTX_MAX (tools/baro reads it from the GGUF). The cost per token is
+    measured, not modelled: two probe allocations of the window buffers give the slope (KV alone was 65536 of the
+    294912 bytes/token on the dense q4 pack). BARO_TMAX_HEADROOM_GB (default 1.5) stays free for later buffers."""
+    var total = 0
+    with open(find_drm_dev() + "mem_info_vram_total", "r") as f:
+        total = atol(f.read().strip())
+    comptime T1 = 4 * KVPAGE * 8
+    comptime T2 = 2 * T1
+    var u0 = vram_used()
+    var b1 = alloc_bufs(ctx, pack, T1)
+    ctx.synchronize()
+    var u1 = vram_used()
+    var b2 = alloc_bufs(ctx, pack, T2)
+    ctx.synchronize()
+    var u2 = vram_used()
+    _ = b1^
+    _ = b2^
+    ctx.synchronize()
+    var per_tok = max(1, ((u2 - u1) - (u1 - u0)) // (T2 - T1))
+    var fixed = max(0, (u1 - u0) - per_tok * T1)
+    var head = Int(atof(getenv("BARO_TMAX_HEADROOM_GB", "1.5")) * 1.0e9)
+    var t = max(0, total - u0 - head - fixed) // per_tok // KVPAGE * KVPAGE
+    var cap = atol(getenv("BARO_CTX_MAX", "0"))
+    if cap > 0:
+        t = min(t, cap)
+    print("auto tmax:", t, " vram free GB:", Float64(total - u0) / 1.0e9, " bytes/token:", per_tok, " fixed GB:", Float64(fixed) / 1.0e9, " ctx max:", cap)
+    return t
+
+
 def main() raises:
     comptime assert has_accelerator(), "Requires a GPU"
     var vram_pool_pct = getenv("MODULAR_DEVICE_CONTEXT_MEMORY_MANAGER_SIZE_PERCENT", "")
@@ -1690,7 +1743,7 @@ def main() raises:
     var e = pack.e
     var draft_q4 = getenv("BARO_DRAFT_Q4", "0") == "1" and have_q4_draft
     print("BARO_DRAFT_Q4:", draft_q4)
-    var fr_k = pack.fr_k if getenv("BARO_FR", "0") == "1" else 0
+    var fr_k = pack.fr_k if getenv("BARO_FR", "1") == "1" else 0
     var fr_off = pack.fr_off
     var fr_ids_off = pack.fr_ids_off
     print("BARO_FR:", fr_k > 0, "k", fr_k)
@@ -1772,7 +1825,7 @@ def main() raises:
     # the decode window path: pos_prev is set so it covers the last
     # (L-1) mod 8 rows (8 when 0), whose post-final-norm hidden rows the last
     # chunk writes into hn_d. pf_rows/pf_tail are per request (below).
-    var tmax = atol(getenv("BARO_TMAX", String(TMAX)))
+    var tmax = auto_tmax(ctx, pack) if getenv("BARO_TMAX", "auto") == "auto" else atol(getenv("BARO_TMAX"))
     if tmax < CP + PF_MIN:
         tmax = CP + PF_MIN
     var att_split = atol(getenv("BARO_ATT_SPLIT_T", String(TMAX)))
@@ -1808,6 +1861,18 @@ def main() raises:
         pf_on = False
     if IS_MOE and pf_on and getenv("BARO_EXPERTS", "") != "":
         pf_on = False
+    # dflash2 (BARO_SPEC=dflash2, lane-dflash2 D3): DFlash2 block drafter, greedy. The draft reads the target taps of
+    # every kept window row, which only the launch-path layer loop writes: prompt prefill and the megakernel go off,
+    # prompts replay through windows. Drafts verify through step_window's ngram path (accept + ring rollback).
+    var df_on = getenv("BARO_SPEC", "1") == "dflash2"
+    var df_shift = atol(getenv("BARO_DF_SHIFT", "0"))  # reverse arm: features injected at position + shift
+    if df_on:
+        if IS_MOE:
+            raise Error("BARO_SPEC=dflash2: dense qwen35 profile only")
+        pf_on = False
+        mega = False
+        mega_win = False
+        print("BARO_SPEC: dflash2 (prefill, megakernel and prefix reuse off), BARO_DF_SHIFT:", df_shift)
     # Tier mode stages all 256 experts of every layer from host per batched
     # chunk (ExpertTier.stage_layer, ~18 GB, ~1.2 s) whatever its row count,
     # while one-token replay reads the VRAM expert cache at ~12.7 ms a row
@@ -1866,7 +1931,15 @@ def main() raises:
             if fhave:
                 force_env.append(fval)
         print("BARO_FORCE:", force_path, " (", len(force_env), "ids )")
+    var vram0 = vram_used()
     var bufs = alloc_bufs(ctx, pack, tmax)
+    print("window bufs: vram bytes", vram_used() - vram0, "for TMAX", tmax)
+    var df = Optional[DFlash]()
+    if df_on:
+        var vram1 = vram_used()
+        var wf = 1 + N_SSM * 10 + N_ATT * 7 + N_LAYERS * 4  # output_norm; the LM head follows it
+        df = DFlash(ctx, getenv("BARO_DFLASH_PACK", ".work/dflash2/draft-pack"), bufs.wbuf.copy(), bufs.off[0], bufs.off[wf + 1], bufs.kind[wf + 1])
+        print("dflash2 draft: pack", getenv("BARO_DFLASH_PACK", ".work/dflash2/draft-pack"), " vram bytes", vram_used() - vram1)
     if cap_on:
         capture_meta(cap_dir, getenv("BARO_CAPTURE_MODEL", pack.packdir), cap_fields, bufs)
     var steer_boot = bufs.steer_on  # BARO_STEER from the environment: every request is steered unless it says otherwise
@@ -2539,7 +2612,7 @@ def main() raises:
                 # state_prefix / ipc_ingest grew the prompt after the first window check: an error line, never exit(2) (B-M1)
                 print(err_line(req_id, window_error(len(prompt), gen_n, tmax)))
                 continue
-            ckpt_idx = -1 if (has_img or bufs.steer_on or cap_on) else chain.lookup(prompt, len(prompt) - 1 if spec else len(prompt))  # a steered prompt must not reuse (or leave) unsteered state
+            ckpt_idx = -1 if (has_img or bufs.steer_on or cap_on or df_on) else chain.lookup(prompt, len(prompt) - 1 if spec else len(prompt))  # a steered prompt must not reuse (or leave) unsteered state
             cached = chain.pos_of(ckpt_idx)
             chain.touch(ckpt_idx)
             if chain.npages > 0:
@@ -2563,6 +2636,13 @@ def main() raises:
                 ctx.enqueue_memset(bufs.kc32_d, 0)
                 ctx.enqueue_memset(bufs.vc32_d, 0)
             ctx.enqueue_memset(bufs.ctr_d, 0)
+            if getenv("BARO_TEST_FAILWORD", "0") == "1":  # test-only: a non-zero fail word before the run, so the live barrier path ends `fail`:1 (B-M1)
+                var fw0 = ctx.enqueue_create_host_buffer[DType.uint32](3)
+                fw0[0] = 0
+                fw0[1] = 0
+                fw0[2] = 1
+                ctx.enqueue_copy(dst_buf=bufs.ctr_d, src_buf=fw0)
+                print("test knob: BARO_TEST_FAILWORD=1, fail word preset to 1")
             ctx.enqueue_memset(bufs.prof_d, 0)
             ctx.synchronize()
             restore_s = Float64(perf_counter_ns() - t_restore) / 1e9
@@ -2587,7 +2667,7 @@ def main() raises:
                     prompt.append(val)
             print("prompt tokens:", len(prompt))
             if chain.cap > 0:
-                ckpt_idx = -1 if (has_img or bufs.steer_on or cap_on) else chain.lookup(prompt, len(prompt) - 1 if spec else len(prompt))  # a steered prompt must not reuse (or leave) unsteered state
+                ckpt_idx = -1 if (has_img or bufs.steer_on or cap_on or df_on) else chain.lookup(prompt, len(prompt) - 1 if spec else len(prompt))  # a steered prompt must not reuse (or leave) unsteered state
                 cached = chain.pos_of(ckpt_idx)
                 if ckpt_idx >= 0:
                     var t_rs = perf_counter_ns()
@@ -2690,6 +2770,10 @@ def main() raises:
             raise Error("BARO_FORCE requires BARO_SPEC=0 (teacher forcing is a no-spec identity gate)")
         wst.reset(t0)
         wst.pos = cached
+        var df_hist = List[Int](length=8, fill=0)  # dflash2: accepted drafts per cycle (forced: draft prefix equal to the reference)
+        var df_ns = 0
+        if df_on:
+            df.value().reset()
         wst.pos_prev = cached
         var prefill_done = False
         var cancelled = False
@@ -2735,6 +2819,38 @@ def main() raises:
                         ctx.enqueue_copy(dst_buf=DeviceBuffer[DType.int32](ctx, bufs.toks_d.unsafe_ptr().unsafe_offset(wst.pos + 1), ngram_n, owning=False), src_buf=bufs.win_h.create_sub_buffer[DType.int32](0, ngram_n))
                         ctx.synchronize()
                     ngram_ns += Int(perf_counter_ns() - draft_start)
+            comptime if not IS_MOE:
+                if df_on and wst.pos + 1 >= len(prompt) and wst.pos + 2 < n_total:
+                    var draft_start = perf_counter_ns()
+                    ctx.enqueue_copy(dst_buf=force_tok_h, src_buf=DeviceBuffer[DType.int32](ctx, bufs.toks_d.unsafe_ptr().unsafe_offset(wst.pos), 1, owning=False))
+                    ctx.synchronize()
+                    df.value().draft(ctx, Int(force_tok_h[0]), wst.pos)
+                    var ids = df.value().walk()
+                    ngram_n = min(len(ids), n_total - 2 - wst.pos)
+                    var fi0 = wst.pos + 1 - len(prompt)
+                    if len(force) > 0:
+                        # Teacher forcing: the window carries the reference tokens (so the verify path still runs
+                        # 8-row windows); the draft is scored against them.
+                        ngram_n = min(ngram_n, len(force) - fi0)
+                        var a = 0
+                        while a < ngram_n and ids[a] == force[fi0 + a]:
+                            a += 1
+                        if ngram_n > 0:
+                            df_hist[a] += 1
+                        for ni in range(ngram_n):
+                            bufs.win_h[ni] = Int32(force[fi0 + ni])
+                    else:
+                        # single-id stops are never drafted, as on the ngram path
+                        for ni in range(len(ids)):
+                            for si in range(len(stop_seqs)):
+                                if ni < ngram_n and stop_seqs[si][0] == ids[ni]:
+                                    ngram_n = ni
+                        for ni in range(ngram_n):
+                            bufs.win_h[ni] = Int32(ids[ni])
+                    if ngram_n > 0:
+                        ctx.enqueue_copy(dst_buf=DeviceBuffer[DType.int32](ctx, bufs.toks_d.unsafe_ptr().unsafe_offset(wst.pos + 1), ngram_n, owning=False), src_buf=bufs.win_h.create_sub_buffer[DType.int32](0, ngram_n))
+                        ctx.synchronize()
+                    df_ns += Int(perf_counter_ns() - draft_start)
             var verify_start = perf_counter_ns()
             if len(ckpt_hints) > 0 and wst.pos < pf_rows:
                 # A hint may fall inside what would otherwise be one big
@@ -2745,6 +2861,14 @@ def main() raises:
                 step_window(ctx, bufs, step_cfg, wst)
             else:
                 step_window(ctx, bufs, cfg, wst, ngram_n)
+            if df_on:
+                var n_new = wst.pos - pos_before
+                if ngram_n > 0 and len(force) == 0:
+                    df_hist[n_new - 1] += 1
+                var df_pos = List[Int]()
+                for r in range(n_new):
+                    df_pos.append(pos_before + r + df_shift)
+                df.value().inject(ctx, Pointer[Float32, MutAnyOrigin](unsafe_from_address=Int(bufs.tap_d.unsafe_ptr())), df_pos, bufs.tap_d.copy())  # feat unused on the tap path
             if cap_on:
                 var adv = wst.pos - pos_before
                 if adv == 1:
@@ -2841,15 +2965,20 @@ def main() raises:
                     js += "]}"
                     jf.write_bytes(js.as_bytes())
             if len(force) > 0 and pos_before >= len(prompt) - 1:
-                if wst.pos != pos_before + 1:
+                if wst.pos != pos_before + 1 and not df_on:
                     raise Error("BARO_FORCE: step advanced by more than one position (spec/prefill batching) -- void arm")
-                var fi = pos_before - (len(prompt) - 1)
+                # dflash2 keeps n_acc + 1 positions: the rows before the last carried reference tokens the target's argmax
+                # equalled (that is what accepted them), the last position holds its own argmax.
+                for q in range(pos_before + 1, wst.pos):
+                    if q - len(prompt) < len(force):
+                        predicted.append(force[q - len(prompt)])
+                var fi = wst.pos - len(prompt)
                 if fi < len(force):
                     ctx.enqueue_copy(dst_buf=force_tok_h, src_buf=DeviceBuffer[DType.int32](ctx, toks_d.unsafe_ptr().unsafe_offset(wst.pos), 1, owning=False))
                     ctx.synchronize()
                     var got = Int(force_tok_h[0])
                     predicted.append(got)
-                    if margin:
+                    if margin and wst.pos == pos_before + 1:
                         var wf = 1 + N_SSM * 10 + N_ATT * 7 + N_LAYERS * 4
                         var Xm = TileTensor(bufs.x_d, xm_layout)
                         var CurBm = TileTensor(bufs.curb_d, xm_layout)
@@ -2943,6 +3072,7 @@ def main() raises:
         ctx.enqueue_copy(dst_buf=flw, src_buf=bufs.ctr_d)
         ctx.synchronize()
         print("mega fail word:", flw[2], "" if flw[2] == 0 else " NOT-RESIDENT: a grid barrier timed out, tokens after it are invalid")
+        mega_prof(ctx, bufs)
         if wst.grammar.__bool__():
             # Gate 4 (bench/grammar-protocol.md): masked_draws must equal
             # accepted every time -- read on every grammar-constrained run,
@@ -3220,6 +3350,17 @@ def main() raises:
             print("forced agreement:", agree, "/", checked)
         if spec:
             print("mtp: drafted", wst.n_drafted, " accepted", wst.n_accepted, " k", kcfg)
+        if df_on:
+            var hl = String("")
+            var cyc = 0
+            var acc = 0
+            for i in range(8):
+                hl += " " + String(df_hist[i])
+                cyc += df_hist[i]
+                acc += i * df_hist[i]
+            print("dflash2:", "forced" if len(force) > 0 else "live", "cycles", cyc, " accepted", acc, " tokens/cycle", Float64(acc + cyc) / Float64(max(cyc, 1)), " draft s", Float64(df_ns) / 1e9, " hist0-7" + hl)
+            if df.value().prof:
+                print(df.value().prof_line())
         if serve:
             var finish = String("length")
             if errored:

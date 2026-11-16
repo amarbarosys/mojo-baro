@@ -8,7 +8,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 CLI = ROOT / ".work/baro-tokenize"
-MODEL = Path("~/Models/spark-x2.5-4b/Spark-X2.5-4B-Q8_0-requant.gguf").expanduser()
+MODEL = Path("~/Models/llama-3.2-1b-instruct-q4_K_M/Llama-3.2-1B-Instruct-Q4_K_M-BARO-38e5113.gguf").expanduser()  # was Spark-X2.5-4B (deleted 2026-11-15); ids counts follow the Llama tokenizer
 OUT = ROOT / "bench/spark-prefill-prompts"
 TARGETS = [int(x) for x in sys.argv[1:]] or [64, 256, 1024, 2048]
 

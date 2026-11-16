@@ -8,11 +8,13 @@
 # *.mojo in the build's import closure (src, then every `import`/`from` root resolved against the
 # source's dir and each -I dir; a root that is a package dir pulls in the whole dir, so the closure is a
 # superset). An edit rebuilds only the builds that can see it. A hit copies the cached binary to -o
-# (kept under .work/build-cache/bin, newest BUILD_CACHE_KEEP=256), so a lane reuses the binary a
-# preflight built with the same flags. BUILD_CACHE=0 disables it. Ends `FAIL k/N <names>` non-zero.
+# (kept under the MAIN checkout's .work/build-cache/bin, shared by every lane worktree, newest BUILD_CACHE_KEEP=512;
+# BUILD_CACHE_DIR overrides), so a lane reuses the binary main or another lane built with the same flags. BUILD_CACHE=0 disables it. Ends `FAIL k/N <names>` non-zero.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-label=${1:?label}; jobs=${JOBS:-4}; dir=.work/build-many/$label; cache=.work/build-cache
+label=${1:?label}; jobs=${JOBS:-4}; dir=.work/build-many/$label
+main=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")
+cache=${BUILD_CACHE_DIR:-$main/.work/build-cache}
 rm -rf "$dir"; mkdir -p "$dir" "$cache"
 mojo=./.venv/bin/mojo; [ -x "$mojo" ] || mojo=mojo
 mkdir -p "$cache/bin"
@@ -51,13 +53,13 @@ one() {  # $1 index
   key=$( { printf '%s\n' "$tree" "$(sed -E 's#(^| )-o +[^ ]+##' <<< "$cmd")"; closure "$cmd" | tr '\n' '\0' | xargs -0 sha256sum --; } | sha256sum | cut -c1-32)
   echo "$key" > "$dir/$i.key"
   if [ "${BUILD_CACHE:-1}" = 1 ] && [ -f "$cache/bin/$key" ]; then
-    [ -z "$o" ] || { mkdir -p "$(dirname "$o")"; cp --reflink=auto "$cache/bin/$key" "$o"; }
+    [ -z "$o" ] || { mkdir -p "$(dirname "$o")"; cp --reflink=auto --remove-destination "$cache/bin/$key" "$o"; }
     touch "$cache/bin/$key"; echo cached > "$dir/$i.st"; return 0
   fi
   cmd=$(printf '%s --num-threads %s' "$cmd" "$threads" | sed -E "s#(^| )-o [^ ]+#\1-o $dir/bin-$i#")
   if bash -c "$cmd" > "$dir/$i.log" 2>&1; then
-    echo ok > "$dir/$i.st"; cp --reflink=auto "$dir/bin-$i" "$cache/bin/$key"
-    [ -z "$o" ] || { mkdir -p "$(dirname "$o")"; cp --reflink=auto "$dir/bin-$i" "$o"; }
+    echo ok > "$dir/$i.st"; cp --reflink=auto "$dir/bin-$i" "$cache/bin/.$key.$$" && mv -f "$cache/bin/.$key.$$" "$cache/bin/$key"
+    [ -z "$o" ] || { mkdir -p "$(dirname "$o")"; cp --reflink=auto --remove-destination "$dir/bin-$i" "$o"; }
   else echo fail > "$dir/$i.st"; fi
 }
 export -f one closure; export dir tree cache threads
@@ -72,6 +74,6 @@ for i in $(seq 1 "$n"); do
   fi
 done
 rm -f "$dir"/bin-*
-ls -t "$cache/bin" | tail -n +$(( ${BUILD_CACHE_KEEP:-256} + 1 )) | sed "s#^#$cache/bin/#" | xargs -r rm -f
+ls -t "$cache/bin" | grep -v "^\." | tail -n +$(( ${BUILD_CACHE_KEEP:-512} + 1 )) | sed "s#^#$cache/bin/#" | xargs -r rm -f
 if [ "${#bad[@]}" -gt 0 ]; then echo "FAIL ${#bad[@]}/$n ${bad[*]}"; exit 1; fi
 echo "OK build-many $label: $n builds, $cached cached, jobs $jobs x $threads threads"

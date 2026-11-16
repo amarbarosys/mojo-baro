@@ -4,7 +4,7 @@
 # a flag naming a missing setting, a stale audit file and a stale skill reference. A gate that cannot fail is not a gate.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-MOJO=${MOJO:-./.venv/bin/mojo}
+MOJO=${MOJO:-./.venv/bin/mojo}; [ -x "$MOJO" ] || MOJO=mojo
 mkdir -p .work
 rm -f .work/operate-audit
 timeout 300 "$MOJO" build tools/operate-audit.mojo -I . -o .work/operate-audit > .work/operate-audit-build.log 2>&1 || { echo "FAIL build: see .work/operate-audit-build.log"; exit 1; }
@@ -30,7 +30,7 @@ plant() { # name, sed expr, file, expected text
   grep -q "$4" <<<"$out" || { echo "FAIL falsifier $1: not caught (got: $out)"; exit 1; }
   echo "ok falsifier: $1"
 }
-plant "unknown setting in a capability" '0,/"BARO_SPEC_K"\]/s//"BARO_SPEC_K", "BARO_ZZ_NOPE"]/' docs/operate-capabilities.toml 'names BARO_ZZ_NOPE'
+plant "unknown setting in a capability" '0,/"BARO_FR"\]/s//"BARO_FR", "BARO_ZZ_NOPE"]/' docs/operate-capabilities.toml 'names BARO_ZZ_NOPE'
 plant "unknown status word" '0,/status = "WORKS"/s//status = "GREAT"/' docs/operate-capabilities.toml 'status GREAT'
 plant "flag names a missing setting" '0,/setting = "BARO_PACK"/s//setting = "BARO_ZZ_NOPE"/' docs/operate-capabilities.toml 'names setting BARO_ZZ_NOPE'
 plant "stale audit file" '$a extra line' docs/OPERATE-AUDIT.md 'FAIL stale'
