@@ -89,7 +89,7 @@ def scan_reads(r: String) raises -> Dict[String, String]:
     """BARO_ name -> first file:line that reads it."""
     var found = Dict[String, String]()
     var cmd = "cd '" + r + "' && grep -rnoE --include='*.mojo' --include='*.rs' --include='*.sh' --include=baro --include=baro-multi-serve --exclude-dir=target --exclude-dir=tests --exclude-dir=testdata "
-    cmd += "'(\\(\"|get_defined_[a-z]+\\[\"|\\$\\{?|-D ?)BARO_[A-Z0-9_]+' serve kernels tools face embed cpu tools/baro tools/baro-multi-serve 2>/dev/null"
+    cmd += "'(\\(\"|get_defined_[a-z]+\\[\"|\\$\\{?|-D ?)BARO_[A-Z0-9_]+' serve kernels tools face embed cpu tools/baro tools/baro-multi-serve 2>/dev/null | LC_ALL=C sort -t: -k1,1 -k2,2n"
     for ln in sh(cmd):
         var parts = ln.split(":")
         var i = ln.find("BARO_")

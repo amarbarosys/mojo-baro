@@ -304,14 +304,14 @@ Found by the scan described at the top of `tools/operate-audit.mojo` (production
 | `BARO_MTMD_EMBED` | serve/src/vision.rs:29 |
 | `BARO_MTP_STATS` | tools/bake.sh:66 |
 | `BARO_MULTI_WORK` | tools/baro-multi-serve:29 |
-| `BARO_PACK_TOOL` | tools/baro-rebake.sh:85 |
+| `BARO_PACK_TOOL` | tools/bake.sh:74 |
 | `BARO_REBAKE_REF` | tools/baro-rebake.sh:61 |
 | `BARO_ROUTER_ADMIN_TOKEN` | serve/src/bin/router.rs:987 |
 | `BARO_ROUTER_ADVERTISE_IP` | serve/src/bin/router.rs:1225 |
 | `BARO_ROUTER_ENGINES` | serve/src/bin/router.rs:376 |
 | `BARO_ROUTER_MDNS_HOST` | serve/src/bin/router.rs:295 |
 | `BARO_ROUTER_NODE_ID` | serve/src/bin/router.rs:1143 |
-| `BARO_RUN_ENV` | tools/baro-rebake.sh:71 |
+| `BARO_RUN_ENV` | tools/bake.sh:75 |
 | `BARO_TEXT_GGUF` | serve/src/vision.rs:31 |
 | `BARO_THREADS` | cpu/engine_cpu.mojo:324 |
 | `BARO_TTS_BIN` | serve/src/audio.rs:98 |
