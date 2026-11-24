@@ -1,0 +1,9 @@
+prep .work/tokv3/c2/src/wiki.txt want 42000000 pieces 41 read 42969527 kept 42948890 dup 0 nfc_or_utf8 20637
+prep .work/tokv3/c2/src/papers.txt want 731725 pieces 1 read 1048562 kept 1048562 dup 0 nfc_or_utf8 0
+prep .work/tokv3/c2/src/tools.txt want 143002 pieces 1 read 1048523 kept 1048523 dup 0 nfc_or_utf8 0
+prep .work/tokv3/c2/src/tx.txt want 1580176 pieces 2 read 2096769 kept 2094600 dup 0 nfc_or_utf8 2169
+prep .work/tokv3/c2/src/mm.txt want 5381057 pieces 6 read 6290780 kept 6290780 dup 0 nfc_or_utf8 0
+prep .work/tokv3/c2/src/brain.txt want 5137170 pieces 5 read 5241928 kept 5241834 dup 0 nfc_or_utf8 94
+prep .work/tokv3/c2/src/code.txt want 4221867 pieces 5 read 5242435 kept 5233457 dup 0 nfc_or_utf8 8978
+prep .work/tokv3/c2/src/gsmt.txt want 804998 pieces 1 read 1048567 kept 1048567 dup 0 nfc_or_utf8 0
+prep total 64955213 bytes -> .work/tokv3/sw2/d-nodedup/sample.txt

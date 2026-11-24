@@ -1,6 +1,6 @@
 # Batched prefill helpers for serve/spark.mojo (wavegroup's T-row forward): weights are dequantised into an f16
 # scratch and multiplied by f16 rows with the WMMA GEMM; these kernels are the glue around that GEMM.
-from std.math import ceildiv, fma, tanh
+from std.math import ceildiv, fma, sqrt, tanh
 from max.gpu.host import DeviceContext, DeviceBuffer
 from layout import TileTensor, TensorLayout, row_major
 from matmul_wmma_pipe import amar_matmul_wmma_pipe
@@ -45,6 +45,26 @@ def pf_cast16[DT: DType](x: Pointer[Scalar[DT], MutAnyOrigin], o: P16, n: Int32)
     var i = Int(global_idx.x)
     if i < Int(n):
         o[i] = x[i].cast[f16]()
+
+
+def pf_head_rms[HD_: Int](x: P32, g: P32, eps: Float32, n: Int32):
+    """Per-head RMS-norm in place over n rows of HD_ floats, times gains g [HD_]: qwen3's q/k norm before rope
+    (llama.cpp build_norm LLM_NORM_RMS, same eps as the block norms). One thread per head row; decode and prefill share it."""
+    var h = Int(global_idx.x)
+    if h >= Int(n):
+        return
+    head_rms_row[HD_](x, g, eps, h)
+
+
+@always_inline
+def head_rms_row[HD_: Int](x: P32, g: P32, eps: Float32, h: Int):
+    var b = h * HD_
+    var s: Float32 = 0
+    for d in range(HD_):
+        s = fma(x[b + d], x[b + d], s)
+    var r = 1.0 / sqrt(s / Float32(HD_) + eps)
+    for d in range(HD_):
+        x[b + d] = x[b + d] * r * g[d]
 
 
 def pf_qkv_split[BIAS: Bool](t: P32, bias: P32, q: P32, k: P32, v: P32, qd: Int32, kvd: Int32, n: Int32):

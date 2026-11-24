@@ -23,7 +23,8 @@ def is_rope_neox_arch(arch: String) -> Bool:
     # llama_model_rope_type (llama-model.cpp): LLM_ARCH_QWEN2's group, "pairs
     # offset by n_rot/2". spark2_5 is NEOX by construction (kernels/spark_kernels.mojo
     # predates this table), not a llama.cpp fact.
-    return arch == "spark2_5" or arch == "qwen2"
+    # LLM_ARCH_QWEN3 sits in the same NEOX group (llama-model.cpp case at 2967, return NEOX at 3022, 2026-11-19 checkout).
+    return arch == "spark2_5" or arch == "qwen2" or arch == "qwen3"
 
 
 def is_rope_norm_arch(arch: String) -> Bool:
@@ -45,7 +46,8 @@ def is_gelu_arch(arch: String) -> Bool:
 def is_silu_arch(arch: String) -> Bool:
     # build_layer_ffn in llama.cpp's src/models/{llama,qwen2,granite}.cpp: build_ffn(...,
     # LLM_FFN_SILU, LLM_FFN_PAR, ...). ~/Brain/mojo/mojo-baro/2026-09-11-llama-arch-recipe-facts.md
-    return arch == "llama" or arch == "qwen2" or arch == "granite"
+    # qwen3.cpp: build_ffn(..., LLM_FFN_SILU, LLM_FFN_PAR, il) as well.
+    return arch == "llama" or arch == "qwen2" or arch == "granite" or arch == "qwen3"
 
 
 def find_swa_period(pattern: List[Int]) raises -> Tuple[Int, Int]:
@@ -66,7 +68,7 @@ def find_swa_period(pattern: List[Int]) raises -> Tuple[Int, Int]:
 
 
 comptime SUPPORTED_OPS = "GET_ROWS RMS_NORM MUL MUL_MAT ADD RESHAPE VIEW PERMUTE CONT TRANSPOSE CPY SET_ROWS ROPE FLASH_ATTN_EXT SOFT_MAX SWIGLU GEGLU SILU GELU SCALE"
-comptime UNSUPPORTED_NAMES = "post_norm q_norm k_norm Qcur_normed Kcur_normed"
+comptime UNSUPPORTED_NAMES = "post_norm"  # q/k norm: QK_NORM (qwen3 per-head RMS-norm before rope)
 
 
 def read_recipe(path: String) raises -> Tuple[Dict[String, String], Bool]:
@@ -162,6 +164,7 @@ def main() raises:
     var rope_freqs = m.tensor_present("rope_freqs.weight")
     var qkv_bias = m.tensor_present("blk.0.attn_q.bias")
     var has_gate = m.tensor_present("blk.0.attn_gate.weight")
+    var qk_norm = m.tensor_present("blk.0.attn_q_norm.weight")
 
     var swa_key = arch + ".attention.sliding_window_pattern"
     var swa_win: Int
@@ -240,6 +243,7 @@ def main() raises:
     out += "comptime ROPE_NEOX = " + mojo_bool(rope_neox) + "\n"
     out += "comptime QKV_BIAS = " + mojo_bool(qkv_bias) + "\n"
     out += "comptime HAS_GATE = " + mojo_bool(has_gate) + "\n"
+    out += "comptime QK_NORM = " + mojo_bool(qk_norm) + "  # attn_q_norm/attn_k_norm: last two entries of each layer\n"
     out += "comptime TIE_EMBED = " + mojo_bool(tie_embed) + "\n"
     out += "comptime ROPE_FREQS = " + mojo_bool(rope_freqs) + "  # rope_freqs.weight: last pack entry, divides full-rope theta\n"
     out += "comptime ACTIVATION_GELU = " + mojo_bool(activation_gelu) + "\n"

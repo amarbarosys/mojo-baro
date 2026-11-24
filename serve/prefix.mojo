@@ -261,13 +261,21 @@ def _hex_to_bytes(s: String) -> List[UInt8]:
     return out^
 
 
+def _pos(r: Int) -> Int:
+    return r
+
+
+def _pos(r: Optional[Int]) -> Int:
+    return r.or_else(-1)
+
+
 def _json_value_start(text: String, key: String) -> Int:
     # Byte offset of the value right after `"key":`, skipping one optional
     # space (`json.dumps(..., indent=2)`'s separator); -1 if the key is
     # absent. Not a general JSON scanner: identity.json's keys never nest
     # and never repeat, so a plain substring search is exact here.
     var needle = String("\"") + key + String("\":")
-    var idx = text.find(needle)
+    var idx = _pos(text.find(needle))
     if idx < 0:
         return -1
     var pos = idx + len(needle.as_bytes())

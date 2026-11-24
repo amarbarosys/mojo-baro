@@ -18,6 +18,8 @@ t() {
   pc "${ins[@]}" -- bash -c "$*"
 }
 t .work/test_gemm "kernels/test_gemm.mojo -I kernels -Xlinker -L$S -Xlinker -lamarbaro_shim -Xlinker -rpath -Xlinker $S" -- ./.work/test_gemm
+# WMMA pipe GEMM with bias + GELU + fp16 epilogue byte-equal to the f32 GEMM + separate GELU (newera bge_gpu)
+t .work/test_wmma_pipe_gelu "kernels/test_wmma_pipe_gelu.mojo -I kernels" -- ./.work/test_wmma_pipe_gelu
 
 # MOEPF: row-batched MoE kernels bit-exact against their m=1 siblings
 t .work/test_moe_rows "kernels/test_moe_rows.mojo -I kernels" -- ./.work/test_moe_rows
@@ -50,6 +52,7 @@ t .work/test_q4x_cpu "serve/test_q4x_cpu.mojo -I serve" -- ./.work/test_q4x_cpu
 # Mojo HTTP front (serve/front/, CPU only): HTTP layer on a fake engine, engine client on a stub child,
 # text parity with the Rust front on its oracle (local receipt + pack; skipped loudly without them).
 t .work/test_http "serve/front/test_http.mojo -I . -I serve/front" -- ./.work/test_http
+t .work/test_anthropic "serve/front/test_anthropic.mojo -I . -I serve/front" serve/front/testdata/anthropic-oracle.jsonl -- ./.work/test_anthropic
 t .work/stub_engine "serve/front/stub_engine.mojo -I ." -- :
 t .work/test_engine_client "serve/front/test_engine_client.mojo -I ." .work/stub_engine -- ./.work/test_engine_client .work/stub_engine
 t .work/baro-front "serve/front/main.mojo -I . -I serve -I serve/front" -- :

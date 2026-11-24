@@ -45,7 +45,10 @@ from grammar_rt import reasoning_boundary_observe
 
 comptime rmsc2_k = amar_rmsnorm_cast2[type_of(xm_layout), type_of(h_layout), type_of(xm_layout), type_of(h2_layout)]
 from dattn import dattn_nsplit
-from mega import DATT_NLD
+from mega import DATT_NLD, MEGA_G
+from mega_rows import amar_mega_rows
+
+comptime mega_dense2_k = amar_mega_rows[type_of(csall_layout), type_of(ssall_layout), N_LAYERS, N_ATT, 2]
 from cert_hook import CertHook
 from slens_kernels import amar_rows_add_vec
 from gemv_kq import amar_gemv_kq, GT_Q4K, GT_Q6K
@@ -2514,22 +2517,19 @@ def step_pair(
     ctx: DeviceContext, mut b0: WindowBufs, toks1_d: DeviceBuffer[DType.int32], cfg0: WindowCfg, cfg1: WindowCfg,
     mut st0: WindowState, pos1: Int, ring1: Int, zbuf: DeviceBuffer[f32], rbuf: DeviceBuffer[bf16],
 ) raises:
-    # Two decoding sequences, one megakernel launch (kernels/mega_moe.mojo R = 2): row r is
-    # sequence r (slot r state, slot r KV table, its own pos/ring/sampled id); the q8
-    # projections and the shared expert read each weight once for both rows. Both views
+    # Two decoding sequences, one R = 2 megakernel launch: row r is sequence r
+    # (slot r state, slot r KV table, its own pos/ring/sampled id). Both views
     # share b0's scratch; slot 1's conv/SSM state and KV table sit at +1 slot from slot 0's.
-    comptime if not IS_MOE:
-        raise Error("step_pair: MoE profile only")
-    else:
-        var xm0 = row_f32(ctx, b0.x_d, 0, MROWS * H, xm_layout)
-        var CurBm = TileTensor(b0.curb_d, xm_layout)
-        var ConvStateAll = TileTensor(b0.convstate_d, csall_layout)
-        var SStateAll = TileTensor(b0.sstate_d, ssall_layout)
-        var Pv = TileTensor(b0.p_v_d, p_v)
-        var Logitsm = TileTensor(b0.logits_d, vm_layout)
-        var Toks0 = TileTensor(b0.toks_d, toks_layout)
-        var Toks1 = TileTensor(toks1_d, toks_layout)
-        var xm1 = row_f32(ctx, b0.x_d, H, H, xm_layout)
+    var xm0 = row_f32(ctx, b0.x_d, 0, MROWS * H, xm_layout)
+    var CurBm = TileTensor(b0.curb_d, xm_layout)
+    var ConvStateAll = TileTensor(b0.convstate_d, csall_layout)
+    var SStateAll = TileTensor(b0.sstate_d, ssall_layout)
+    var Pv = TileTensor(b0.p_v_d, p_v)
+    var Logitsm = TileTensor(b0.logits_d, vm_layout)
+    var Toks0 = TileTensor(b0.toks_d, toks_layout)
+    var Toks1 = TileTensor(toks1_d, toks_layout)
+    var xm1 = row_f32(ctx, b0.x_d, H, H, xm_layout)
+    comptime if IS_MOE:
         ctx.enqueue_function[moe_embed_q8_0_pos[type_of(xm_layout), type_of(toks_layout)]](
             b0.wbuf.unsafe_ptr().unsafe_offset(b0.off[0]), xm0, Toks0, Int32(st0.pos), Int32(H),
             Int32((H // 32) * 34), grid_dim=(ceildiv(H, 256), 1), block_dim=256,
@@ -2538,6 +2538,11 @@ def step_pair(
             b0.wbuf.unsafe_ptr().unsafe_offset(b0.off[0]), xm1, Toks1, Int32(pos1), Int32(H),
             Int32((H // 32) * 34), grid_dim=(ceildiv(H, 256), 1), block_dim=256,
         )
+    else:
+        var Emb = tens_bf16(ctx, b0.wbuf, b0.off[0], VOCAB * H, emb_layout)
+        ctx.enqueue_function[embed_k](Emb, xm0, Toks0, Int32(st0.pos), Int32(H), grid_dim=(ceildiv(H, 256), 1), block_dim=256)
+        ctx.enqueue_function[embed_k](Emb, xm1, Toks1, Int32(pos1), Int32(H), grid_dim=(ceildiv(H, 256), 1), block_dim=256)
+    comptime if IS_MOE:
         ctx.enqueue_function[mega_moe2_k](
             b0.wbuf.unsafe_ptr(), b0.off_d.unsafe_ptr(), b0.x_d.unsafe_ptr(), b0.curb_d.unsafe_ptr(),
             b0.logits_d.unsafe_ptr(), b0.p_h_d.unsafe_ptr(), b0.qkv_d.unsafe_ptr(), zbuf.unsafe_ptr(),
@@ -2552,41 +2557,60 @@ def step_pair(
             Int32(pos1), Int32(ring1), Int32(b0.tpages),
             grid_dim=MOE_G, block_dim=ROW_THREADS,
         )
-        var w = 1 + N_SSM * MOE_W_SSM + N_ATT * MOE_W_ATT
-        ctx.enqueue_function[rmsc_k](
-            xm0, tens_f32(ctx, b0.wbuf, b0.off[w], H, h_layout), CurBm,
-            Int32(H), Float32(1e-6), grid_dim=2, block_dim=256,
+    else:
+        ctx.enqueue_function[mega_dense2_k](
+            b0.wbuf.unsafe_ptr(), b0.off_d.unsafe_ptr(), b0.x_d.unsafe_ptr(), b0.curb_d.unsafe_ptr(),
+            b0.logits_d.unsafe_ptr(), b0.p_h_d.unsafe_ptr(), b0.qkv_d.unsafe_ptr(), zbuf.unsafe_ptr(),
+            b0.araw_d.unsafe_ptr(), b0.braw_d.unsafe_ptr(), b0.eg_d.unsafe_ptr(), b0.beta_d.unsafe_ptr(),
+            b0.conv_d.unsafe_ptr(), b0.so_d.unsafe_ptr(), rbuf.unsafe_ptr(), ConvStateAll, SStateAll,
+            b0.qf_d.unsafe_ptr(), b0.k_d.unsafe_ptr(), b0.v_d.unsafe_ptr(), b0.q_d.unsafe_ptr(), b0.gate_d.unsafe_ptr(),
+            b0.ao_d.unsafe_ptr(), b0.resb_d.unsafe_ptr(), b0.kc_d.unsafe_ptr(), b0.vc_d.unsafe_ptr(), b0.kvtab_d.unsafe_ptr(), b0.p_ffn_d.unsafe_ptr(),
+            b0.hidx_d.unsafe_ptr(), b0.hmax_d.unsafe_ptr(), b0.p_v_d.unsafe_ptr(), b0.fgb_d.unsafe_ptr(), b0.fgbp_d.unsafe_ptr(),
+            b0.xq_d.unsafe_ptr(), b0.xs_d.unsafe_ptr(), b0.hq_d.unsafe_ptr(), b0.hs_d.unsafe_ptr(),
+            b0.ctr_d.unsafe_ptr(), b0.prof_d.unsafe_ptr(), b0.dbg_d.unsafe_ptr(),
+            Int32(st0.ring), Int32(SLOTS), Int32(st0.pos), Int32(0), Int32(cfg0.att_split), Int32(0),
+            Int32(pos1), Int32(ring1), Int32(b0.tpages),
+            grid_dim=MEGA_G, block_dim=ROW_THREADS,
         )
-        gemm_w[VOCAB, H](ctx, CurBm, b0.wbuf, b0.off[w + 1], b0.kind[w + 1], Pv, 2)
-        ctx.enqueue_function[r_head](Pv, Logitsm, Int32(2), Int32(VOCAB), grid_dim=ceildiv(2 * VOCAB, 256), block_dim=256)
-        var SampTok = TileTensor(b0.dtok_d, dtok_layout)
-        var SampProb = TileTensor(b0.hmax_d, dtok_layout)
-        for r in range(2):
-            var Lr = row_f32(ctx, b0.logits_d, r * VOCAB, VOCAB, vm_layout)
-            var pos_r = st0.pos if r == 0 else pos1
-            var cfg_r = cfg0.copy() if r == 0 else cfg1.copy()
-            if cfg_r.sample.temperature <= 0:
-                if r == 0:
-                    ctx.enqueue_function[argmax_k](Lr, Toks0, Int32(VOCAB), Int32(pos_r + 1), grid_dim=1, block_dim=256)
-                else:
-                    ctx.enqueue_function[argmax_k](Lr, Toks1, Int32(VOCAB), Int32(pos_r + 1), grid_dim=1, block_dim=256)
+    var w = 1
+    comptime if IS_MOE:
+        w += N_SSM * MOE_W_SSM + N_ATT * MOE_W_ATT
+    else:
+        w += N_SSM * DENSE_W_SSM + N_ATT * DENSE_W_ATT + N_LAYERS * DENSE_W_LAYER
+    ctx.enqueue_function[rmsc_k](
+        xm0, tens_f32(ctx, b0.wbuf, b0.off[w], H, h_layout), CurBm,
+        Int32(H), Float32(1e-6), grid_dim=2, block_dim=256,
+    )
+    gemm_w[VOCAB, H](ctx, CurBm, b0.wbuf, b0.off[w + 1], b0.kind[w + 1], Pv, 2)
+    ctx.enqueue_function[r_head](Pv, Logitsm, Int32(2), Int32(VOCAB), grid_dim=ceildiv(2 * VOCAB, 256), block_dim=256)
+    var SampTok = TileTensor(b0.dtok_d, dtok_layout)
+    var SampProb = TileTensor(b0.hmax_d, dtok_layout)
+    for r in range(2):
+        var Lr = row_f32(ctx, b0.logits_d, r * VOCAB, VOCAB, vm_layout)
+        var pos_r = st0.pos if r == 0 else pos1
+        var cfg_r = cfg0.copy() if r == 0 else cfg1.copy()
+        if cfg_r.sample.temperature <= 0:
+            if r == 0:
+                ctx.enqueue_function[argmax_k](Lr, Toks0, Int32(VOCAB), Int32(pos_r + 1), grid_dim=1, block_dim=256)
             else:
-                ctx.enqueue_function[sample_row_k](
-                    Lr, SampTok, SampProb, Int32(VOCAB),
-                    Float32(cfg_r.sample.temperature), Int32(cfg_r.sample.top_k),
-                    Float32(cfg_r.sample.top_p), Float32(cfg_r.sample.min_p),
-                    cfg_r.sample.seed, UInt64(pos_r), grid_dim=1, block_dim=SAMP_THREADS,
-                )
-                if r == 0:
-                    ctx.enqueue_function[tokcp_k](SampTok, Toks0, Int32(0), Int32(pos_r + 1), Int32(1), grid_dim=1, block_dim=32)
-                else:
-                    ctx.enqueue_function[tokcp_k](SampTok, Toks1, Int32(0), Int32(pos_r + 1), Int32(1), grid_dim=1, block_dim=32)
-        ctx.enqueue_copy(dst_buf=b0.stream_h.create_sub_buffer[DType.int32](0, 1), src_buf=DeviceBuffer[DType.int32](ctx, b0.toks_d.unsafe_ptr().unsafe_offset(st0.pos + 1), 1, owning=False))
-        ctx.enqueue_copy(dst_buf=b0.stream_h.create_sub_buffer[DType.int32](1, 1), src_buf=DeviceBuffer[DType.int32](ctx, toks1_d.unsafe_ptr().unsafe_offset(pos1 + 1), 1, owning=False))
-        ctx.synchronize()
-        if cfg0.serve:
-            print(tok_line(cfg0.req_id, Int(b0.stream_h[0])))
-            print(tok_line(cfg1.req_id, Int(b0.stream_h[1])))
-        st0.ring = (st0.ring + 1) % SLOTS
-        st0.pos_prev = st0.pos
-        st0.pos += 1
+                ctx.enqueue_function[argmax_k](Lr, Toks1, Int32(VOCAB), Int32(pos_r + 1), grid_dim=1, block_dim=256)
+        else:
+            ctx.enqueue_function[sample_row_k](
+                Lr, SampTok, SampProb, Int32(VOCAB),
+                Float32(cfg_r.sample.temperature), Int32(cfg_r.sample.top_k),
+                Float32(cfg_r.sample.top_p), Float32(cfg_r.sample.min_p),
+                cfg_r.sample.seed, UInt64(pos_r), grid_dim=1, block_dim=SAMP_THREADS,
+            )
+            if r == 0:
+                ctx.enqueue_function[tokcp_k](SampTok, Toks0, Int32(0), Int32(pos_r + 1), Int32(1), grid_dim=1, block_dim=32)
+            else:
+                ctx.enqueue_function[tokcp_k](SampTok, Toks1, Int32(0), Int32(pos_r + 1), Int32(1), grid_dim=1, block_dim=32)
+    ctx.enqueue_copy(dst_buf=b0.stream_h.create_sub_buffer[DType.int32](0, 1), src_buf=DeviceBuffer[DType.int32](ctx, b0.toks_d.unsafe_ptr().unsafe_offset(st0.pos + 1), 1, owning=False))
+    ctx.enqueue_copy(dst_buf=b0.stream_h.create_sub_buffer[DType.int32](1, 1), src_buf=DeviceBuffer[DType.int32](ctx, toks1_d.unsafe_ptr().unsafe_offset(pos1 + 1), 1, owning=False))
+    ctx.synchronize()
+    if cfg0.serve:
+        print(tok_line(cfg0.req_id, Int(b0.stream_h[0])))
+        print(tok_line(cfg1.req_id, Int(b0.stream_h[1])))
+    st0.ring = (st0.ring + 1) % SLOTS
+    st0.pos_prev = st0.pos
+    st0.pos += 1

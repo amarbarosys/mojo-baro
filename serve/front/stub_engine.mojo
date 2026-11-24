@@ -13,7 +13,7 @@ from std.sys import argv
 from std.sys import exit
 from std.time import sleep
 
-comptime READY = '{"ready":true,"tmax":16384,"mrows":8,"kmax":8,"spec_k":2,"kv":"int8","pack":"stub"}\n'
+comptime READY = '{"ready":true,"tmax":131072,"mrows":8,"kmax":8,"spec_k":2,"kv":"int8","pack":"stub"}\n'
 
 
 def say(s: String):
@@ -35,12 +35,29 @@ def lines(mut buf: List[UInt8], block: Bool) -> List[String]:
     return out^
 
 
-def serve(mode: String, text: String, mut buf: List[UInt8], mut held: List[String]) raises:
+def serve(mode: String, text: String, mut buf: List[UInt8], mut held: List[String], mut req_num: Int) raises:
     var j = parse(text)
     if j.has("cancel"):
         return
     var id = j.get("id").int()
     var n = j.get("n").int()
+    if mode == "pilot":
+        req_num += 1
+        var pilot_tokens = List[Int32]()
+        var finish_reason = String("tool_calls")
+        if req_num == 1:
+            pilot_tokens = [40, 690, 1629, 28121, 627, 27, 14506, 13735, 397, 27, 1723, 55626, 1003, 397, 27, 16577, 28, 5749, 397, 3123, 330, 47, 24911, 1296, 25, 76516, 16150, 78, 489, 75430, 6247, 1, 871, 611, 5284, 4420, 24911, 4552, 3996, 1024, 8415, 611, 5284, 4420, 24911, 4552, 3996, 198, 524, 16577, 397, 524, 1723, 397, 524, 14506, 13735, 29]
+            finish_reason = "tool_calls"
+        elif req_num == 2:
+            pilot_tokens = [47, 24911, 1296, 6992, 25, 24884, 76516, 16150, 78, 449, 75430, 6247, 5507, 11572, 13, 128009]
+            finish_reason = "stop"
+        else:
+            pilot_tokens = [128009]
+            finish_reason = "stop"
+        for tok in pilot_tokens:
+            say(String('{"id":', id, ',"tok":', tok, "}\n"))
+        say(String('{"id":', id, ',"done":true,"n":', len(pilot_tokens), ',"prefill_s":0.012,"decode_s":0.28,"tok_s":207.1,"finish":"', finish_reason, '"}\n'))
+        return
     var cancelled = False
     var sent = 0
     for i in range(n):
@@ -86,8 +103,9 @@ def main() raises:
         sleep(0.2)
         exit(7)
     var held = List[String]()
+    var req_num = 0
     while True:
         var got = lines(buf, True) if len(held) == 0 else held.copy()
         held = List[String]()
         for l in got:
-            serve(mode, l, buf, held)
+            serve(mode, l, buf, held, req_num)

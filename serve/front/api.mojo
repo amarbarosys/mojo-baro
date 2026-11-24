@@ -21,6 +21,7 @@ comptime EV_DEAD = 4
 comptime EV_OTHER = 5
 
 comptime DEFAULT_MAX_TOKENS = 1048576  # GEN_N in serve/registry.mojo; "up to the window"
+comptime ANTHROPIC_MIN_REMAINING_TOKENS = 1024
 comptime MAX_ID = 2147483647  # token ids are Int32 here
 
 
@@ -324,13 +325,19 @@ def reject_unserved(j: Json) raises ApiError:
         raise bad("`top_logprobs` is not served by the Mojo front yet")
 
 
-def check_gen(mut g: GenRequest, tmax: Int, inflight: Int, max_inflight: Int, requested_n: Int) raises ApiError:
+def check_gen(mut g: GenRequest, tmax: Int, inflight: Int, max_inflight: Int, requested_n: Int, anthropic: Bool = False) raises ApiError:
     """The ONE length and admission check, run at submit (Rust repeated it by hand in 4 places, report-A M4)."""
     if inflight >= max_inflight:
         raise plain(429, String(max_inflight) + " requests in flight (--max-inflight)")
     if len(g.prompt) == 0:
         raise bad("prompt is empty")
-    var n = fit_n(requested_n, len(g.prompt), tmax)
+    var req_n = requested_n
+    if anthropic and tmax - len(g.prompt) < ANTHROPIC_MIN_REMAINING_TOKENS:
+        var max_prompt = max(tmax - ANTHROPIC_MIN_REMAINING_TOKENS, 0)
+        raise bad("prompt is too long: " + String(len(g.prompt)) + " tokens > " + String(max_prompt) + " maximum")
+    if anthropic and req_n > tmax - len(g.prompt):
+        req_n = max(tmax - len(g.prompt), 0)
+    var n = fit_n(req_n, len(g.prompt), tmax)
     if n == 0 and requested_n == DEFAULT_MAX_TOKENS:
         raise exceed_context(len(g.prompt), tmax)
     if n == 0:
@@ -358,6 +365,8 @@ struct Call(Copyable, Movable):
     var model: String  # "" = the server's
     var stream: Bool
     var chat: Bool
+    var anthropic: Bool
+    var stop_sequences: Json
     var force: String  # text forced after the generation prompt (tool_choice)
     var n_prompt: Int
 
@@ -367,6 +376,8 @@ struct Call(Copyable, Movable):
         self.model = ""
         self.stream = False
         self.chat = False
+        self.anthropic = False
+        self.stop_sequences = Json()
         self.force = ""
         self.n_prompt = 0
 
@@ -525,7 +536,7 @@ def resolve_tool_choice(tools: Json, choice: Json, xml: Bool) raises ApiError ->
     return (tools.copy(), force^)
 
 
-def parse_chat[T: TextLike](text: T, j: Json, spec_k: Int) raises ApiError -> Call:
+def parse_chat[T: TextLike](text: T, j: Json, spec_k: Int, anthropic: Bool = False) raises ApiError -> Call:
     var msgs_in = j.get("messages")
     if msgs_in.kind() != ARR:
         raise bad("missing field `messages`")
@@ -553,6 +564,13 @@ def parse_chat[T: TextLike](text: T, j: Json, spec_k: Int) raises ApiError -> Ca
         var o = Json.object()
         o.set("role", role)
         o.set("content", Json.of(content_text(m.get("content"))))
+        if anthropic:
+            var tool_call_id = m.get("tool_call_id")
+            if not tool_call_id.is_null():
+                o.set("tool_call_id", tool_call_id)
+            var name = m.get("name")
+            if not name.is_null():
+                o.set("name", name)
         var tc = m.get("tool_calls")
         if not tc.is_null():
             o.set("tool_calls", tool_calls_for_template(tc))
@@ -813,10 +831,18 @@ def sub(s: String, a: Int, b: Int) -> String:
     return String(unsafe_from_utf8=s.as_bytes()[a:b])
 
 
+def _pos(r: Int) -> Int:
+    return r
+
+
+def _pos(r: Optional[Int]) -> Int:
+    return r.or_else(-1)
+
+
 def _find(s: String, needle: String, start: Int = 0) -> Int:
     if start > s.byte_length():
         return -1
-    return s.find(needle, start)
+    return _pos(s.find(needle, start))
 
 
 def _trim(s: String) -> String:
@@ -1050,6 +1076,86 @@ struct ToolStream(Movable):
             self.closed = True
             return ToolDelta(None, "}" if self.args_open else String())
         return None
+
+
+struct JsonToolStream(Movable):
+    """Buffers a `<tool_call>{...}</tool_call>` wrapper into one validated tool delta."""
+
+    var raw: String
+    var content_sent: Int
+    var marker: Int
+    var closed: Bool
+    var valid: Bool
+    var name: String
+    var arguments: String
+    var sent: Bool
+
+    def __init__(out self):
+        self.raw = String()
+        self.content_sent = 0
+        self.marker = -1
+        self.closed = False
+        self.valid = False
+        self.name = String()
+        self.arguments = String()
+        self.sent = False
+
+    def has_tool(self) -> Bool:
+        return self.valid
+
+    def finish_content(mut self) -> String:
+        if self.valid:
+            return String()
+        var tail = sub(self.raw, self.content_sent, self.raw.byte_length())
+        self.content_sent = self.raw.byte_length()
+        return tail^
+
+    def push(mut self, text: String, mut delta: Optional[ToolDelta]) -> String:
+        self.raw += text
+        if self.marker < 0:
+            var i = _find(self.raw, "<tool_call>")
+            if i >= 0:
+                self.marker = i
+                var prefix = sub(self.raw, self.content_sent, i)
+                self.content_sent = i
+                self._parse_tool()
+                if self.valid and not self.sent:
+                    delta = ToolDelta(Optional[String](self.name), self.arguments)
+                    self.sent = True
+                return prefix^
+            var safe = max(self.raw.byte_length() - 10, 0)
+            var b = self.raw.as_bytes()
+            while safe > self.content_sent and safe < len(b) and (b[safe] & 0xC0) == 0x80:
+                safe -= 1
+            var prefix = sub(self.raw, self.content_sent, safe) if safe > self.content_sent else String()
+            self.content_sent = max(safe, self.content_sent)
+            return prefix^
+        self._parse_tool()
+        if self.valid and not self.sent:
+            delta = ToolDelta(Optional[String](self.name), self.arguments)
+            self.sent = True
+        return String()
+
+    def _parse_tool(mut self):
+        if self.closed:
+            return
+        var end = _find(self.raw, "</tool_call>", self.marker + 11)
+        if end < 0:
+            return
+        self.closed = True
+        try:
+            var body = parse(sub(self.raw, self.marker + 11, end))
+            var n = body.get("name")
+            if n.kind() != STR:
+                return
+            var args = body.get("arguments")
+            if args.kind() == NULL:
+                args = Json.object()
+            self.name = n.str()
+            self.arguments = args.dumps()
+            self.valid = True
+        except:
+            return
 
 
 # ---- chat responses -----------------------------------------------------------

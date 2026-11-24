@@ -6,7 +6,7 @@ const LS_SETTINGS = "baro.settings.v3";
 const DEFAULT_SETTINGS = {
   serverUrl: location.origin,
   temperature: 0.7,
-  maxTokens: 512,
+  maxTokens: 16000,  // repo floor (CLAUDE.md: max_tokens >= 16000); 512 cut thinking models before the answer
   topP: 1, topK: 0, minP: 0, seed: null, frequencyPenalty: 0, presencePenalty: 0, stopSequences: "", spec: false, thinking: true, hidden: false, logprobs: false, jsonSchema: "",
   systemPrompt: "",
 };
@@ -148,7 +148,15 @@ function setBusy(busy) {
 async function fetchModels() {
   try {
     const r = await fetch(new URL("/api/models", settings.serverUrl));
-    if (!r.ok) return;
+    if (!r.ok) {
+      // a plain baro-serve has no model launcher: it serves one pack, named by /health
+      const h = await fetch(new URL("/health", settings.serverUrl));
+      const hj = h.ok ? await h.json() : null;
+      modelSelect.innerHTML = hj ? `<option value="">${String(hj.pack || "served model").split("/").pop()} (baro-serve)</option>`
+                                 : `<option value="">Model service unavailable</option>`;
+      modelLoadBtn.hidden = Boolean(hj);
+      return;
+    }
     const models = await r.json();
     modelSelect.innerHTML = "";
     if (models.length === 0) {
@@ -169,7 +177,15 @@ async function fetchModels() {
 async function checkStatus() {
   try {
     const r = await fetch(new URL("/api/status", settings.serverUrl));
-    if (!r.ok) throw new Error("Offline");
+    if (!r.ok) {
+      const h = await fetch(new URL("/health", settings.serverUrl));
+      const hj = h.ok ? await h.json() : null;
+      if (!hj || hj.status !== "ok") throw new Error("Offline");
+      statusPill.className = "status-pill ready";
+      statusPill.title = `baro-serve: ${hj.pack || "?"}, engine ${hj.engine_state || "?"}, tmax ${(hj.limits || {}).tmax || "?"}`;
+      modelStopBtn.hidden = true;
+      return;
+    }
     const st = await r.json();
     if (st.status === "running") {
       statusPill.className = "status-pill ready";
@@ -254,6 +270,7 @@ async function sendMessage(userText) {
   setBusy(true);
 
   let text = "";
+  let thought = "";
   let tokenCount = 0;
   let startTime = performance.now();
   let ttft = 0;
@@ -269,7 +286,7 @@ async function sendMessage(userText) {
         messages: buildMessages(userText),
         stream: true,
         temperature: settings.temperature,
-        max_tokens: Number(settings.maxTokens) || 512,
+        max_tokens: Number(settings.maxTokens) || 16000,
         top_p: Number(settings.topP), top_k: Number(settings.topK), min_p: Number(settings.minP),
         ...(settings.seed === null || settings.seed === "" ? {} : { seed: Number(settings.seed) }),
         frequency_penalty: Number(settings.frequencyPenalty), presence_penalty: Number(settings.presencePenalty),
@@ -317,15 +334,19 @@ async function sendMessage(userText) {
 
         if (obj.id) pendingResponseId = obj.id;
         const delta = obj.choices && obj.choices[0] && obj.choices[0].delta;
-        if (delta && typeof delta.content === "string") {
-          text += delta.content;
+        // the <think> steps arrive as reasoning_content; show them dimmed above the answer, not as an empty bubble
+        const dt = delta && typeof delta.reasoning_content === "string" ? delta.reasoning_content : "";
+        const dc = delta && typeof delta.content === "string" ? delta.content : "";
+        if (dt || dc) {
+          thought += dt;
+          text += dc;
           tokenCount++;
-          
+
           const elapsedSec = (performance.now() - startTime) / 1000;
           const tokSec = (tokenCount / Math.max(elapsedSec, 0.001)).toFixed(1);
           telemetryBadge.textContent = `${tokSec} tok/s | TTFT: ${ttft}ms`;
 
-          assistantBubble.innerHTML = parseMarkdown(text);
+          assistantBubble.innerHTML = (thought ? `<div class="think">${parseMarkdown(thought)}</div>` : "") + parseMarkdown(text);
           scrollToEnd();
         }
       }
@@ -410,7 +431,7 @@ function openSettings() {
 function closeSettingsAndSave() {
   settings.serverUrl = serverUrlEl.value.trim() || DEFAULT_SETTINGS.serverUrl;
   settings.temperature = Number(temperatureEl.value);
-  settings.maxTokens = Number(maxTokensEl.value) || 512;
+  settings.maxTokens = Number(maxTokensEl.value) || 16000;
   settings.topP = Number(field("top-p").value); settings.topK = Number(field("top-k").value); settings.minP = Number(field("min-p").value);
   settings.seed = field("seed").value === "" ? null : Number(field("seed").value); settings.stopSequences = field("stop-sequences").value;
   settings.frequencyPenalty = Number(field("frequency-penalty").value); settings.presencePenalty = Number(field("presence-penalty").value);

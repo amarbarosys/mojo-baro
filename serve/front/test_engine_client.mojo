@@ -210,7 +210,7 @@ def t_normal(mut k: Check, stub: String) raises:
     until_ready(c, evs)
     k.ok(c.state() == ENG_IDLE and kinds(evs, EV_READY) == 1, "STARTING -> IDLE on the ready line")
     var info = c.ready_info()
-    k.ok(info.get("tmax").int() == 16384 and info.get("mrows").int() == 8 and info.get("spec_k").int() == 2, "ready_info carries the limits")
+    k.ok(info.get("tmax").int() == 131072 and info.get("mrows").int() == 8 and info.get("spec_k").int() == 2, "ready_info carries the limits")
     k.eq(info.text("pack"), "stub", "ready_info pack")
     k.eq(info.text("kv"), "int8", "ready_info kv")
     var r = req(1, 5)
@@ -308,12 +308,12 @@ def t_length_guard(mut k: Check, stub: String) raises:
     var evs = List[Event]()
     until_ready(c, evs)
     try:
-        c.submit(req(1, 16384))
+        c.submit(req(1, 131072))
         k.ok(False, "prompt+n over TMAX must raise")
     except e:
-        k.eq(String(e), "prompt+n exceeds TMAX 16384", "length guard text")
+        k.eq(String(e), "prompt+n exceeds TMAX 131072", "length guard text")
     k.ok(c.state() == ENG_IDLE, "a refused request changes nothing")
-    c.submit(req(2, 16381))  # 3 + 16381 = TMAX: fits
+    c.submit(req(2, 131069))  # 3 + 131069 = TMAX: fits
     k.ok(c.state() == ENG_BUSY, "exactly TMAX fits")
     c.shutdown(200)
 

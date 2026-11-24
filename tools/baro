@@ -379,7 +379,10 @@ serve)
       "$mojo" build "${accel[@]}" "$here/serve/engine.mojo" -I "$here" -I "$here/kernels" -I "$here/serve" $dflag $pflags -o "$cache/$ename.new" > "$cache/build.log" 2>&1
     else
       # shellcheck disable=SC2086
-      "$mojo" build "${accel[@]}" "$src/$hname" -I "$src" $dflag $pflags -o "$cache/$ename.new" > "$cache/build.log" 2>&1
+      # spark imports gguf_reader bare from the embedded tools/ (dense-run builds with -I tools); without it serve failed
+      # "unable to locate module gguf_reader" on the first baked x4096-tokenizer file (2026-11-20)
+      tinc=(); [ -d "$src/tools" ] && tinc=(-I "$src/tools")
+      "$mojo" build "${accel[@]}" "$src/$hname" -I "$src" "${tinc[@]}" $dflag $pflags -o "$cache/$ename.new" > "$cache/build.log" 2>&1
     fi
     [ -x "$cache/$ename.new" ] || { grep -m3 error "$cache/build.log"; die "engine build FAILED, see $cache/build.log"; }
     mv -f "$cache/$ename.new" "$cache/$ename"
@@ -548,7 +551,8 @@ run)
   else
     echo "building engine (model ${kmodel:-qwen35}) ..."
     # shellcheck disable=SC2086
-    "$mojo" build "${accel[@]}" "$src/$hname" -I "$src" $dflag -o "$work/engine" > "$work/build.log" 2>&1
+    tinc=(); [ -d "$src/tools" ] && tinc=(-I "$src/tools")  # spark: bare gguf_reader import (see serve mode)
+    "$mojo" build "${accel[@]}" "$src/$hname" -I "$src" "${tinc[@]}" $dflag -o "$work/engine" > "$work/build.log" 2>&1
     [ -x "$work/engine" ] || { grep -m3 error "$work/build.log"; die "engine build FAILED, see $work/build.log"; }
     printf '%s' "$esha" > "$work/engine.harness.sha"
   fi

@@ -71,7 +71,7 @@ The engine keeps printing its usual diagnostics (`pack loaded in`,
 | `{"id":ID,"done":true,"n":N,"prefill_s":..,"decode_s":..,"tok_s":..,"finish":"length"\|"stop"\|"cancelled"}` | after the last token | `n` = tokens actually generated (`<=` request `n`: less than requested when `finish` is `"stop"` or `"cancelled"`), `tok_s` = `(n-1)/decode_s` (0 when n<=1), matching the one-shot `tok/s_gen`. With spec: `"drafted"`, `"accepted"`, `"k"`. |
 | `{"id":ID,"embed":[F,...]}` | once, only when the request carries `"embed":true`; after the first token line, before `done` | `H` floats: the post-final-norm hidden state of the LAST PROMPT TOKEN, L2-normalized on the engine side (P0a-e). The request runs with the head unfolded (as a sampled request does), because the folded head never writes that row; tokens are unchanged. Send `n:1`, `spec:false`. The spark engine and the multi-sequence path (`BARO_SEQS > 1`) answer an error line instead. Gate: `bench/p0ae-embed-gate.sh` (cosine against llama.cpp `--pooling last`). |
 | `{"id":ID,"hidden":[F,...]}` | once after each generated token when the request carries `"hidden":true` | `H` raw f32 post-final-norm values for the hidden row that produced the preceding token. Dense/MoE engine only. The request uses the non-spec launch path. |
-| `{"id":ID,"logits_topk":[{"id":T,"logit":F},...]}` | once after each generated token when the request carries `"logits_topk":K` | The top `K` raw pre-penalty logits, `1 <= K <= 20`, ordered by descending value. Dense/MoE engine only. |
+| `{"id":ID,"logits_topk":[{"id":T,"logit":F},...]}` | once after each generated token when the request carries `"logits_topk":K` | The top `K` raw pre-penalty logits, `1 <= K <= 20`, ordered by descending value. Dense/MoE engine and spark (spark: the row that produced the token, read after the token line's sync). Spark also takes `implants`, `implants_lo`, `implants_k`, `implants_scale`, `implants_layer` with `BARO_IMPLANTS=FILE`, and `BARO_CAPTURE=DIR` (field `x` only), as engine.mojo (mojo-neuron `docs/format-implants.md`, gate `scripts/spark-implants-check.sh`). |
 | `{"id":ID,"error":"..."}` | instead of tokens | request rejected before any GPU work: bad JSON, missing/negative fields, empty prompt, `n < 1`, `len(prompt)+n > tmax`. The loop continues. |
 
 `id` is echoed from the request. The engine parses `id` first, so an error
@@ -256,6 +256,11 @@ makes): about 0.5% of tok/s_gen on the 5-token receipt prompt.
 | `POST /v1/cancel` | `{"id": "cmpl-7"}` / `{"id": "chatcmpl-7"}` (the response `id`, or the SSE `id` field of its first chunk -- read while the request is still streaming) | `{"cancelled": bool}`; `true` only if that request was the one actively decoding. A queued-but-not-started or already-finished id returns `false`. |
 | `POST /tokenize` | `{"content": "...", "add_special": false}` | `{"tokens": [...]}` |
 | `POST /detokenize` | `{"tokens": [...]}` | `{"content": "..."}` |
+| `POST /v1/messages` | `messages`, `model`, `max_tokens`, `system`, `stream`, `stop_sequences`, `tools`, `tool_choice`, `temperature`, `top_p`, `thinking` | Anthropic Messages API. Translates request directly to the model chat template without an intermediate proxy. Returns an Anthropic message object or SSE event sequence. Auth accepts `x-api-key` and `Authorization: Bearer`. |
+| `POST /v1/messages/count_tokens` | `messages`, `system`, `tools`, `tool_choice`, `thinking` | Returns token count of the rendered chat template: `{"input_tokens": N}`. |
+| `POST /tool/crawl` | `{"url": "https://..."}` | The Baro phone app's page fetch, done by crawl4ai on this machine (`BARO_CRAWL4AI`, default `http://127.0.0.1:11235`; bearer token from `BARO_CRAWL4AI_TOKEN` or `CRAWL4AI_API_TOKEN`). Only http(s) URLs. Returns `{"text": markdown, "source": "crawl4ai"}`, at most 64 KB; 400 for a bad URL, 502 when crawl4ai fails. |
+| `GET /brain/pull` | none | The Baro phone app's Agent-Brain folder (`BARO_BRAIN_DIR`, default `~/Brain/baro-agent`) as a zip of stored entries, each with its mtime in the 0x5455 extra field. An empty zip while the folder does not exist. Symlinks and files over 1 MB are left out. |
+| `POST /brain/push` | zip body (stored entries) | The phone's merged folder. A new or identical file is written or skipped; a changed file is overwritten unless its own mtime is newer, then the pushed text is kept as `<file>.conflict-<YYYY-MM-DD>`. Returns `{"written", "conflicts", "unchanged"}`; 400 for compressed entries, a path that leaves the folder, or over 500 files / 1 MB each / 16 MB. |
 
 ### Ollama compatibility surface (P0a)
 
@@ -297,6 +302,53 @@ flag, and malformed-flag refusal.
 Errors are `{"error": {"message", "type", "code"}}` with the HTTP status:
 `400` bad request (empty prompt, over-length, bad JSON), `503` no
 tokenizer / queue full / engine gone, `502` engine error mid-request.
+
+### Anthropic Messages compatibility surface
+
+`baro-serve` implements the Anthropic Messages API natively on loopback to support Claude Code
+and Anthropic SDK clients without an intermediate proxy.
+
+#### Authentication and headers
+Requests accept either `x-api-key: <key>` or `Authorization: Bearer <key>`. Anthropic version
+headers (`anthropic-version`, `anthropic-beta`) are accepted and ignored.
+
+#### Endpoints
+- `POST /v1/messages`: Execute a completion or streaming turn.
+- `POST /v1/messages/count_tokens`: Count input tokens for a prompt.
+
+#### Wire translation
+The adapter converts Anthropic format to the internal ChatML / Jinja chat template input:
+- System prompt: `system` (string or array of text content blocks) maps to `role: system`.
+- Messages: `messages` array of `{role, content}` objects.
+- Content blocks:
+  - `text`: Plain text payload.
+  - `tool_use`: Translated to function call with `id`, `name`, and serialized JSON arguments.
+  - `tool_result`: Translated to tool response with `tool_call_id` and string content.
+  - `thinking`: Converted to `<think>...</think>` tags for reasoning models.
+  - `image`: Refused immediately with HTTP 400 (`invalid_request_error`).
+- Tool definitions: `tools` array with `name`, `description`, and JSON schema `input_schema`.
+- Tool choice: `auto`, `any` (forced call), `tool` (named function), or `none`.
+- Sampler fields: `max_tokens`, `temperature`, `top_p`, `stop_sequences`.
+
+#### Non-streaming response
+Returns `{"id": "msg_<id>", "type": "message", "role": "assistant", "model": "...", "content": [...], "stop_reason": "...", "stop_sequence": null, "usage": {"input_tokens": N, "output_tokens": N}}`.
+- `stop_reason` values: `end_turn`, `max_tokens`, `tool_use`, `stop_sequence`.
+- Content blocks contain `text`, `thinking` (with `signature: ""`), or `tool_use` objects.
+
+#### Streaming SSE sequence
+When `stream: true`, the server emits Anthropic SSE events:
+1. `event: message_start` with initial message metadata and `input_tokens`.
+2. `event: content_block_start` with block `index` and type (`text`, `thinking`, or `tool_use`).
+3. `event: content_block_delta` with deltas: `text_delta`, `thinking_delta`, `signature_delta`, or `input_json_delta`.
+4. `event: content_block_stop` with block `index`.
+5. `event: message_delta` with final `stop_reason`, `stop_sequence`, and `output_tokens`.
+6. `event: message_stop` with empty object `{}`.
+7. Keepalive: `event: ping\ndata: {"type":"ping"}`.
+8. Streaming error: `event: error\ndata: {"type":"error","error":{"type":"api_error","message":"..."}}`.
+
+#### Token counting
+`POST /v1/messages/count_tokens` applies the loaded tokenizer and chat template to the
+rendered system prompt and message sequence, returning `{"input_tokens": N}`.
 
 ## P3a speech input
 

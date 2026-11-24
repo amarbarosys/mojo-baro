@@ -155,7 +155,7 @@ and the gate decides.
 `serve/tokenizer.mojo` reads the same `tokenizer.ggml.*` keys straight from the
 GGUF header (96 MB cap, no tensors) and runs byte-level BPE in Mojo; pre-tokenizer
 regexes run on `uregex/`, vendored at the repo root (`-I .`; upstream is
-[`mojo-uregex`](~/Projects/mojo/mojo-uregex), `tools/ci-checks.sh` checks the
+[`mojo-uregex`](~/Projects/mojo/mojo-libs/libs/uregex), `tools/ci-checks.sh` checks the
 vendored copy against it when that upstream is on the machine).
 Pre types: qwen2 / deepseek-r1-qwen, qwen35, llama3 / llama-bpe, spark2_5 (4-pass
 Sequence), gpt-2 / default. Load 0.06 s for a 131k vocab.
@@ -258,5 +258,5 @@ text-generation models (tokenizer.json only, no weights): top 250 on
 1 unmatched (falcon-7b).
 
 ```
-./.venv/bin/python3 tools/pretok_harvest.py --n 250 --corpus ../mojo-uregex/.work/bench/corpus.txt
+./.venv/bin/python3 tools/pretok_harvest.py --n 250 --corpus ../mojo-libs/libs/uregex/.work/bench/corpus.txt
 ```

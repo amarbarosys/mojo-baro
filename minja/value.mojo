@@ -180,7 +180,7 @@ struct Heap(Movable):
 
 
 def _quote(s: String, py_repr: Bool) -> String:
-    var q = String("'") if py_repr and s.find("'") < 0 else String('"')
+    var q = String("'") if py_repr and "'" not in s else String('"')
     var out = q.copy()
     for c in s.codepoints():
         var cp = Int(c.to_u32())

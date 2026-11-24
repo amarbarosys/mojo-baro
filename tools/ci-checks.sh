@@ -106,9 +106,9 @@ step "vendored uregex/, toml/ and the front libraries match their upstream"
 # A third field `subset` marks a package vendored in part (bento: http, server, sync only): upstream files
 # that are not vendored are not drift there.
 M=$HOME/Projects/mojo
-for pkg_up in "uregex:$M/mojo-uregex/src/uregex" "toml:$HOME/Projects/imports/databooth-mojo-toml/src/toml" \
-    "aio:$M/mojo-aio/src/aio" "json:$M/mojo-json/src/json" "posix:$M/mojo-posix/src/posix" \
-    "systemd:$M/mojo-systemd/src/systemd" "bento:$M/mojo-bento/src/bento:subset" "imkit:$M/mojo-imkit/src/imkit:tag=v0.9.0"; do
+for pkg_up in "uregex:$M/mojo-libs/libs/uregex/src/uregex" "toml:$HOME/Projects/imports/databooth-mojo-toml/src/toml" \
+    "aio:$M/mojo-libs/libs/aio/src/aio" "json:$M/mojo-libs/libs/json/src/json" "posix:$M/mojo-libs/libs/posix/src/posix" \
+    "systemd:$M/mojo-libs/libs/posix/src/posix/systemd" "bento:$M/mojo-libs/libs/bento/src/bento:subset" "imkit:$M/mojo-libs/libs/imkit/src/imkit:tag=v0.9.0"; do
   pkg=${pkg_up%%:*}; up=${pkg_up#*:}; subset=""; tag=""
   case $up in *:subset) subset=1; up=${up%:subset} ;; esac
   # imkit is pinned to a release tag: its upstream checkout moves on, so compare against the tag's blobs

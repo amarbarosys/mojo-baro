@@ -22,7 +22,10 @@ die() { echo "FAIL $1: $2" | tee -a "$OUT/SUMMARY.txt"; exit 1; }
 echo "== build =="
 # profile dir first: tools/profile.mojo (the TOML profile tool) would shadow the generated profile module; tools/ for
 # gguf_reader (2026-10-12, the old line no longer built)
-./.venv/bin/mojo build ${ENGINE_SRC:-serve/spark.mojo} ${DEFS:-} -I "$PROFILE" -I . -I kernels -I serve -I tools -o "$BIN" > "$OUT/build.log" 2>&1 \
+# spark's batched prefill needs the flags tools/baro builds it with (B as stored [N, K], f32 C); without them the gate
+# measured a binary nobody serves (2026-11-19: the qwen3 gate had to pass them through DEFS by hand)
+SPARK_DEFS=""; [ "${ENGINE_SRC:-serve/spark.mojo}" = serve/spark.mojo ] && SPARK_DEFS="-D WMMA_TB=1 -D WMMA_C_F16=0"
+./.venv/bin/mojo build ${ENGINE_SRC:-serve/spark.mojo} $SPARK_DEFS ${DEFS:-} -I "$PROFILE" -I . -I kernels -I serve -I tools -o "$BIN" > "$OUT/build.log" 2>&1 \
   || die build "$(grep -m1 error: "$OUT/build.log" | cut -c1-200)"
 ok build "$BIN"
 

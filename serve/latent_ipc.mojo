@@ -32,13 +32,13 @@ import latentos.proto as proto
 from registry import KVT, KVPAGE, KVHSTR, HD, N_ATT, NKVH, CONV_SLOT, SSM_SLOT
 from prefix import Chain, prefix_hash, f32, _hex_to_bytes
 from latent import PGSTR, hash64
+from gpu_rt import rt_lib, rt_name
 from sha256 import sha256
 
 comptime HANDLE_BYTES = 64
 comptime MSG_BYTES = proto.LATENT_HEADER_SIZE + HANDLE_BYTES
 comptime STATE_BYTES = (CONV_SLOT + SSM_SLOT) * 4
 comptime hipIpcMemLazyEnablePeerAccess: UInt32 = 1
-comptime HIP_LIB = "/opt/rocm/lib/libamdhip64.so"
 
 
 def _hip(rc: Int32, what: String) raises:
@@ -52,12 +52,12 @@ def _at[dt: DType](addr: Int) -> UnsafePointer[Scalar[dt], MutAnyOrigin]:
 
 def stage_alloc(nbytes: Int, handle: Pointer[UInt8, MutUntrackedOrigin]) raises -> Int:
     """hipMalloc `nbytes` and write its 64-byte IPC handle into `handle`; returns the device address."""
-    var hip = OwnedDLHandle(HIP_LIB)
+    var hip = rt_lib()
     var addr = Int(0)
-    _hip(hip.get_function[Int32]("hipMalloc")(MutPointer(to=addr), UInt64(nbytes)), "hipMalloc stage")
-    var rc = hip.get_function[Int32]("hipIpcGetMemHandle")(handle, addr)
+    _hip(hip.get_function[Int32](rt_name("hipMalloc"))(MutPointer(to=addr), UInt64(nbytes)), "hipMalloc stage")
+    var rc = hip.get_function[Int32](rt_name("hipIpcGetMemHandle"))(handle, addr)
     if rc != 0:
-        _ = hip.get_function[Int32]("hipFree")(addr)
+        _ = hip.get_function[Int32](rt_name("hipFree"))(addr)
         _hip(rc, "hipIpcGetMemHandle")
     return addr
 
@@ -72,17 +72,17 @@ def stage_new(nbytes: Int) raises -> Tuple[Int, List[UInt8]]:
 def host_mapped(nbytes: Int) raises -> Tuple[Int, Int]:
     """Pinned host memory kernels read in place (hipHostMalloc, mapped): (host address, device
     address). Never freed: it holds pack tensors for the life of the process."""
-    var hip = OwnedDLHandle(HIP_LIB)
+    var hip = rt_lib()
     var h = Int(0)
     var d = Int(0)
-    _hip(hip.get_function[Int32]("hipHostMalloc")(MutPointer(to=h), UInt64(nbytes), UInt32(2)), "hipHostMalloc")
-    _hip(hip.get_function[Int32]("hipHostGetDevicePointer")(MutPointer(to=d), h, UInt32(0)), "hipHostGetDevicePointer")
+    _hip(hip.get_function[Int32](rt_name("hipHostMalloc"))(MutPointer(to=h), UInt64(nbytes), UInt32(2)), "hipHostMalloc")
+    _hip(hip.get_function[Int32](rt_name("hipHostGetDevicePointer"))(MutPointer(to=d), h, UInt32(0)), "hipHostGetDevicePointer")
     return (h, d)
 
 
 def stage_free(addr: Int) raises:
-    var hip = OwnedDLHandle(HIP_LIB)
-    _hip(hip.get_function[Int32]("hipFree")(addr), "hipFree stage")
+    var hip = rt_lib()
+    _hip(hip.get_function[Int32](rt_name("hipFree"))(addr), "hipFree stage")
 
 
 def _ipc_open(handle: Pointer[UInt8, MutUntrackedOrigin]) raises -> Int:
@@ -93,8 +93,8 @@ def _ipc_open(handle: Pointer[UInt8, MutUntrackedOrigin]) raises -> Int:
 
 
 def _ipc_close(src: Int) raises:
-    var hip = OwnedDLHandle(HIP_LIB)
-    _hip(hip.get_function[Int32]("hipIpcCloseMemHandle")(src), "hipIpcCloseMemHandle")
+    var hip = rt_lib()
+    _hip(hip.get_function[Int32](rt_name("hipIpcCloseMemHandle"))(src), "hipIpcCloseMemHandle")
 
 
 struct KvIpcStage(Movable):

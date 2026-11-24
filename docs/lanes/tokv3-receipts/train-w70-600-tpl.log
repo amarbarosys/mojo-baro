@@ -1,0 +1,4 @@
+bpeq train: 583535864 bytes, 1229262 distinct words, tokens 8167 merges 7911 specials 9 reserved 16 V 8192 -> .work/tokv3/sw2/w70-600-tpl/tok8192.json
+bpeq train: 583535864 bytes, 1229262 distinct words, tokens 12263 merges 12007 specials 9 reserved 16 V 12288 -> .work/tokv3/sw2/w70-600-tpl/tok12288.json
+bpeq train: 583535864 bytes, 1229262 distinct words, tokens 16359 merges 16103 specials 9 reserved 16 V 16384 -> .work/tokv3/sw2/w70-600-tpl/tok16384.json
+bpeq train: 583535864 bytes, 1229262 distinct words, tokens 24551 merges 24295 specials 9 reserved 16 V 24576 -> .work/tokv3/sw2/w70-600-tpl/tok24576.json

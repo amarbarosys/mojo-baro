@@ -1,0 +1,10 @@
+t4096  1645.6M -13.50%  wiki 3.996 code 2.358 brain 3.203 gsmt 5.667
+t5120  1646.1M -13.47%  wiki 3.994 code 2.355 brain 3.199 gsmt 5.689
+t3072  1647.0M -13.43%  wiki 3.992 code 2.360 brain 3.203 gsmt 5.666
+t6144  1647.4M -13.41%  wiki 3.992 code 2.352 brain 3.195 gsmt 5.688
+t2048  1647.6M -13.40%  wiki 3.990 code 2.361 brain 3.202 gsmt 5.692
+t1024  1650.1M -13.27%  wiki 3.984 code 2.358 brain 3.205 gsmt 5.687
+t7168  1657.4M -12.88%  wiki 3.971 code 2.328 brain 3.199 gsmt 5.649
+ours   1691.1M -11.11%  wiki 3.880 code 2.373 brain 3.258 gsmt 5.562
+hf     1694.2M -10.95%  wiki 3.875 code 2.396 brain 3.224 gsmt 5.426
+ctl    1902.5M +0.00%  wiki 3.483 code 2.040 brain 3.126 gsmt 3.813

@@ -332,6 +332,21 @@ summary = "Spark engine: build in per-position residual checksums so two runs ca
 help = """Spark engine: build in per-position residual checksums so two runs can be compared cell by cell."""
 
 [[setting]]
+key = "BARO_IMP_MUTANT"
+group = "engine"
+label = "BARO_IMP_MUTANT"
+type = "int"
+kind = "build"
+default = 0
+restart = true
+level = "advanced"
+status = "stable"
+models = ["spark"]
+sources = ["serve/spark.mojo"]
+summary = "Spark engine, test build: 1 runs the implant set one layer early, the mutant arm of the mojo-neuron implants gate (-D BARO_IMP_MUTANT=1); not for serving."
+help = """Spark engine, test build: 1 runs the implant set one layer early, the mutant arm of the mojo-neuron implants gate (-D BARO_IMP_MUTANT=1); not for serving."""
+
+[[setting]]
 key = "BARO_ACT_BF16"
 group = "engine"
 label = "BARO_ACT_BF16"
@@ -360,6 +375,21 @@ models = ["spark"]
 sources = ["serve/spark.mojo"]
 summary = "Spark engine: split-K factor of the QKV GEMV (-D BARO_SP_QKV_S=N); the engine prints it on the 'spark knobs:' line."
 help = """Spark engine: split-K factor of the QKV GEMV (-D BARO_SP_QKV_S=N); the engine prints it on the 'spark knobs:' line."""
+
+[[setting]]
+key = "BARO_QKN_MUTANT"
+group = "engine"
+label = "BARO_QKN_MUTANT"
+type = "int"
+kind = "build"
+default = 0
+restart = true
+level = "advanced"
+status = "experimental"
+models = ["spark"]
+sources = ["serve/spark.mojo"]
+summary = "Spark engine, gate mutant only: -D BARO_QKN_MUTANT=1 skips the qwen3 q/k norm and keeps the pack layout; never for serving."
+help = """Spark engine, gate mutant only: -D BARO_QKN_MUTANT=1 skips the qwen3 per-head q/k RMS-norm and keeps the pack layout, so the agreement gate can prove it sees a missing norm (docs/plans/2026-11-19-spark-qwen3-prereg.md: mean 43.6% against 99.8%). Never for serving."""
 
 [[setting]]
 key = "BARO_SP_O_S"
@@ -3150,3 +3180,178 @@ models = ["qwen35"]
 sources = ["serve/engine.mojo", "serve/dflash.mojo", "serve/window.mojo"]
 summary = "Q4 window GEMMs with m > 4 on amar_fewrow_wmma D=4"
 help = """Build flag -D BARO_FEWROW=1: Q4 window GEMMs with m > 4 run amar_fewrow_wmma D=4 (8-row window 1.53x on the 27B k=7 window; WMMA order, not bit-exact: forced agreement 0.99844 vs 1.00000 on the shipped route). Serve replays prompts with up to MROWS rows, so it also reaches no-spec runs. Default 0."""
+
+[[setting]]
+key = "BARO_LOG_PROMPTS"
+group = "engine"
+label = "BARO_LOG_PROMPTS"
+type = "int"
+kind = "env"
+default = 0
+restart = true
+level = "advanced"
+status = "experimental"
+models = ["qwen35", "qwen35moe"]
+sources = ["serve/front/http.mojo"]
+summary = "baro-front debug: print input and max token counts of each Anthropic Messages request and count_tokens call."
+help = """baro-front debug: 1 prints input_tokens, requested max_tokens and stream for each Anthropic Messages request, and input_tokens for count_tokens (serve/serve_anthropic.sh sets it). Prompt text is not logged."""
+
+[[setting]]
+key = "BARO_CUDART_LIB"
+group = "engine"
+label = "BARO_CUDART_LIB"
+type = "string"
+kind = "env"
+default = "libcudart.so"
+restart = true
+level = "advanced"
+status = "experimental"
+models = ["qwen35", "qwen35moe"]
+sources = ["serve/gpu_rt.mojo"]
+summary = "CUDA builds: path or soname of the CUDA runtime library the gpu_rt host shim opens."
+help = """CUDA builds only: the gpu_rt host runtime shim dlopens this library (default libcudart.so). HIP builds ignore it."""
+
+[[setting]]
+key = "BARO_SP_MEGA"
+group = "engine"
+label = "BARO_SP_MEGA"
+type = "bool"
+kind = "env"
+default = false
+restart = true
+level = "advanced"
+status = "experimental"
+models = ["spark"]
+sources = ["serve/spark.mojo"]
+summary = "spark one-shot greedy decode in one persistent kernel (kernels/spark_mega.mojo): 2,633 vs 1,766 tok/s_gen, byte-equal. Not wired in serve mode."
+help = """spark one-shot greedy decode in one persistent kernel (kernels/spark_mega.mojo, 96 blocks, bounded grid barrier, fail word printed). Dense q8 packs without bias, gate or SWA, context below the split-attention length; everything else stays on the launch path. 20 prompts: 2,633 vs 1,766 tok/s_gen, byte-equal (bench/spark-mega-gate.sh). Not wired in serve mode."""
+
+[[setting]]
+key = "BARO_SP_MEGA_N"
+group = "engine"
+label = "BARO_SP_MEGA_N"
+type = "int"
+kind = "env"
+default = 0
+restart = true
+level = "advanced"
+status = "experimental"
+models = ["spark"]
+sources = ["serve/spark.mojo"]
+summary = "Tokens per launch of the spark megakernel (BARO_SP_MEGA=1); 0 = all tokens of the run in one launch."
+help = """Tokens per launch of the spark megakernel (BARO_SP_MEGA=1); 0 = all tokens of the run in one launch. 1 gives one launch per token (used for the wavewait capture)."""
+
+[[setting]]
+key = "BARO_SP_BYTES"
+group = "engine"
+label = "BARO_SP_BYTES"
+type = "path"
+kind = "env"
+restart = true
+level = "advanced"
+status = "bench-only"
+models = ["spark"]
+sources = ["serve/spark.mojo"]
+summary = "spark one-shot runs: write every K and V row of the request (all layers), the last logits row and the last x to this file."
+help = """spark one-shot runs: write every K and V row of the request (all layers), the last logits row and the last x to this file. The byte test of a decode path against another (bench/spark-mega-gate.sh)."""
+
+[[setting]]
+key = "BARO_TRACE_FGB"
+group = "engine"
+label = "BARO_TRACE_FGB"
+type = "bool"
+kind = "env"
+default = false
+restart = true
+level = "advanced"
+status = "bench-only"
+models = ["spark"]
+sources = ["serve/spark.mojo"]
+summary = "BARO_TRACE_SUM builds: trace slot 3 i holds the checksum of the FFN activation instead of qkv (what the spark megakernel traces)."
+help = """BARO_TRACE_SUM builds only: trace slot 3 i of each layer holds the checksum of the FFN activation instead of qkv, which is what the spark megakernel writes there; use it to compare the two paths stage by stage."""
+
+[[setting]]
+key = "BARO_SM_MUTANT"
+group = "engine"
+label = "BARO_SM_MUTANT"
+type = "int"
+kind = "build"
+default = 0
+restart = true
+level = "advanced"
+status = "experimental"
+models = ["spark"]
+sources = ["kernels/spark_mega.mojo"]
+summary = "Spark megakernel, gate mutant only: -D BARO_SM_MUTANT=1 swaps the FFN epilogue operands; never for serving."
+help = """Spark megakernel, gate mutant only: -D BARO_SM_MUTANT=1 swaps the FFN epilogue operands so that bench/spark-mega-gate.sh can prove its byte test sees a wrong kernel; never for serving."""
+[[setting]]
+key = "BARO_BRAIN_DIR"
+group = "front"
+label = "BARO_BRAIN_DIR"
+type = "path"
+kind = "server-env"
+default = "~/Brain/baro-agent"
+restart = true
+level = "advanced"
+status = "experimental"
+models = ["all"]
+sources = ["serve/src/brain.rs"]
+summary = "baro-serve: the Baro phone app's Agent-Brain folder, served by GET /brain/pull."
+help = """baro-serve: the Baro phone app's Agent-Brain folder, served by GET /brain/pull."""
+[[setting]]
+key = "BARO_CRAWL4AI"
+group = "front"
+label = "BARO_CRAWL4AI"
+type = "string"
+kind = "server-env"
+default = "http://127.0.0.1:11235"
+restart = true
+level = "advanced"
+status = "experimental"
+models = ["all"]
+sources = ["serve/src/tool.rs"]
+summary = "baro-serve: crawl4ai base URL for POST /tool/crawl (the Baro phone app's page fetch)."
+help = """baro-serve: crawl4ai base URL for POST /tool/crawl (the Baro phone app's page fetch)."""
+[[setting]]
+key = "BARO_CRAWL4AI_TOKEN"
+group = "front"
+label = "BARO_CRAWL4AI_TOKEN"
+type = "string"
+kind = "server-env"
+restart = true
+level = "advanced"
+status = "experimental"
+models = ["all"]
+sources = ["serve/src/tool.rs"]
+summary = "baro-serve: bearer token for crawl4ai on POST /tool/crawl; falls back to CRAWL4AI_API_TOKEN. Unset: no token."
+help = """baro-serve: bearer token for crawl4ai on POST /tool/crawl; falls back to CRAWL4AI_API_TOKEN. Unset: no token."""
+
+[[setting]]
+key = "BARO_TWINS"
+group = "engine"
+label = "BARO_TWINS"
+type = "int"
+kind = "env"
+default = 1
+restart = true
+level = "advanced"
+status = "experimental"
+models = ["spark"]
+sources = ["serve/spark.mojo"]
+summary = "spark: 1 or 2 engines in one process; requests pick one with \"engine\", kv_from/kv_keep copy KV between them."
+help = """spark: 1 or 2 engines in one process; requests pick one with "engine": 0|1, and "kv_from"/"kv_keep" copy KV pages from the other engine. Twin gate 20/20 byte-equal to one engine."""
+
+[[setting]]
+key = "BARO_PACK_B"
+group = "engine"
+label = "BARO_PACK_B"
+type = "path"
+kind = "env"
+default = ""
+restart = true
+level = "advanced"
+status = "experimental"
+models = ["spark"]
+sources = ["serve/spark.mojo"]
+summary = "spark twins: pack for engine 1 (default = BARO_PACK); layout must match engine 0."
+help = """spark twins: pack for engine 1 (default = BARO_PACK); layout is checked against engine 0 at load."""

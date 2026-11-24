@@ -56,7 +56,7 @@ QWEN35_MODEL_FILE = {
 }
 # tools/gen-profile.mojo's own arch tables (is_rope_neox_arch/is_rope_norm_arch,
 # is_gelu_arch/is_silu_arch): the only arches it can emit a profile for.
-SPARK_ARCHES = {"llama", "qwen2", "granite", "spark2_5"}
+SPARK_ARCHES = {"llama", "qwen2", "granite", "spark2_5", "qwen3"}
 # serve/tokenizer.mojo's pre-tokenizer regex table, read from the source so this list cannot drift from it.
 TOKENIZER_PRE_SUPPORTED = set(re.findall(r'self\.pre == "([^"]+)"',
                                          (pathlib.Path(__file__).resolve().parent.parent / "serve/tokenizer.mojo").read_text()))
@@ -256,6 +256,7 @@ def spark_fields(kv, infos, arch):
     tie_embed = "output.weight" not in infos
     qkv_bias = "blk.0.attn_q.bias" in infos
     has_gate = "blk.0.attn_gate.weight" in infos
+    qk_norm = "blk.0.attn_q_norm.weight" in infos
     granite_mult = arch == "granite"
     default_attn_scale = 1.0 / math.sqrt(hd) if hd else 0.0
     attn_scale = float(akv(kv, arch, "attention.scale", default_attn_scale)) if granite_mult else default_attn_scale
@@ -266,8 +267,9 @@ def spark_fields(kv, infos, arch):
         "NORM_EPS": norm_eps, "NROT_FULL": nrot_full, "BASE_FULL": base_full,
         "NROT_SWA": nrot_swa, "BASE_SWA": base_swa, "SWA_WIN": swa_win,
         "SWA_PERIOD": swa_period, "SWA_FULL_PHASE": swa_full_phase,
-        "ROPE_NEOX": arch in ("spark2_5", "qwen2"),
+        "ROPE_NEOX": arch in ("spark2_5", "qwen2", "qwen3"),
         "QKV_BIAS": qkv_bias, "HAS_GATE": has_gate, "TIE_EMBED": tie_embed,
+        **({"QK_NORM": True} if qk_norm else {}),  # only when present: existing model ids keep their hash
         "ACTIVATION_GELU": arch == "spark2_5",
         "GRANITE_MULT": granite_mult,
         "ATTN_SCALE": attn_scale,

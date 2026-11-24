@@ -6,7 +6,7 @@ This proves the module against fakes, not the front against a real engine.
 Build: ./.venv/bin/mojo build serve/front/test_http.mojo -I . -I serve/front -o .work/test_http
 """
 from api import (
-    GenRequest, Ev, ApiError, ENG_IDLE, cancel_id, check_gen, fit_n, resolve_tool_choice, DEFAULT_MAX_TOKENS
+    GenRequest, Ev, ApiError, ENG_IDLE, JsonToolStream, ToolDelta, cancel_id, check_gen, fit_n, resolve_tool_choice, DEFAULT_MAX_TOKENS
 )
 from fakes import (
     FakeText, FakeEngine, Probe, FAKE_EOS, M_NORMAL, M_ERR_BEFORE, M_ERR_AFTER, M_NO_TERMINAL, M_SLOW, M_DEAD_MID,
@@ -127,6 +127,14 @@ def _hex(b: Span[UInt8, _]) -> Int:
     return n
 
 
+def _pos(r: Int) -> Int:
+    return r
+
+
+def _pos(r: Optional[Int]) -> Int:
+    return r.or_else(-1)
+
+
 def parse_response(raw: List[UInt8]) raises -> Resp:
     var r = Resp()
     var he = _find(Span(raw), "\r\n\r\n")
@@ -138,7 +146,7 @@ def parse_response(raw: List[UInt8]) raises -> Resp:
     var chunked = False
     for i in range(1, len(lines)):
         var ln = String(lines[i])
-        var c = ln.find(":")
+        var c = _pos(ln.find(":"))
         var lb = ln.as_bytes()
         var nm = String(unsafe_from_utf8=lb[0:c]).lower()
         var val = String(String(unsafe_from_utf8=lb[c + 1 :]).strip())
@@ -501,7 +509,7 @@ def case_errors(mut t: Tally) raises:
     t.eqi(call(rig.port, "POST", "/v1/chat/completions", '{"messages":[]}').status, 400, "empty messages")
     var u = call(rig.port, "POST", "/v1/chat/completions", chat_body(',"checkpoint":true'))
     t.eqi(u.status, 400, "unserved field is a named 400")
-    t.check(err_of(u).text("message").find("checkpoint") >= 0, "the 400 names the field")
+    t.check("checkpoint" in err_of(u).text("message"), "the 400 names the field")
     t.eqi(rig.probe.get(P_SUBMITS), 0, "no rejected request reached the engine")
     # the length guard: one place, before the engine
     var big = call(rig.port, "POST", "/v1/completions", '{"prompt":[1,2,3],"max_tokens":20000}')
@@ -560,7 +568,7 @@ def case_engine_failures(mut t: Tally) raises:
     t.eq(h.text("engine_reason"), "killed by signal 9", "health after death: reason")
     var e = call(r4.port, "POST", "/v1/completions", '{"prompt":[1],"max_tokens":4}')
     t.eqi(e.status, 503, "submit when dead: status")
-    t.check(err_of(e).text("message").find("killed by signal 9") >= 0, "submit when dead names the reason")
+    t.check("killed by signal 9" in err_of(e).text("message"), "submit when dead names the reason")
     r4^.close()
     # a submit that fails while the engine stays up ends that request only
     var r6 = Rig(M_SUBMIT_FAIL)
@@ -574,10 +582,10 @@ def case_engine_failures(mut t: Tally) raises:
     var w1 = call(r7.port, "POST", "/v1/completions", '{"prompt":[1],"max_tokens":4}')
     t.eqi(w1.status, 502, "fail word: status")
     t.eq(err_of(w1).text("type"), "engine_invalid_tokens", "fail word: type")
-    t.check(err_of(w1).text("message").find("fail word 2") >= 0, "fail word: message names the word")
+    t.check("fail word 2" in err_of(w1).text("message"), "fail word: message names the word")
     var w2 = call(r7.port, "POST", "/v1/completions", '{"prompt":[1],"max_tokens":4,"stream":true}')
-    t.check(w2.body.find("engine_invalid_tokens") >= 0 and w2.body.find("[DONE]") >= 0, "fail word, stream: error chunk then [DONE]")
-    t.check(w2.body.find("finish_reason\":\"length") < 0 and w2.body.find("finish_reason\":\"stop") < 0, "fail word, stream: no success finish chunk")
+    t.check("engine_invalid_tokens" in w2.body and "[DONE]" in w2.body, "fail word, stream: error chunk then [DONE]")
+    t.check("finish_reason\":\"length" not in w2.body and "finish_reason\":\"stop" not in w2.body, "fail word, stream: no success finish chunk")
     r7^.close()
     # dead before any request
     var r5 = Rig(M_DEAD_IDLE)
@@ -653,7 +661,7 @@ def case_inflight_and_keepalive(mut t: Tally) raises:
     for x in rest:
         buf.append(x)
     var all = parse_response(buf)
-    t.check(all.body.find(": keep-alive") >= 0, "keep-alive comments flow while the engine is quiet")
+    t.check(": keep-alive" in all.body, "keep-alive comments flow while the engine is quiet")
     if not sse_ok(t, sse_data(all.body), "keep-alive does not break the stream"):
         return
     rig^.close()
@@ -897,9 +905,30 @@ def case_units(mut t: Tally) raises:
     t.check(check_sse(junk) != "", "MUTANT: a chunk that is not JSON: the checker fails")
 
 
+def case_json_tool_stream(mut t: Tally) raises:
+    var ts = JsonToolStream()
+    var delta = Optional[ToolDelta]()
+    var prefix = ts.push("prefix <tool_ca", delta)
+    prefix += ts.push('ll> {"name":"Read","arguments":{"file_path":".work/scratch.txt"}}', delta)
+    t.check(not delta, "JSON tool stream waits for closing wrapper")
+    prefix += ts.push("</tool_call>", delta)
+    t.eq(prefix, "prefix ", "JSON tool stream preserves preceding text")
+    t.check(ts.has_tool(), "JSON tool stream recognizes complete tool")
+    var has_delta = False
+    if delta:
+        has_delta = True
+        var d = delta.value().copy()
+        t.eq(d.name.value(), "Read", "JSON tool stream tool name")
+        var args = parse(d.arguments)
+        t.eq(args.text("file_path"), ".work/scratch.txt", "JSON tool stream arguments")
+    t.check(has_delta, "JSON tool stream emits one delta")
+    t.eq(ts.finish_content(), "", "JSON tool stream suppresses wrapper tail")
+
+
 def main() raises:
     var t = Tally()
     case_units(t)
+    case_json_tool_stream(t)
     case_get_routes(t)
     case_tokenize(t)
     case_completions(t)

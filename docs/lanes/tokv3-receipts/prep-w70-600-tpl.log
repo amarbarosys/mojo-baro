@@ -1,0 +1,9 @@
+prep .work/tokv3/c2/src/wiki.txt want 420000000 pieces 401 read 420215625 kept 419077746 dup 774547 nfc_or_utf8 363332
+prep .work/tokv3/c2/src/papers.txt want 7317258 pieces 7 read 7338872 kept 7216864 dup 122008 nfc_or_utf8 0
+prep .work/tokv3/c2/src/tools.txt want 1430025 pieces 2 read 1845692 kept 1845692 dup 0 nfc_or_utf8 0
+prep .work/tokv3/c2/src/tx.txt want 15801764 pieces 16 read 16774223 kept 15976061 dup 790215 nfc_or_utf8 7947
+prep .work/tokv3/c2/src/mm.txt want 53810578 pieces 52 read 54520435 kept 54520435 dup 0 nfc_or_utf8 0
+prep .work/tokv3/c2/src/brain.txt want 51371707 pieces 49 read 51369229 kept 48299703 dup 3049035 nfc_or_utf8 20491
+prep .work/tokv3/c2/src/code.txt want 42218679 pieces 41 read 42979519 kept 38172827 dup 4732297 nfc_or_utf8 74395
+prep .work/tokv3/c2/src/gsmt.txt want 8049985 pieces 8 read 8387702 kept 8387702 dup 0 nfc_or_utf8 0
+prep total 593497030 bytes -> .work/tokv3/sw2/w70-600-tpl/sample.txt

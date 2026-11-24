@@ -11,6 +11,8 @@
 //! request lines before the current request completes.
 
 mod audio;
+mod tool;
+mod brain;
 mod checkpoints;
 mod embed;
 mod embeddings;
@@ -328,6 +330,9 @@ async fn main() {
         .route("/v1/latent/resume", post(latent_resume))
         .route("/v1/audio/transcriptions", post(audio::transcriptions))
         .route("/v1/audio/speech", post(audio::speech))
+        .route("/tool/crawl", post(tool::crawl))
+        .route("/brain/pull", get(brain::pull))
+        .route("/brain/push", post(brain::push))
         .route("/v1/checkpoints", post(checkpoints::create).get(checkpoints::list))
         .route("/v1/checkpoints/{id}/meta", get(turn::meta))
         .route("/v1/checkpoints/{id}", get(checkpoints::get_one).delete(checkpoints::delete))
@@ -342,6 +347,7 @@ async fn main() {
         .route("/metrics", get(turn::metrics))
         .route("/v1/cancel", post(cancel))
         .route("/tokenize", post(tokenize))
+        .route("/apply-template", post(apply_template))
         .route("/detokenize", post(detokenize))
         // P0a: Ollama-compatible API (docs/PLATFORM-PLAN.md).
         .route("/api/tags", get(ollama::tags))
@@ -2049,26 +2055,9 @@ async fn neurons_write(Json(b): Json<Value>) -> Result<Response, ApiError> {
     Ok(Json(json!({"stored": path})).into_response())
 }
 
-async fn chat_once(app: Shared, r: ChatReq) -> Result<Response, ApiError> {
-    let t = need_text(&app)?;
-    if r.messages.is_empty() {
-        return Err(bad("messages is empty"));
-    }
-    let schema = match &r.response_format {
-        Some(rf) => Some(check_response_format(rf)?),
-        None => None,
-    };
-    // Item 2: reasoning is on unless the caller explicitly turned it off
-    // the same way Qwythos's own chat template does
-    // (`{%- if enable_thinking is defined and enable_thinking is false %}`).
-    // Only meaningful when a schema is set; None otherwise so the wire
-    // line omits it, matching every request before this lane.
-    let reasoning = schema.as_ref().map(|_| {
-        !matches!(
-            r.chat_template_kwargs.as_ref().and_then(|k| k.get("enable_thinking")),
-            Some(Value::Bool(false))
-        )
-    });
+/// The prompt text a chat request prefills: messages (images to embeds), BARO_NEURONS notes on the last user
+/// turn, the template, then the forced tool_choice prefix. chat_once and /apply-template share it.
+async fn render_chat(t: &Text, r: &ChatReq) -> Result<(String, Vec<ChatMessage>, Option<Value>, String, Vec<String>), ApiError> {
     let mut embeds = Vec::new();
     let mut msgs = Vec::with_capacity(r.messages.len());
     for m in &r.messages {
@@ -2095,6 +2084,40 @@ async fn chat_once(app: Shared, r: ChatReq) -> Result<Response, ApiError> {
         .apply_chat_template(&msgs, tools.as_ref(), r.chat_template_kwargs.as_ref())
         .map_err(|e| ApiError::Plain(StatusCode::INTERNAL_SERVER_ERROR, e))?;
     rendered.push_str(&force);
+    Ok((rendered, msgs, tools, force, embeds))
+}
+
+/// llama-server's POST /apply-template, plus `tokens`: the exact text and ids a chat request with this body
+/// prefills (no generation). Parity scripts diff both against llama-server /apply-template + /tokenize.
+async fn apply_template(State(app): State<Shared>, Json(b): Json<Value>) -> Result<Json<Value>, ApiError> {
+    let t = need_text(&app)?;
+    let r = serde_json::from_value::<ChatReq>(b).map_err(|e| bad(e.to_string()))?;
+    let (rendered, ..) = render_chat(t, &r).await?;
+    let tokens = t.encode(&rendered, true).map_err(bad)?;
+    Ok(Json(json!({"prompt": rendered, "tokens": tokens})))
+}
+
+async fn chat_once(app: Shared, r: ChatReq) -> Result<Response, ApiError> {
+    let t = need_text(&app)?;
+    if r.messages.is_empty() {
+        return Err(bad("messages is empty"));
+    }
+    let schema = match &r.response_format {
+        Some(rf) => Some(check_response_format(rf)?),
+        None => None,
+    };
+    // Item 2: reasoning is on unless the caller explicitly turned it off
+    // the same way Qwythos's own chat template does
+    // (`{%- if enable_thinking is defined and enable_thinking is false %}`).
+    // Only meaningful when a schema is set; None otherwise so the wire
+    // line omits it, matching every request before this lane.
+    let reasoning = schema.as_ref().map(|_| {
+        !matches!(
+            r.chat_template_kwargs.as_ref().and_then(|k| k.get("enable_thinking")),
+            Some(Value::Bool(false))
+        )
+    });
+    let (rendered, msgs, tools, force, embeds) = render_chat(t, &r).await?;
     let think_open = rendered.trim_end().ends_with("<think>");
     let tool_re = if schema.is_some() || !t.tool_wire_known() { (None, None) } else { tool_name_regexes(tools.as_ref(), &force, t.tool_wire_xml()) };
     // A5: the rendered prompt is otherwise invisible to a caller (no

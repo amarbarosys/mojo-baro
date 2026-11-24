@@ -3,7 +3,7 @@
 Mirrors tools/gguf-tokenizer.py: gpt2-model vocab + merges + token_type from the
 tokenizer.ggml.* keys, pre-tokenizer regexes per tokenizer.ggml.pre (llama.cpp's
 tables), control/user_defined tokens matched in the text before BPE. Regexes run
-on the vendored uregex/ (repo root, -I ., upstream ~/Projects/mojo/mojo-uregex).
+on the vendored uregex/ (repo root, -I ., upstream ~/Projects/mojo/mojo-libs/libs/uregex).
 """
 from std.collections import Dict, Set
 from std.memory import bitcast
@@ -125,6 +125,14 @@ struct Reader:
         return v
 
 
+def _pos(r: Int) -> Int:
+    return r
+
+
+def _pos(r: Optional[Int]) -> Int:
+    return r.or_else(-1)
+
+
 struct Tokenizer(Movable):
     var tokens: List[String]
     var types: List[UInt8]
@@ -239,7 +247,7 @@ struct Tokenizer(Movable):
                     self.merges.reserve(n)
                     for i in range(n):
                         var m = r.string()
-                        var sp = m.find(" ", 1)  # llama.cpp: the first space after the first byte
+                        var sp = _pos(m.find(" ", 1))  # llama.cpp: the first space after the first byte
                         var left = String(m[byte=:sp])
                         var a = self.tok2id.get(left, -1)
                         var right = String(m[byte=sp + 1:])

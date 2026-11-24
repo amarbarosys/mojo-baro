@@ -35,6 +35,8 @@ def jstr(mut o: List[UInt8], s: String):
 
 
 def pre_regex(pre: String) -> String:
+    if pre == "superbpe":  # llama.cpp superbpe: digit runs, then groups of 3 from the right; no word split
+        return r"\p{N}+"
     comptime CONTR = r"(?i:'s|'t|'re|'ve|'m|'ll|'d)"
     if pre == "qwen2" or pre == "deepseek-r1-qwen":
         return CONTR + r"|[^\r\n\p{L}\p{N}]?\p{L}+|\p{N}| ?[^\s\p{L}\p{N}]+[\r\n]*|\s*[\r\n]+|\s+(?!\S)|\s+"
@@ -108,6 +110,9 @@ def main() raises:
             put(o, ("true" if t.types[i] == T_CONTROL else "false") + "}")
     put(o, "],\"normalizer\":null,\"pre_tokenizer\":{\"type\":\"Sequence\",\"pretokenizers\":[{\"type\":\"Split\",\"pattern\":{\"Regex\":")
     jstr(o, rx)
+    if t.pre == "superbpe":
+        put(o, "},\"behavior\":\"Isolated\",\"invert\":false},{\"type\":\"Split\",\"pattern\":{\"Regex\":")
+        jstr(o, r"(?=(\d{3})+(?!\d))")
     put(o, "},\"behavior\":\"Isolated\",\"invert\":false},{\"type\":\"ByteLevel\",\"add_prefix_space\":false,\"trim_offsets\":false,\"use_regex\":false}]},")
     put(o, "\"post_processor\":null,\"decoder\":{\"type\":\"ByteLevel\",\"add_prefix_space\":true,\"trim_offsets\":true,\"use_regex\":true},")
     put(o, "\"model\":{\"type\":\"BPE\",\"dropout\":null,\"unk_token\":null,\"continuing_subword_prefix\":\"\",\"end_of_word_suffix\":\"\",")

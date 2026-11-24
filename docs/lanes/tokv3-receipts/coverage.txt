@@ -1,0 +1,5 @@
+rare-token coverage, candidate w70-600-tpl; probe = 31.6 MB mixed text (not held out), scaled to a 1.5B-token run; absent = learned tokens with no use in the 8 held-out tails (14.4 MB)
+V 8192: probe ids 9.74M; tokens with expected uses < 10k: 405 (5.0%), < 100k: 6151 (75.3%); median uses 50193; held-out ids 4.06M, learned tokens absent 74 of 7911 (0.9%)
+V 12288: probe ids 9.23M; tokens with expected uses < 10k: 1060 (8.6%), < 100k: 10416 (84.9%); median uses 29574; held-out ids 3.88M, learned tokens absent 195 of 12007 (1.6%)
+V 16384: probe ids 8.92M; tokens with expected uses < 10k: 3068 (18.8%), < 100k: 14602 (89.3%); median uses 20518; held-out ids 3.77M, learned tokens absent 420 of 16103 (2.6%)
+V 24576: probe ids 8.55M; tokens with expected uses < 10k: 10665 (43.4%), < 100k: 22937 (93.4%); median uses 11927; held-out ids 3.65M, learned tokens absent 1411 of 24295 (5.8%)

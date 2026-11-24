@@ -58,3 +58,4 @@ android-baro
 /docs/design/latent-os
 # Paul Graham essays (RULER haystack): third-party text with no open licence, fetched locally, never committed
 bench/ruler/data/essays.txt
+LocalTraining

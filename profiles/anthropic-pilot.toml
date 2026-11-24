@@ -1,0 +1,16 @@
+[profile]
+name = "anthropic-pilot"
+model = "qwen35"
+description = "Qwythos-9B-v2 Q4_0 Anthropic pilot, YaRN, int8 KV, 65,536-token window."
+source = "file"
+
+[env]
+BARO_NEURONS = "0"
+BARO_SPEC = "1"
+BARO_TMAX = "65536"
+BARO_DEFAULT_TOP_P = "0.95"
+BARO_DEFAULT_TOP_K = "20"
+BARO_DEFAULT_MIN_P = "0"
+
+[build]
+BARO_KVQ = "int8"

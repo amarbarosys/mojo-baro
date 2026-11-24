@@ -2065,9 +2065,10 @@ def main() raises:
 
     var seqs_mode = atol(getenv("BARO_SEQS", "1"))
     print("BARO_SEQS:", seqs_mode)
+    print("BARO_SEQ_CAP:", SEQ_CAP, " BARO_SLOTS:", SLOTS)
     if serve and seqs_mode == 2:
-        if SEQ_CAP != 2 or chain.npages == 0 or not IS_MOE or not mega:
-            raise Error("BARO_SEQS=2 needs -D BARO_SEQ_CAP=2, BARO_KV_SHARE>0, the MoE profile and BARO_MEGA=1")
+        if SEQ_CAP != 2 or chain.npages == 0 or not mega:
+            raise Error("BARO_SEQS=2 needs -D BARO_SEQ_CAP=2, BARO_KV_SHARE>0 and BARO_MEGA=1")
         var proto_cfg = WindowCfg(pack_q4=pack_q4, draft_q4=draft_q4, q4_off=q4_off, e=e, kcfg=kcfg, spec=False, spec_dbg=spec_dbg, expert_trace=False, serve=True, req_id=0, prof=False, pf2=False, pf3=False, pf4=False, dump=False, dump4=False, dump_layer=0, mega=mega, att_split=att_split, mega_win=False, dot3=dot3, pf_chunk=pf_chunk, pf_rows=0, pf_tail=0, n_total=0, fr_k=fr_k, fr_off=fr_off, fr_ids_off=fr_ids_off, replay_m=replay_m, n_prompt=0, sample=default_sample_params(), dump_pen=False, mrope=False, inject=False)
         serve_pair(ctx, bufs, chain, pending, tmax, pf_on, pf_min, proto_cfg, force_env, ckpt_cap)
         return
@@ -2327,7 +2328,7 @@ def main() raises:
             if perr == "" and ckey >= 0 and json_str(line_in.value(), ckey, cname):
                 if not cap_on:
                     perr = "capture needs the engine started with BARO_CAPTURE=DIR and BARO_CAPTURE_LAYERS"
-                elif cname.byte_length() == 0 or cname.find("/") >= 0 or cname.find("..") >= 0:
+                elif cname.byte_length() == 0 or "/" in cname or ".." in cname:
                     perr = "capture name: no slash or .. allowed"
                 else:
                     cap_req = cap_dir + "/" + cname

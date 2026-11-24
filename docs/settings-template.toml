@@ -214,6 +214,14 @@ doc = "Grid size of the persistent MoE token kernel: 96, 192 or 288 (anything el
 models = ["qwen35moe"]
 group = "build"
 
+[settings.BARO_IMP_MUTANT]
+kind = "build"
+type = "int"
+default = "0"
+doc = "Spark engine, test build: 1 runs the implant set one layer early, the mutant arm of the mojo-neuron implants gate (-D BARO_IMP_MUTANT=1); not for serving."
+models = ["spark"]
+group = "build"
+
 [settings.BARO_TRACE_SUM]
 kind = "build"
 type = "int"
@@ -235,6 +243,13 @@ kind = "build"
 type = "int"
 default = "4"
 doc = "Spark engine: split-K factor of the QKV GEMV (-D BARO_SP_QKV_S=N); the engine prints it on the 'spark knobs:' line."
+models = ["spark"]
+
+[settings.BARO_QKN_MUTANT]
+kind = "build"
+type = "int"
+default = "0"
+doc = "Spark engine, gate mutant only: -D BARO_QKN_MUTANT=1 skips the qwen3 per-head q/k RMS-norm and keeps the pack layout (docs/plans/2026-11-19-spark-qwen3-prereg.md); never for serving."
 models = ["spark"]
 group = "build"
 
@@ -743,7 +758,7 @@ group = "state"
 kind = "env"
 type = "int"
 default = "1"
-doc = "Sequences in flight on one engine. 2 on the MoE profile = the pair loop (serve_pair): two requests decode in one R = 2 megakernel launch, prefill exclusive; needs -D BARO_SEQ_CAP=2, BARO_KV_SHARE > 0 and BARO_MEGA=1 (exchange/mega2-report.md). N > 2 on a dense pack = serve_seqs: N slots, decode steps of up to 8 rows (serve/rows.mojo), prefix pages shared; needs -D BARO_SEQ_CAP>=N and BARO_KV_SHARE > 0 (baro-serve --parallel N sets both knobs; docs/design/multi-session-serve.md)."
+doc = "Sequences in flight on one engine. 2 = the pair loop (serve_pair): two requests decode in one R = 2 megakernel launch (MoE: kernels/mega_moe_rows.mojo, dense: kernels/mega_rows.mojo), prefill exclusive; needs -D BARO_SEQ_CAP=2, BARO_KV_SHARE > 0 and BARO_MEGA=1 (exchange/mega2-report.md). N > 2 on a dense pack = serve_seqs: N slots, decode steps of up to 8 rows (serve/rows.mojo), prefix pages shared; needs -D BARO_SEQ_CAP>=N and BARO_KV_SHARE > 0 (baro-serve --parallel N sets both knobs; docs/design/multi-session-serve.md)."
 models = ["qwen35", "qwen35moe"]
 group = "serve"
 
@@ -1599,3 +1614,99 @@ default = "0"
 doc = "Build flag -D BARO_FEWROW=1: Q4 window GEMMs with m > 4 run amar_fewrow_wmma D=4 (8-row window 1.53x on the 27B k=7 window; WMMA order, not bit-exact: forced agreement 0.99844 vs 1.00000 on the shipped route). Serve replays prompts with up to MROWS rows, so it also reaches no-spec runs. Default 0."
 models = ["qwen35"]
 group = "speculation"
+
+[settings.BARO_LOG_PROMPTS]
+kind = "env"
+type = "int"
+default = "0"
+doc = "baro-front debug: print input and max token counts of each Anthropic Messages request and count_tokens call."
+models = ["qwen35", "qwen35moe"]
+group = "serving"
+
+[settings.BARO_CUDART_LIB]
+kind = "env"
+type = "string"
+default = "libcudart.so"
+doc = "CUDA builds: path or soname of the CUDA runtime library the gpu_rt host shim opens."
+models = ["qwen35", "qwen35moe"]
+group = "engine"
+
+[settings.BARO_SP_MEGA]
+kind = "env"
+type = "bool"
+default = "0"
+doc = "spark one-shot greedy decode in one persistent kernel (kernels/spark_mega.mojo): 2,633 vs 1,766 tok/s_gen, byte-equal (bench/spark-mega-gate.sh). Not wired in serve mode."
+models = ["spark"]
+group = "speed"
+
+[settings.BARO_SP_MEGA_N]
+kind = "env"
+type = "int"
+default = "0"
+doc = "Tokens per launch of the spark megakernel (BARO_SP_MEGA=1); 0 = all tokens of the run in one launch."
+models = ["spark"]
+group = "speed"
+
+[settings.BARO_SP_BYTES]
+kind = "env"
+type = "path"
+default = ""
+doc = "spark one-shot runs: write every K and V row of the request (all layers), the last logits row and the last x to this file."
+models = ["spark"]
+group = "debug"
+
+[settings.BARO_TRACE_FGB]
+kind = "env"
+type = "bool"
+default = "0"
+doc = "BARO_TRACE_SUM builds: trace slot 3 i holds the checksum of the FFN activation instead of qkv (what the spark megakernel traces)."
+models = ["spark"]
+group = "debug"
+
+[settings.BARO_SM_MUTANT]
+kind = "build"
+type = "int"
+default = "0"
+doc = "Spark megakernel, gate mutant only: -D BARO_SM_MUTANT=1 swaps the FFN epilogue operands; never for serving."
+models = ["spark"]
+group = "build"
+
+[settings.BARO_BRAIN_DIR]
+kind = "server-env"
+type = "path"
+default = "~/Brain/baro-agent"
+doc = "baro-serve: the Baro phone apps Agent-Brain folder, served by GET /brain/pull."
+models = ["all"]
+group = "front"
+
+[settings.BARO_CRAWL4AI]
+kind = "server-env"
+type = "string"
+default = "http://127.0.0.1:11235"
+doc = "baro-serve: crawl4ai base URL for POST /tool/crawl (the Baro phone apps page fetch)."
+models = ["all"]
+group = "front"
+
+[settings.BARO_CRAWL4AI_TOKEN]
+kind = "server-env"
+type = "string"
+default = ""
+doc = "baro-serve: bearer token for crawl4ai on POST /tool/crawl; falls back to CRAWL4AI_API_TOKEN. Unset: no token."
+models = ["all"]
+group = "front"
+
+[settings.BARO_TWINS]
+kind = "env"
+type = "int"
+default = "1"
+doc = "spark: 1 or 2 engines in one process; requests pick one with \"engine\", kv_from/kv_keep copy KV between them. Twin gate 20/20 byte-equal."
+models = ["spark"]
+group = "engine"
+
+[settings.BARO_PACK_B]
+kind = "env"
+type = "path"
+default = ""
+doc = "spark twins: pack for engine 1 (default = BARO_PACK); layout checked against engine 0 at load."
+models = ["spark"]
+group = "engine"

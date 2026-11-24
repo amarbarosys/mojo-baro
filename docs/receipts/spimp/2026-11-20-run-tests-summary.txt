@@ -1,0 +1,25 @@
+PASS moe rows parity: 18 outputs bit-exact over 5 tokens, including K3 union-verify and BF16 plane split
+PASS test_moe_wmma
+PASS ssm rows parity: bit-exact over 37 rows through a 9 slot ring
+PASS test_warp_sum_order: warp.sum on this device == xor-asc 32-lane tree, bit for bit, lane 0 and all lanes
+PASS: amar_attn_decode_gqa byte-equal to amar_attn_decode
+PASS: amar_attn_decode_gqa byte-equal to amar_attn_decode
+PASS test_q4x_hostops
+PASS test_gemv_kq
+PASS test_gemv_kq_rows
+PASS test_turbo_rows: every word equals amar_matmul_skinny_q4rowb
+PASS test_turbo_rows_q8: arms bit-identical, both within 1e-5 of the exact int8 reference
+PASS doorbell
+PASS graph-capture
+PASS test_q4x_cpu
+PASS 434/434
+PASS 106/106
+PASS 144 / 144
+FAIL kq: tokenizer-meta.json sha256 differs from the oracle's
+FAIL kq: sidecar names another gguf
+FAIL bos: tokenizer-meta.json sha256 differs from the oracle's
+FAIL bos: sidecar names another gguf
+FAIL nochat: tokenizer-meta.json sha256 differs from the oracle's
+FAIL nochat: sidecar names another gguf
+FAIL 3291 / 3297
+rc=1

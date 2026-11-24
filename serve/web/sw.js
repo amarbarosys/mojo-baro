@@ -1,6 +1,6 @@
 "use strict";
 
-const CACHE = "baro-shell-v1";
+const CACHE = "baro-shell-v3";  // v2: thinking display + /health fallback; a new name drops the cached v1 shell
 const SHELL = [
   "/",
   "/web/index.html",

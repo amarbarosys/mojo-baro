@@ -1,4 +1,4 @@
-# VENDORED COPY. Upstream is ~/Projects/mojo/mojo-bento/src/bento/http.mojo;
+# VENDORED COPY. Upstream is ~/Projects/mojo/mojo-libs/libs/bento/src/bento/http.mojo;
 # this repo keeps a real file rather than a symlink or an -I path outside the
 # tree, because a clone must build without anything outside it. Sync by hand
 # if the upstream changes; tools/ci-checks.sh compares the two when the
@@ -101,6 +101,14 @@ struct Parsed(Copyable, Movable):
 
 
 @always_inline
+def _pos(r: Int) -> Int:
+    return r
+
+
+def _pos(r: Optional[Int]) -> Int:
+    return r.or_else(-1)
+
+
 def _token(c: UInt8) -> Bool:
     if (c >= 48 and c <= 57) or (c >= 65 and c <= 90) or (c >= 97 and c <= 122):
         return True
@@ -234,7 +242,7 @@ def parse_request(buf: Span[UInt8, _], mut req: Request, lim: Limits) -> Parsed:
         if st != 0:
             return Parsed(0, st)
         at = le + 2
-    var q = req.target.find("?")
+    var q = _pos(req.target.find("?"))
     req.path = String(req.target[byte = 0:q]) if q >= 0 else req.target
     req.query = String(req.target[byte = q + 1 :]) if q >= 0 else String()
     # Host: exactly one on HTTP/1.1.

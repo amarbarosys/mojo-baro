@@ -28,6 +28,9 @@ from mega import amar_mega_token, amar_mega_window, MEGA_G, MEGA_G_WIN, DATT_NLD
 from nanprobe import amar_nonfinite_rows, NP_THREADS
 from mega_moe import amar_mega_moe_token, MOE_BARRIERS, MOE_BARRIERS_DOT, W_ATT as MOE_W_ATT, W_SSM as MOE_W_SSM
 from mega_moe_rows import amar_mega_moe_rows
+comptime DENSE_W_SSM = 10
+comptime DENSE_W_ATT = 7
+comptime DENSE_W_LAYER = 4
 from sample import amar_sample_row, amar_sample_row_masked, amar_sample_probs, amar_spec_accept, amar_apply_penalties, amar_topn_probs, SAMP_THREADS, SAMP_CAP
 
 from dattn import amar_dattn_split, amar_dattn_combine, dattn_nsplit

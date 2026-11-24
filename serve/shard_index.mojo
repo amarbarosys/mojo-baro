@@ -57,6 +57,14 @@ def ggml_row_bytes(gtype: Int, n: Int) raises -> Int:
     raise Error("shard_index: ggml type " + String(gtype) + " unsupported")
 
 
+def _pos(r: Int) -> Int:
+    return r
+
+
+def _pos(r: Optional[Int]) -> Int:
+    return r.or_else(-1)
+
+
 struct ShardIndex(Movable):
     var gguf: GGUFModel
     var t: Dict[String, TensorRef]
@@ -75,7 +83,7 @@ struct ShardIndex(Movable):
             var path = first_shard
             if n > 1:
                 var tag = "-00001-of-"
-                var cut = first_shard.find(tag)
+                var cut = _pos(first_shard.find(tag))
                 if cut < 0:
                     raise Error("shard_index: cannot derive shard names from " + first_shard)
                 var num = String(i + 1)

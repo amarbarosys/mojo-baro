@@ -469,7 +469,7 @@ struct Renderer:
     def contains(self, container: Int, item: Int) -> Bool:
         var t = self.h.tag(container)
         if t == V_STR:
-            return self.h.v[container].s.find(self.h.to_str(item)) >= 0
+            return self.h.to_str(item) in self.h.v[container].s
         if t == V_DICT:
             var it1 = self.h.v[container].keys.copy()
             for k in it1:

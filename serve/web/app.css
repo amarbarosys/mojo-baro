@@ -414,3 +414,14 @@ form#composer {
   color: var(--accent-fg);
   border-color: var(--accent);
 }
+
+/* the model's <think> steps (reasoning_content), shown above the answer */
+.msg .think {
+  color: var(--muted);
+  font-style: italic;
+  font-size: 0.9em;
+  border-left: 2px solid var(--muted);
+  padding-left: 0.6em;
+  margin-bottom: 0.5em;
+  white-space: pre-wrap;
+}

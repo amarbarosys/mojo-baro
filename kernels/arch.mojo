@@ -1,4 +1,4 @@
-from std.sys.info import is_amd_gpu, _is_amd_rdna4
+from std.sys.info import is_amd_gpu, is_nvidia_gpu, _is_amd_rdna4
 from std.sys import llvm_intrinsic, get_defined_bool
 from max.gpu import lane_id
 from max.gpu.primitives import warp
@@ -65,6 +65,8 @@ def mma[T: DType, //](mut d: SIMD[T, 8], a: SIMD, b: SIMD, c: SIMD[T, 8]):
             d = _relayout[True](d)
         else:
             _amd_mma(d, a, b, c)
+    elif is_nvidia_gpu():
+        comptime assert False, "arch.mma: RDNA 16x16x16 lane layout has no NVIDIA port yet"
     else:
         d = type_of(d)(0)
 
@@ -85,6 +87,8 @@ def _bytes(v: Int32, signed: Bool) -> SIMD[DType.int32, 4]:
 def sdot4(a: Int32, b: Int32, c: Int32, clamp: Bool) -> Int32:
     comptime if is_amd_gpu():
         return llvm_intrinsic["llvm.amdgcn.sdot4", Int32](a, b, c, clamp)
+    elif is_nvidia_gpu():
+        return llvm_intrinsic["llvm.nvvm.idp4a.s.s", Int32](a, b, c)
     else:
         return c + (_bytes(a, True) * _bytes(b, True)).reduce_add()
 
@@ -93,6 +97,14 @@ def sdot4(a: Int32, b: Int32, c: Int32, clamp: Bool) -> Int32:
 def sudot4(asign: Bool, a: Int32, bsign: Bool, b: Int32, c: Int32, clamp: Bool) -> Int32:
     comptime if is_amd_gpu():
         return llvm_intrinsic["llvm.amdgcn.sudot4", Int32](asign, a, bsign, b, c, clamp)
+    elif is_nvidia_gpu():
+        if asign and bsign:
+            return llvm_intrinsic["llvm.nvvm.idp4a.s.s", Int32](a, b, c)
+        if asign:
+            return llvm_intrinsic["llvm.nvvm.idp4a.s.u", Int32](a, b, c)
+        if bsign:
+            return llvm_intrinsic["llvm.nvvm.idp4a.u.s", Int32](a, b, c)
+        return llvm_intrinsic["llvm.nvvm.idp4a.u.u", Int32](a, b, c)
     else:
         return c + (_bytes(a, asign) * _bytes(b, bsign)).reduce_add()
 

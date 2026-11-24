@@ -1,0 +1,211 @@
+diff --git a/ptx/src/pass/llvm/emit.rs b/ptx/src/pass/llvm/emit.rs
+index 079a801..e4e4749 100644
+--- a/ptx/src/pass/llvm/emit.rs
++++ b/ptx/src/pass/llvm/emit.rs
+@@ -3550,7 +3550,7 @@ impl<'a> MethodEmitContext<'a> {
+             (ast::ScalarType::S32, ast::ScalarType::S32) => c"llvm.amdgcn.sdot4",
+             (ast::ScalarType::U32, ast::ScalarType::S32)
+             | (ast::ScalarType::S32, ast::ScalarType::U32) => {
+-                return Err(error_todo_msg("dp4a with mixed types is not yet supported"))
++                return self.emit_dp4a_mixed(data, arguments)
+             }
+             _ => return Err(error_unreachable()),
+         };
+@@ -3579,6 +3579,55 @@ impl<'a> MethodEmitContext<'a> {
+         Ok(())
+     }
+ 
++    // llvm.amdgcn.sudot4 needs dot8-insts (gfx11+), and the module is not
++    // compiled for a known arch here, so mixed signedness is open-coded.
++    fn emit_dp4a_mixed(
++        &mut self,
++        data: ast::Dp4aDetails,
++        arguments: ast::Dp4aArgs<SpirvWord>,
++    ) -> Result<(), TranslateError> {
++        let builder = self.builder;
++        let i8_type = get_scalar_type(self.context, ast::ScalarType::B8);
++        let i32_type = get_scalar_type(self.context, data.ctype());
++        let v4i8 = unsafe { LLVMVectorType(i8_type, 4) };
++        let v4i32 = unsafe { LLVMVectorType(i32_type, 4) };
++        let widen = |value: LLVMValueRef, type_: ast::ScalarType| unsafe {
++            let bytes = LLVMBuildBitCast(builder, value, v4i8, LLVM_UNNAMED.as_ptr());
++            if type_ == ast::ScalarType::S32 {
++                LLVMBuildSExt(builder, bytes, v4i32, LLVM_UNNAMED.as_ptr())
++            } else {
++                LLVMBuildZExt(builder, bytes, v4i32, LLVM_UNNAMED.as_ptr())
++            }
++        };
++        let src1 = widen(self.resolver.value(arguments.src1)?, data.atype);
++        let src2 = widen(self.resolver.value(arguments.src2)?, data.btype);
++        let mut acc = self.resolver.value(arguments.src3)?;
++        let products = unsafe { LLVMBuildMul(builder, src1, src2, LLVM_UNNAMED.as_ptr()) };
++        for i in 0..3 {
++            acc = unsafe {
++                let lane = LLVMBuildExtractElement(
++                    builder,
++                    products,
++                    LLVMConstInt(i32_type, i, 0),
++                    LLVM_UNNAMED.as_ptr(),
++                );
++                LLVMBuildAdd(builder, acc, lane, LLVM_UNNAMED.as_ptr())
++            };
++        }
++        let last = unsafe {
++            LLVMBuildExtractElement(
++                builder,
++                products,
++                LLVMConstInt(i32_type, 3, 0),
++                LLVM_UNNAMED.as_ptr(),
++            )
++        };
++        self.resolver.with_result(arguments.dst, |dst| unsafe {
++            LLVMBuildAdd(builder, acc, last, dst)
++        });
++        Ok(())
++    }
++
+     fn emit_trap(&mut self) -> Result<(), TranslateError> {
+         self.emit_intrinsic(c"llvm.trap", None, vec![], vec![])?;
+         unsafe { LLVMBuildUnreachable(self.builder) };
+diff --git a/ptx/src/test/ll/dp4a_mixed.ll b/ptx/src/test/ll/dp4a_mixed.ll
+new file mode 100644
+index 0000000..51fff9a
+--- /dev/null
++++ b/ptx/src/test/ll/dp4a_mixed.ll
+@@ -0,0 +1,85 @@
++; Function Attrs: denormal_fpenv(preservesign)
++define amdgpu_kernel void @dp4a_mixed(ptr addrspace(4) byref(i64) %"49", ptr addrspace(4) byref(i64) %"50") #0 {
++  %"51" = alloca i64, align 8, addrspace(5)
++  %"52" = alloca i64, align 8, addrspace(5)
++  %"53" = alloca i32, align 4, addrspace(5)
++  %"54" = alloca i32, align 4, addrspace(5)
++  %"55" = alloca i32, align 4, addrspace(5)
++  %"56" = alloca i32, align 4, addrspace(5)
++  %"57" = alloca i32, align 4, addrspace(5)
++  br label %1
++
++1:                                                ; preds = %0
++  br label %"48"
++
++"48":                                             ; preds = %1
++  call void @llvm.amdgcn.s.dcache.inv()
++  %2 = load i64, ptr addrspace(4) %"49", align 8
++  store i64 %2, ptr addrspace(5) %"51", align 8
++  %3 = load i64, ptr addrspace(4) %"50", align 8
++  store i64 %3, ptr addrspace(5) %"52", align 8
++  %4 = load i64, ptr addrspace(5) %"51", align 8
++  %"78" = inttoptr i64 %4 to ptr
++  %5 = load i32, ptr %"78", align 4
++  store i32 %5, ptr addrspace(5) %"53", align 4
++  %6 = load i64, ptr addrspace(5) %"51", align 8
++  %"79" = inttoptr i64 %6 to ptr
++  %"43" = getelementptr inbounds i8, ptr %"79", i64 4
++  %7 = load i32, ptr %"43", align 4
++  store i32 %7, ptr addrspace(5) %"54", align 4
++  %8 = load i64, ptr addrspace(5) %"51", align 8
++  %"80" = inttoptr i64 %8 to ptr
++  %"45" = getelementptr inbounds i8, ptr %"80", i64 8
++  %9 = load i32, ptr %"45", align 4
++  store i32 %9, ptr addrspace(5) %"55", align 4
++  %10 = load i32, ptr addrspace(5) %"53", align 4
++  %11 = load i32, ptr addrspace(5) %"54", align 4
++  %12 = load i32, ptr addrspace(5) %"55", align 4
++  %13 = bitcast i32 %10 to <4 x i8>
++  %14 = sext <4 x i8> %13 to <4 x i32>
++  %15 = bitcast i32 %11 to <4 x i8>
++  %16 = zext <4 x i8> %15 to <4 x i32>
++  %17 = mul <4 x i32> %14, %16
++  %18 = extractelement <4 x i32> %17, i32 0
++  %19 = add i32 %12, %18
++  %20 = extractelement <4 x i32> %17, i32 1
++  %21 = add i32 %19, %20
++  %22 = extractelement <4 x i32> %17, i32 2
++  %23 = add i32 %21, %22
++  %24 = extractelement <4 x i32> %17, i32 3
++  %"66" = add i32 %23, %24
++  store i32 %"66", ptr addrspace(5) %"56", align 4
++  %25 = load i32, ptr addrspace(5) %"53", align 4
++  %26 = load i32, ptr addrspace(5) %"54", align 4
++  %27 = load i32, ptr addrspace(5) %"55", align 4
++  %28 = bitcast i32 %25 to <4 x i8>
++  %29 = zext <4 x i8> %28 to <4 x i32>
++  %30 = bitcast i32 %26 to <4 x i8>
++  %31 = sext <4 x i8> %30 to <4 x i32>
++  %32 = mul <4 x i32> %29, %31
++  %33 = extractelement <4 x i32> %32, i32 0
++  %34 = add i32 %27, %33
++  %35 = extractelement <4 x i32> %32, i32 1
++  %36 = add i32 %34, %35
++  %37 = extractelement <4 x i32> %32, i32 2
++  %38 = add i32 %36, %37
++  %39 = extractelement <4 x i32> %32, i32 3
++  %"70" = add i32 %38, %39
++  store i32 %"70", ptr addrspace(5) %"57", align 4
++  %40 = load i64, ptr addrspace(5) %"52", align 8
++  %41 = load i32, ptr addrspace(5) %"56", align 4
++  %"87" = inttoptr i64 %40 to ptr
++  store i32 %41, ptr %"87", align 4
++  %42 = load i64, ptr addrspace(5) %"52", align 8
++  %"88" = inttoptr i64 %42 to ptr
++  %"47" = getelementptr inbounds i8, ptr %"88", i64 4
++  %43 = load i32, ptr addrspace(5) %"57", align 4
++  store i32 %43, ptr %"47", align 4
++  ret void
++}
++
++; Function Attrs: nocallback nofree nosync nounwind willreturn
++declare void @llvm.amdgcn.s.dcache.inv() #1
++
++attributes #0 = { denormal_fpenv(preservesign) "amdgpu-ieee"="false" "amdgpu-unsafe-fp-atomics"="true" "no-trapping-math"="true" "target-features"="+wavefrontsize32,-wavefrontsize64,+cumode,+precise-memory" "uniform-work-group-size"="true" }
++attributes #1 = { nocallback nofree nosync nounwind willreturn }
+diff --git a/ptx/src/test/spirv_run/dp4a_mixed.ptx b/ptx/src/test/spirv_run/dp4a_mixed.ptx
+new file mode 100644
+index 0000000..2310400
+--- /dev/null
++++ b/ptx/src/test/spirv_run/dp4a_mixed.ptx
+@@ -0,0 +1,29 @@
++.version 6.5
++.target sm_70
++.address_size 64
++
++.visible .entry dp4a_mixed(
++    .param .u64 input,
++    .param .u64 output
++)
++{
++    .reg .u64       in_addr;
++    .reg .u64       out_addr;
++    .reg .b32       src1;
++    .reg .b32       src2;
++    .reg .b32       src3;
++    .reg .b32       su;
++    .reg .b32       us;
++
++    ld.param.u64    in_addr, [input];
++    ld.param.u64    out_addr, [output];
++
++    ld.b32          src1, [in_addr];
++    ld.b32          src2, [in_addr+4];
++    ld.b32          src3, [in_addr+8];
++    dp4a.s32.u32    su, src1, src2, src3;
++    dp4a.u32.s32    us, src1, src2, src3;
++    st.b32          [out_addr], su;
++    st.b32          [out_addr+4], us;
++    ret;
++}
+diff --git a/ptx/src/test/spirv_run/mod.rs b/ptx/src/test/spirv_run/mod.rs
+index c22726b..713cb14 100644
+--- a/ptx/src/test/spirv_run/mod.rs
++++ b/ptx/src/test/spirv_run/mod.rs
+@@ -493,6 +493,11 @@ test_ptx!(
+     [0x8e2da590u32, 0xedeaee14, 0x248a9f70],
+     [613065134u32]
+ );
++test_ptx!(
++    dp4a_mixed,
++    [0x8e2da590u32, 0xedeaee14, 0x248a9f70],
++    [613024174u32, 613060782]
++);
+ test_ptx!(
+     dp2a,
+     [0x8e2da590u32, 0xedeaee14, 0x248a9f70],

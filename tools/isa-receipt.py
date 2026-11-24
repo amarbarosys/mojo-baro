@@ -8,7 +8,7 @@ with llvm-readelf and disassembles with llvm-objdump --mcpu=gfx1100.
 """
 import argparse, collections, os, re, struct, subprocess, sys, tempfile
 
-LLVM = "/opt/rocm/llvm/bin"
+LLVM = next(d for d in ("/opt/rocm/llvm/bin", "/opt/rocm/lib/llvm/bin") if os.path.isdir(d))
 KEYS = (".vgpr_count", ".sgpr_count", ".group_segment_fixed_size",
         ".private_segment_fixed_size", ".vgpr_spill_count", ".sgpr_spill_count",
         ".max_flat_workgroup_size")

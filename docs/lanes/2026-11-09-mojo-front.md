@@ -30,9 +30,9 @@ All lanes:
 - `article-craft`: `~/Brain/Skills/own/article-craft/SKILL.md` (Read it before you write the report; a hook refuses prose files otherwise)
 
 Per lane:
-- front-text: `~/Brain/Skills/own/model-bringup/SKILL.md` (tokenizer defaults), `~/Brain/Skills/own/mojo-port/SKILL.md` (byte parity against an oracle), `~/Brain/Skills/own/mojo-tokenizers/SKILL.md`, `~/Projects/mojo/mojo-json/skills/mojo-json/SKILL.md`
-- front-engine: `~/Projects/mojo/mojo-posix/skills/mojo-posix/SKILL.md`, `~/Projects/mojo/mojo-subprocess/skills/mojo-subprocess/SKILL.md`, `~/Brain/Skills/own/mojo-aio/SKILL.md`, `~/Projects/mojo/mojo-json/skills/mojo-json/SKILL.md`
-- front-http: `~/Projects/mojo/mojo-bento/skills/mojo-bento/SKILL.md`, `~/Brain/Skills/own/mojo-aio/SKILL.md`, `~/Projects/mojo/mojo-json/skills/mojo-json/SKILL.md`
+- front-text: `~/Brain/Skills/own/model-bringup/SKILL.md` (tokenizer defaults), `~/Brain/Skills/own/mojo-port/SKILL.md` (byte parity against an oracle), `~/Brain/Skills/own/mojo-tokenizers/SKILL.md`, `~/Projects/mojo/mojo-libs/libs/json/skills/mojo-json/SKILL.md`
+- front-engine: `~/Projects/mojo/mojo-libs/libs/posix/skills/mojo-posix/SKILL.md`, `~/Projects/mojo/mojo-libs/libs/subprocess/skills/mojo-subprocess/SKILL.md`, `~/Brain/Skills/own/mojo-aio/SKILL.md`, `~/Projects/mojo/mojo-libs/libs/json/skills/mojo-json/SKILL.md`
+- front-http: `~/Projects/mojo/mojo-libs/libs/bento/skills/mojo-bento/SKILL.md`, `~/Brain/Skills/own/mojo-aio/SKILL.md`, `~/Projects/mojo/mojo-libs/libs/json/skills/mojo-json/SKILL.md`
 
 Code navigation: codebase-memory graph first (`search_graph`, `trace_path`, `get_code_snippet`,
 project `home-user-Projects-mojo-mojo-baro`); grep and Read for literals and the lines you edit.

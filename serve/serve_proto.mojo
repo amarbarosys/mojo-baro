@@ -73,9 +73,17 @@ def idle_cancel_note(cid: Int) -> String:
     return "cancel: id " + String(cid) + " is not decoding, dropped"
 
 
+def _pos(r: Int) -> Int:
+    return r
+
+
+def _pos(r: Optional[Int]) -> Int:
+    return r.or_else(-1)
+
+
 def json_key(line: String, key: String) -> Int:
     # Index of the first byte of the value for "key": ..., or -1.
-    var i = line.find(String("\"") + key + "\"")
+    var i = _pos(line.find(String("\"") + key + "\""))
     if i < 0:
         return -1
     var b = line.as_bytes()

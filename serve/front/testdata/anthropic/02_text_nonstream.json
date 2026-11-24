@@ -1,0 +1,28 @@
+{
+  "name": "text_nonstream",
+  "method": "POST",
+  "path": "/v1/messages",
+  "request": {
+    "model": "claude-3-5-sonnet-20241022",
+    "max_tokens": 1024,
+    "messages": [
+      {"role": "user", "content": "Say hello"}
+    ]
+  },
+  "status": 200,
+  "response": {
+    "id": "msg_01X9z8A7bC",
+    "type": "message",
+    "role": "assistant",
+    "content": [
+      {"type": "text", "text": "Hello! How can I help?"}
+    ],
+    "model": "claude-3-5-sonnet-20241022",
+    "stop_reason": "end_turn",
+    "stop_sequence": null,
+    "usage": {
+      "input_tokens": 10,
+      "output_tokens": 7
+    }
+  }
+}

@@ -293,7 +293,7 @@ def main() raises:
     print("rows done:", len(lines) - 1, "role_boundaries rows:", rb_rows, "ms:", (perf_counter_ns() - t0) // 1000000)
     # the integer 10**22 prints as an int in jinja2 but no front can carry it (Rust and Json read it as a float)
     var pyint = jinja["chat/float-args-pyint"].text("prompt")
-    check(c, pyint.find("\n10000000000000000000000\n</parameter>") >= 0 and pyint != jinja["chat/float-args"].text("prompt"), "jinja2 receipt: a Python int 10**22 must render as digits, unlike the float 1e+22")
+    check(c, "\n10000000000000000000000\n</parameter>" in pyint and pyint != jinja["chat/float-args"].text("prompt"), "jinja2 receipt: a Python int 10**22 must render as digits, unlike the float 1e+22")
     extra_checks(c, texts[0], headers[0])
     print("Detok.push:", c.pushes, "ids,", c.push_ns // max(1, c.pushes), "ns per id")
     if c.bad == 0:
@@ -341,4 +341,4 @@ def expect_error(mut c: Counts, path: String, needle: String, what: String):
         _ = Text(path)
         check(c, False, what + ": no error")
     except e:
-        check(c, String(e).find(needle) >= 0, what + ": error text is '" + String(e) + "'")
+        check(c, needle in String(e), what + ": error text is '" + String(e) + "'")

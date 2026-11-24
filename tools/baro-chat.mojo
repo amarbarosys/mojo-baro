@@ -1,9 +1,15 @@
 from std.ffi import external_call
 from std.sys import argv, exit, stderr
+from std.subprocess import run
 from grammar.json_value import JSONDoc, parse_json_bytes
 
 comptime USAGE = """usage: baro chat [--url HOST:PORT] [--max-tokens N] [--temperature T] [--top-p P] [--seed S]
-                 [--system TEXT] [--no-think] [-p PROMPT]
+                 [--system TEXT] [--no-think] [--hide-think] [-p PROMPT] [--tools TOOLS.json --tool-exec CMD]
+The model's thinking (reasoning_content) prints dimmed before each answer and tool call; --hide-think hides it
+(--no-think asks the template not to think at all).
+--tools: an OpenAI tools array; every tool call runs `CMD NAME "$BARO_TOOL_ARGS"` (the call's JSON arguments, passed in
+the environment) and its stdout returns as the tool result, up to 8 rounds a turn (replies then arrive whole, not
+streamed).
 
 Terminal chat against baro-serve's /v1/chat/completions (stream: true), default 127.0.0.1:8080.
 Tokens print as they arrive; after each reply one stats line from the server's own usage/timings
@@ -133,12 +139,16 @@ struct Reply(Movable):
     # a stream that closes without it is a cut reply, not a finished turn.
     var finish: String
     var done: Bool
+    var think: Bool  # print reasoning_content (default on; --hide-think)
+    var thought: Bool  # thinking text printed since the last content
 
-    def __init__(out self):
+    def __init__(out self, think: Bool = True):
         self.text = ""
         self.stats = ""
         self.finish = ""
         self.done = False
+        self.think = think
+        self.thought = False
 
 
 def num(doc: JSONDoc, idx: Int) -> Float64:
@@ -161,8 +171,16 @@ def on_event(data: String, mut rep: Reply) raises -> Bool:
         var fr = doc.get_field(doc.get(ch).arr[0], "finish_reason")
         if fr >= 0 and doc.get(fr).is_string():
             rep.finish = doc.get(fr).s
-        var c = doc.get_field(doc.get_field(doc.get(ch).arr[0], "delta"), "content")
-        if c >= 0 and doc.get(c).is_string():
+        var dl = doc.get_field(doc.get(ch).arr[0], "delta")
+        var th = doc.get_field(dl, "reasoning_content")
+        if rep.think and th >= 0 and doc.get(th).is_string():  # the <think> steps, dimmed, as they arrive
+            print("\x1b[2;3m" + doc.get(th).s + "\x1b[0m", end="", flush=True)
+            rep.thought = True
+        var c = doc.get_field(dl, "content")
+        if c >= 0 and doc.get(c).is_string() and doc.get(c).s.byte_length() > 0:
+            if rep.thought:
+                print("\n", end="")
+                rep.thought = False
             var t = doc.get(c).s
             print(t, end="", flush=True)
             rep.text += t
@@ -174,7 +192,7 @@ def on_event(data: String, mut rep: Reply) raises -> Bool:
     return True
 
 
-def ask(host: String, port: Int, body: String) raises -> Reply:
+def ask(host: String, port: Int, body: String, think: Bool = True) raises -> Reply:
     var c = Conn(host, port)
     c.send("POST /v1/chat/completions HTTP/1.1\r\nHost: " + host + "\r\nContent-Type: application/json\r\nAccept: text/event-stream\r\nContent-Length: " + String(body.byte_length()) + "\r\nConnection: close\r\n\r\n" + body)
     var status = c.line()
@@ -188,7 +206,7 @@ def ask(host: String, port: Int, body: String) raises -> Reply:
             chunked = True
         if h.startswith("content-length:"):
             clen = Int(atol(String(h[byte=15:]).strip()))
-    var rep = Reply()
+    var rep = Reply(think)
     if " 200 " not in status:
         var raw = c.take(clen) if clen >= 0 else c.rest()
         c.close()
@@ -222,6 +240,125 @@ def ask(host: String, port: Int, body: String) raises -> Reply:
     return rep^
 
 
+def ask_full(host: String, port: Int, body: String) raises -> String:
+    """One non-streamed request; the whole response body (content-length, chunked or read to close)."""
+    var c = Conn(host, port)
+    c.send("POST /v1/chat/completions HTTP/1.1\r\nHost: " + host + "\r\nContent-Type: application/json\r\nContent-Length: "
+        + String(body.byte_length()) + "\r\nConnection: close\r\n\r\n" + body)
+    var status = c.line()
+    var chunked = False
+    var clen = -1
+    while True:
+        var h = c.line().lower()
+        if h.byte_length() == 0:
+            break
+        if h.startswith("transfer-encoding:") and "chunked" in h:
+            chunked = True
+        if h.startswith("content-length:"):
+            clen = Int(atol(String(h[byte=15:]).strip()))
+    var raw = List[UInt8]()
+    if chunked:
+        while True:
+            var sz = Int(atol(String(c.line().split(";")[0]).strip(), base=16))
+            if sz == 0:
+                break
+            raw.extend(c.take(sz))
+            _ = c.line()
+    else:
+        raw = c.take(clen) if clen >= 0 else c.rest()
+    c.close()
+    var s = String(unsafe_from_utf8=raw^)
+    if " 200 " not in status:
+        raise Error(status + ": " + s)
+    return s^
+
+
+def stats_line(doc: JSONDoc, r: Int) -> String:
+    var u = doc.get_field(r, "usage")
+    var tm = doc.get_field(r, "timings")
+    if u < 0 or tm < 0:
+        return ""
+    var cached = num(doc, doc.get_field(doc.get_field(u, "baro"), "cached_tokens"))
+    return "[" + String(Int(num(doc, doc.get_field(u, "completion_tokens")))) + " tok · " + fmt1(num(doc, doc.get_field(tm, "tok_s_gen"))) + " tok/s · prefill " + fmt1(num(doc, doc.get_field(tm, "prefill_s"))) + " s · cached " + String(Int(max(cached, 0.0))) + "]"
+
+
+def sfield(doc: JSONDoc, idx: Int, key: String) -> String:
+    var f = doc.get_field(idx, key)
+    return doc.get(f).s if f >= 0 and doc.get(f).is_string() else ""
+
+
+def tool_turn(host: String, port: Int, mut hist: List[String], system: String, tools: String, texec: String,
+              max_tokens: Int, extra: String, think: Bool = True) raises:
+    """--tools: non-streamed rounds; each tool call runs `TEXEC NAME "$BARO_TOOL_ARGS"` (args JSON in the env, never in
+    the shell line) and its stdout goes back as a tool message, until the model answers without a call (8 rounds max)."""
+    for _ in range(8):
+        var msgs = String("[")
+        if system.byte_length() > 0:
+            msgs += "{\"role\":\"system\",\"content\":" + json_str(system) + "},"
+        for j in range(len(hist)):
+            msgs += hist[j] + ("," if j + 1 < len(hist) else "")
+        var raw = ask_full(host, port, "{\"messages\":" + msgs + "],\"tools\":" + tools + ",\"stream\":false,\"max_tokens\":"
+            + String(max_tokens) + extra + "}")
+        var doc = parse_json_bytes(List[UInt8](raw.as_bytes()))
+        var r = doc.root
+        var err = doc.get_field(r, "error")
+        if err >= 0:
+            raise Error("server: " + sfield(doc, err, "message"))
+        var ch = doc.get_field(r, "choices")
+        if ch < 0 or len(doc.get(ch).arr) == 0:
+            raise Error("no choices in the reply")
+        var c0 = doc.get(ch).arr[0]
+        var m = doc.get_field(c0, "message")
+        var content = sfield(doc, m, "content")
+        var rc = sfield(doc, m, "reasoning_content")
+        if think and rc.strip().byte_length() > 0:  # the <think> step of this round, dimmed
+            print("\x1b[2;3m" + String(rc.strip()) + "\x1b[0m")
+        var tcs = doc.get_field(m, "tool_calls")
+        var info = stats_line(doc, r)
+        var fr = sfield(doc, c0, "finish_reason")
+        if fr.byte_length() > 0:
+            info += (" " if info.byte_length() > 0 else "") + "[finish " + fr + ("; cut by max_tokens" if fr == "length" else "") + "]"
+        if tcs < 0 or not doc.get(tcs).is_array() or len(doc.get(tcs).arr) == 0:
+            print(content)
+            if info.byte_length() > 0:
+                print("\x1b[2m" + info + "\x1b[0m", file=stderr)
+            if content.byte_length() == 0:
+                raise Error("the reply is empty and is not kept")
+            hist.append("{\"role\":\"assistant\",\"content\":" + json_str(content) + "}")
+            return
+        var calls = String("[")
+        var outs = List[String]()
+        for k in range(len(doc.get(tcs).arr)):
+            var tc = doc.get(tcs).arr[k]
+            var fcall = doc.get_field(tc, "function")
+            var name = sfield(doc, fcall, "name")
+            var args = sfield(doc, fcall, "arguments")
+            var id = sfield(doc, tc, "id")
+            if id.byte_length() == 0:
+                id = "call" + String(k)
+            var ok = name.byte_length() > 0
+            for b in name.as_bytes():
+                ok = ok and ((b >= 97 and b <= 122) or (b >= 48 and b <= 57) or b == 95)
+            var out: String
+            if not ok:
+                out = "error: tool name " + json_str(name) + " is not [a-z0-9_]"
+            else:
+                var kname = String("BARO_TOOL_ARGS")
+                var kval = args
+                _ = external_call["setenv", Int32](kname.as_c_string_slice().unsafe_ptr(), kval.as_c_string_slice().unsafe_ptr(), Int32(1))
+                out = run(texec + " " + name + " \"$BARO_TOOL_ARGS\" 2>&1")
+            var shown = out if out.byte_length() <= 200 else String(unsafe_from_utf8=List[UInt8](out.as_bytes()[0:200])) + " ..."
+            print("\x1b[2m[" + name + "] " + args + " -> " + shown + "\x1b[0m", file=stderr)
+            calls += ("," if k > 0 else "") + "{\"id\":" + json_str(id) + ",\"type\":\"function\",\"function\":{\"name\":" + json_str(name) + ",\"arguments\":" + json_str(args) + "}}"
+            outs.append("{\"role\":\"tool\",\"tool_call_id\":" + json_str(id) + ",\"content\":" + json_str(out) + "}")
+        # the thought goes back too: a template that renders reasoning_content then shows the trained turn
+        hist.append("{\"role\":\"assistant\",\"content\":" + json_str(content) + ",\"reasoning_content\":"
+            + json_str(rc) + ",\"tool_calls\":" + calls + "]}")
+        for o in outs:
+            hist.append(o)
+    raise Error("8 tool rounds without an answer")
+
+
 def main():
     var a = List[String]()
     for x in argv()[1:]:
@@ -231,6 +368,9 @@ def main():
     var max_tokens = 2048
     var extra = String("")
     var system = String("")
+    var tools = String("")
+    var texec = String("")
+    var show_think = True
     var once = String("")
     var one = False
     var i = 0
@@ -240,6 +380,10 @@ def main():
             if k == "-h" or k == "--help":
                 print(USAGE)
                 return
+            if k == "--hide-think":
+                show_think = False
+                i += 1
+                continue
             if k == "--no-think":
                 extra += ",\"chat_template_kwargs\":{\"enable_thinking\":false}"
                 i += 1
@@ -262,6 +406,11 @@ def main():
                 extra += ",\"seed\":" + String(atol(v))
             elif k == "--system":
                 system = v
+            elif k == "--tools":
+                with open(v, "r") as f:
+                    tools = String(f.read().strip())
+            elif k == "--tool-exec":
+                texec = v
             elif k == "-p":
                 once = v
                 one = True
@@ -270,6 +419,8 @@ def main():
             i += 2
     except e:
         die(String(e))
+    if (tools.byte_length() > 0) != (texec.byte_length() > 0):
+        die("--tools and --tool-exec go together\n" + USAGE)
     var hist = List[String]()
     var tty = Conn(Int32(0))
     if not one:
@@ -295,14 +446,27 @@ def main():
                 continue
             if msg.strip().byte_length() == 0:
                 continue
+        var n0 = len(hist)
         hist.append("{\"role\":\"user\",\"content\":" + json_str(msg) + "}")
+        if tools.byte_length() > 0:
+            try:
+                tool_turn(host, port, hist, system, tools, texec, max_tokens, extra, show_think)
+            except e:
+                while len(hist) > n0:
+                    _ = hist.pop()
+                if one:
+                    die(String(e))
+                print("\nbaro chat: " + String(e), file=stderr)
+            if one:
+                return
+            continue
         var msgs = String("[")
         if system.byte_length() > 0:
             msgs += "{\"role\":\"system\",\"content\":" + json_str(system) + "},"
         for j in range(len(hist)):
             msgs += hist[j] + ("," if j + 1 < len(hist) else "")
         try:
-            var rep = ask(host, port, "{\"messages\":" + msgs + "],\"stream\":true,\"max_tokens\":" + String(max_tokens) + extra + "}")
+            var rep = ask(host, port, "{\"messages\":" + msgs + "],\"stream\":true,\"max_tokens\":" + String(max_tokens) + extra + "}", show_think)
             print("")
             var info = rep.stats
             if rep.finish.byte_length() > 0:

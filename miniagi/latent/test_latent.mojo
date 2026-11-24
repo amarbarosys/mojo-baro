@@ -53,8 +53,6 @@ def run[exact: Bool](ctx: DeviceContext, CASE: String, tol: Float64, dump: Strin
     upload(ctx, tb, tgt)
     ctx.enqueue_memset(gb, 0)
     var m = Model[exact](ctx, b)
-    comptime if V > 32:
-        m.sort_ids(ctx, ids)
     m.itemp = 1 / load(CASE + "temp.f32")[0]
     var p = F(unsafe_from_address=Int(pb.unsafe_ptr()))
     var g = F(unsafe_from_address=Int(gb.unsafe_ptr()))

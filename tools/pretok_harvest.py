@@ -70,7 +70,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--n", type=int, default=250)
     ap.add_argument("--baro", default="serve/tokenizer.mojo")
-    ap.add_argument("--corpus", default="../mojo-uregex/.work/bench/corpus.txt")
+    ap.add_argument("--corpus", default="../mojo-libs/libs/uregex/.work/bench/corpus.txt")
     a = ap.parse_args()
     OUT.mkdir(parents=True, exist_ok=True)
     fams = baro_families(a.baro)

@@ -1,0 +1,5 @@
+plan: 5 arms x 20 prompts + 3 runs, one process each (~1 s load + ~0.1 s decode)
+BARO_IMPLANTS: $HOME/Projects/mojo/mojo-neuron/.work/spark-implants-check/k1.bin 1 sets
+prompts 20, generated tokens min 2 max 16000 total 33055; p01 gap right-wrong -2.647, change: k1 +2.719, tau 0.9999 +2.715, mutant +0.000
+PASS spark-implants-check: no file and implants:0 byte-equal to the unmodified spark on 20 prompts, the k=1 implant moves only its prompt, key cos >= 0.9999, mutant caught
+exit 0

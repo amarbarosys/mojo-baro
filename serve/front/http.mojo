@@ -15,12 +15,14 @@ from api import (
     completion_delta, completion_finish, chat_response, chat_delta, chat_finish, parse_tool_calls, models_response,
     props_response, health_response, engine_error_chunk, now_secs, fail_word, invalid_tokens_error, invalid_tokens_chunk
 )
+from anthropic import parse_messages, count_tokens_response, message_response, messages_error_body, MessageStream, messages_stream_start, messages_stream_chunk, messages_stream_error
 from bento.http import Request, Response
 from bento.server import Handler
 from bento.sync import Mutex, Cond
-from json import Json
+from json import Json, parse
 from std.ffi import external_call
 from std.memory import alloc, Layout
+from std.os import getenv
 from std.time import perf_counter_ns
 
 
@@ -231,7 +233,8 @@ struct Front[T: TextLike, E: EngineLike](Handler):
             self._route(req, resp)
         except e:
             if resp.state == 0:
-                self._json(resp, e.status, e.body)
+                var body = messages_error_body(e.body) if req.path == "/v1/messages" or req.path == "/v1/messages/count_tokens" else e.body
+                self._json(resp, e.status, body)
 
     def _json(self, mut resp: Response, status: Int, body: String):
         resp.status = status
@@ -241,6 +244,9 @@ struct Front[T: TextLike, E: EngineLike](Handler):
     def _route(self, req: Request, mut resp: Response) raises ApiError:
         var p = req.path
         var m = req.method
+        if p == "/api/hello":
+            resp.status = 200
+            return
         if p == "/health" or p == "/props" or p == "/models" or p == "/v1/models":
             if m != "GET":
                 return self._not_allowed(resp, "GET")
@@ -250,7 +256,7 @@ struct Front[T: TextLike, E: EngineLike](Handler):
             if p == "/props":
                 return self._json(resp, 200, props_response(self.model, self._snap_tmax()))
             return self._json(resp, 200, models_response(self.model))
-        var post = p == "/tokenize" or p == "/detokenize" or p == "/v1/cancel" or p == "/completions" or p == "/v1/completions" or p == "/chat/completions" or p == "/v1/chat/completions"
+        var post = p == "/tokenize" or p == "/detokenize" or p == "/v1/cancel" or p == "/completions" or p == "/v1/completions" or p == "/chat/completions" or p == "/v1/chat/completions" or p == "/v1/messages" or p == "/v1/messages/count_tokens"
         if not post:
             resp.status = 404
             return
@@ -264,6 +270,17 @@ struct Front[T: TextLike, E: EngineLike](Handler):
         if p == "/v1/cancel":
             return self._json(resp, 200, cancel_response(self._cancel(cancel_id(j))))
         var spec_k = self._snap_info().get("spec_k").int()
+        if p == "/v1/messages/count_tokens":
+            var body = count_tokens_response(self.text, j, spec_k)
+            if getenv("BARO_LOG_PROMPTS") == "1":
+                try:
+                    print("anthropic count_tokens input_tokens=", parse(body).get("input_tokens").int())
+                except:
+                    pass
+            return self._json(resp, 200, body)
+        if p == "/v1/messages":
+            self._generate(parse_messages(self.text, j, spec_k), resp)
+            return
         if p == "/completions" or p == "/v1/completions":
             self._generate(parse_completion(self.text, j, spec_k), resp)
         else:
@@ -344,6 +361,8 @@ struct Front[T: TextLike, E: EngineLike](Handler):
     # ---- generation -----------------------------------------------------------
 
     def _generate(self, var call: Call, mut resp: Response) raises ApiError:
+        if call.anthropic and getenv("BARO_LOG_PROMPTS") == "1":
+            print("anthropic request input_tokens=", call.n_prompt, "requested_max_tokens=", call.requested_n, "stream=", call.stream)
         var h = self._h()
         var slot = Slot()
         var sp = Int(Pointer(to=slot))
@@ -357,7 +376,7 @@ struct Front[T: TextLike, E: EngineLike](Handler):
             err = plain(503, "engine is " + h[].snap_name + (": " + why if why != "" else ""))
         else:
             try:
-                check_gen(call.gen, h[].snap_info.get("tmax").int(), len(h[].slots), self.max_inflight, call.requested_n)
+                check_gen(call.gen, h[].snap_info.get("tmax").int(), len(h[].slots), self.max_inflight, call.requested_n, call.anthropic)
             except e:
                 err = e^
         if not err:
@@ -417,7 +436,7 @@ struct Front[T: TextLike, E: EngineLike](Handler):
             body = chat_response(oid, now_secs(), self._model(call), parsed[0], parsed[1], acc.tokens, reason, call.n_prompt, stats)
         else:
             body = completion_response(oid, now_secs(), self._model(call), text_out, acc.tokens, reason, call.n_prompt, stats)
-        self._json(resp, 200, body)
+        self._json(resp, 200, message_response(body, call.stop_sequences) if call.anthropic else body)
 
     def _model(self, call: Call) -> String:
         return call.model if call.model != "" else self.model
@@ -441,19 +460,32 @@ struct Front[T: TextLike, E: EngineLike](Handler):
         var model = self._model(call)
         var acc = Acc[Self.T](self.text)
         var ts = ToolStream()
+        var anthropic_stream = MessageStream(call.stop_sequences.copy())
+        if call.anthropic and not self._send_raw(resp, messages_stream_start(oid, model, call.n_prompt)):
+            self._request_cancel(id)
+            return
         var first = True
         var done = False
         while not done:
             var b = self._next(sp, self.keepalive_s)
             if b.timed_out:
                 try:
-                    resp.write(": keep-alive\n\n")
+                    if call.anthropic:
+                        resp.sse("{\"type\":\"ping\"}", "ping")
+                    else:
+                        resp.write(": keep-alive\n\n")
                 except:
                     self._request_cancel(id)
                     return
                 continue
             if b.ended:
-                if not self._send(resp, engine_error_chunk("engine stream ended without a terminal event")):
+                var error = "engine stream ended without a terminal event"
+                var sent: Bool
+                if call.anthropic:
+                    sent = self._send_raw(resp, messages_stream_error(error))
+                else:
+                    sent = self._send(resp, engine_error_chunk(error))
+                if not sent:
                     self._request_cancel(id)
                     return
                 break
@@ -488,11 +520,23 @@ struct Front[T: TextLike, E: EngineLike](Handler):
                 elif ev.kind == EV_DEAD:
                     chunk = engine_error_chunk("engine died: " + ev.text)
                     done = True
-                if not self._send(resp, chunk):
+                var sent: Bool
+                if call.anthropic:
+                    sent = self._send_raw(resp, messages_stream_chunk(anthropic_stream, chunk))
+                else:
+                    sent = self._send(resp, chunk)
+                if not sent:
                     self._request_cancel(id)
                     return
                 if done:
                     break
-        if not self._send(resp, "[DONE]"):
+        if not call.anthropic and not self._send(resp, "[DONE]"):
             return
         resp.end_stream()
+
+    def _send_raw(self, mut resp: Response, data: String) -> Bool:
+        try:
+            resp.write(data)
+            return True
+        except:
+            return False

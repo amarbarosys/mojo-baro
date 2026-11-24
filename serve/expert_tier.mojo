@@ -41,6 +41,7 @@ what stage 3's prefetch exists to remove.
 from std.collections import Dict, List
 from std.atomic import Ordering, fence
 from std.ffi import c_ssize_t, external_call, OwnedDLHandle
+from gpu_rt import rt_lib, rt_name, rt_flags
 from std.memory import UnsafePointer, alloc, bitcast
 from std.os import getenv
 from std.time import perf_counter_ns
@@ -77,7 +78,7 @@ def hip_register_file(path: String, nbytes: Int) raises -> Int:
     the kernels and the DMA engine read the page-cache pages themselves, so the
     expert store is the only RAM copy of experts.bin (kernels/test_hostregister.mojo:
     same GB/s as a pinned HostBuffer). The mapping lives until the process exits."""
-    var lib = OwnedDLHandle("/opt/rocm/lib/libamdhip64.so")
+    var lib = rt_lib()
     var addr = Int(0)
     with open(path, "r") as f:
         var cpath = path
@@ -88,7 +89,7 @@ def hip_register_file(path: String, nbytes: Int) raises -> Int:
         addr = Int(sys.sys_mmap(nbytes, Int32(sys.PROT_READ), Int32(sys.MAP_SHARED), fd))
     if addr == -1:
         raise Error("expert tier: mmap failed for " + path)
-    var rc = lib.get_function[Int32]("hipHostRegister")(addr, nbytes, UInt32(0x0A))
+    var rc = lib.get_function[Int32](rt_name("hipHostRegister"))(addr, nbytes, UInt32(0x0A))
     if rc != 0:
         raise Error("expert tier: hipHostRegister(ReadOnly|Mapped) rc " + String(rc) + " for " + path + "; BARO_TIER_MMAP=0 reads it into a pinned buffer instead")
     return addr
@@ -98,9 +99,9 @@ def hip_coherent(nbytes: Int) raises -> Int:
     """Coherent, mapped pinned memory from libamdhip64 (hipHostMalloc flags
     Coherent | Mapped). MAX's host buffers are non-coherent: a GPU<->host
     handoff through them took 3.9 ms against 1.95 us (kernels/test_doorbell.mojo)."""
-    var lib = OwnedDLHandle("/opt/rocm/lib/libamdhip64.so")
+    var lib = rt_lib()
     var addr = Int(0)
-    var rc = lib.get_function[Int32]("hipHostMalloc")(UnsafePointer(to=addr), nbytes, UInt32(0x40000002))
+    var rc = lib.get_function[Int32](rt_name("hipHostMalloc"))(UnsafePointer(to=addr), nbytes, rt_flags(UInt32(0x40000002)))
     if rc != 0 or addr == 0:
         raise Error("hipHostMalloc(coherent) failed rc " + String(rc))
     var z = UnsafePointer[UInt8, MutAnyOrigin](unsafe_from_address=addr)

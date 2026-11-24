@@ -1,0 +1,11 @@
+name	bytes	lines	hold_bytes	origin	sha256
+wiki	6000006488	15811881	1999635	.work/corpus/wiki6g.txt	01b378957b58605f
+brain	59280604	1123524	1999970	.work/proto/parts/brain.txt	9db81995e539e41a
+tx	19619321	264463	1999999	.work/proto/parts/tx.txt	7858f0a5d739792d
+mm	344427708	6888401	1999922	.work/cotc/metamath.txt	e46ad4946e698822
+gsmt	10975914	362330	1999963	.work/cotc/gsmtool_train.txt	5e7566bc7fd76120
+tools	3594510	71042	449779	.work/tooldata/*.train.jsonl (cotfmt toolj)	ba7fdd49d750f712
+code	49074773	1166857	1999944	6681 tracked files of our repos (list: code.files)	241c51ea0353dec0
+papers	10158907	152212	1999968	~/PaperBrain/papers/*.md	ab82b94cc73d70e3
+bench	0	0	2189877	score only	fc32ca333b5d215f
+graphs	0	0	1999984	score only	863a66be5fbba06b

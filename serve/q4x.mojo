@@ -66,6 +66,7 @@ from std.os import getenv, setenv
 from std.os.path import exists
 from std.math import sqrt, exp, cos, sin
 from std.ffi import external_call, OwnedDLHandle
+from gpu_rt import rt_lib, rt_name, rt_flags
 from std.memory import bitcast, alloc
 from max.algorithm import parallelize
 from std.time import perf_counter_ns
@@ -154,6 +155,14 @@ comptime HPtr = MutPointer[Scalar[bf16], MutAnyOrigin]
 comptime IPtr = MutPointer[Scalar[i32], MutAnyOrigin]
 comptime LPtr = MutPointer[Scalar[i64], MutAnyOrigin]
 comptime WPtr = MutPointer[Scalar[DType.uint16], MutAnyOrigin]
+
+
+def _pos(r: Int) -> Int:
+    return r
+
+
+def _pos(r: Optional[Int]) -> Int:
+    return r.or_else(-1)
 
 
 def zeros(n: Int) -> Vec:
@@ -496,8 +505,8 @@ struct Q4X:
         print("q4x: devarg", 1 if self.devarg else 0)
         _ = external_call["madvise", Int32](elo, ehi - elo, Int32(22))
         if getenv("Q4X_ZC", "1") != "0":
-            var lib = OwnedDLHandle("/opt/rocm/lib/libamdhip64.so")
-            var rc = lib.get_function[Int32]("hipHostRegister")(elo, ehi - elo, UInt32(0x0A))
+            var lib = rt_lib()
+            var rc = lib.get_function[Int32](rt_name("hipHostRegister"))(elo, ehi - elo, UInt32(0x0A))
             self.zc = rc == 0
             if rc != 0:
                 print("q4x: hipHostRegister of the expert region rc", rc, ": misses go through the staging memcpy")
@@ -769,9 +778,9 @@ struct Q4X:
 
     @staticmethod
     def hip_coherent(nbytes: Int) raises -> Int:
-        var lib = OwnedDLHandle("/opt/rocm/lib/libamdhip64.so")
+        var lib = rt_lib()
         var addr = Int(0)
-        var rc = lib.get_function[Int32]("hipHostMalloc")(MutPointer(to=addr), nbytes, UInt32(0x40000002))
+        var rc = lib.get_function[Int32](rt_name("hipHostMalloc"))(MutPointer(to=addr), nbytes, rt_flags(UInt32(0x40000002)))
         if rc != 0 or addr == 0:
             raise Error("q4x: hipHostMalloc(coherent) rc " + String(rc))
         var z = BPtr(unsafe_from_address=addr)
@@ -949,7 +958,7 @@ struct Q4X:
         if name in self.fskip:
             return n
         comptime if COUNT_DISPATCH:
-            self.role = String(name[byte=(name.find(".", 4) + 1 if name.startswith("blk.") else 0):])
+            self.role = String(name[byte=(_pos(name.find(".", 4)) + 1 if name.startswith("blk.") else 0):])
         n = self.frows.get(name, n)
         self.gemm(X, r.gtype, Int(self.wd.unsafe_ptr()) + self.woff[name], Int(self.ztab.unsafe_ptr()), Int(self.dtd.unsafe_ptr()), self.ndt, 0, 0, Int(y), yst, k, n, n, ggml_row_bytes(r.gtype, k), act, xq, xqst, scale)
         return n

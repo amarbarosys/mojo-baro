@@ -1,0 +1,39 @@
+{
+  "name": "system_prompt",
+  "method": "POST",
+  "path": "/v1/messages",
+  "request_string": {
+    "model": "claude-3-5-sonnet-20241022",
+    "max_tokens": 1024,
+    "system": "You are a concise assistant.",
+    "messages": [
+      {"role": "user", "content": "Ping"}
+    ]
+  },
+  "request_array": {
+    "model": "claude-3-5-sonnet-20241022",
+    "max_tokens": 1024,
+    "system": [
+      {"type": "text", "text": "You are a concise assistant."}
+    ],
+    "messages": [
+      {"role": "user", "content": "Ping"}
+    ]
+  },
+  "status": 200,
+  "response": {
+    "id": "msg_01X9z8A7bC",
+    "type": "message",
+    "role": "assistant",
+    "content": [
+      {"type": "text", "text": "Pong."}
+    ],
+    "model": "claude-3-5-sonnet-20241022",
+    "stop_reason": "end_turn",
+    "stop_sequence": null,
+    "usage": {
+      "input_tokens": 16,
+      "output_tokens": 2
+    }
+  }
+}

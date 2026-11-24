@@ -157,6 +157,14 @@ struct Detok(Movable):
         return delta^
 
 
+def _pos(r: Int) -> Int:
+    return r
+
+
+def _pos(r: Optional[Int]) -> Int:
+    return r.or_else(-1)
+
+
 struct Text(Movable):
     var tok: ArcPointer[Tokenizer]
     var template: String
@@ -172,7 +180,7 @@ struct Text(Movable):
         var meta = Json()
         var from_gguf = tokenizer_json.endswith(".gguf")
         if not from_gguf:
-            var slash = tokenizer_json.rfind("/")
+            var slash = _pos(tokenizer_json.rfind("/"))
             var meta_path = (String(tokenizer_json[byte=: slash + 1]) if slash >= 0 else String("")) + "tokenizer-meta.json"
             try:
                 meta = parse(_file_text(meta_path))
@@ -237,7 +245,7 @@ struct Text(Movable):
         return self.stops.copy()
 
     def tool_xml(self) -> Bool:
-        return self.has_template and self.template.find("<function=") >= 0
+        return self.has_template and "<function=" in self.template
 
     def apply_chat_template(self, messages: Json, tools: Json, kwargs: Json) raises -> String:
         return self._render(_norm(messages), True, tools, kwargs)

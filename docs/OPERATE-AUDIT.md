@@ -46,7 +46,7 @@ measured the row says so.
 
 ## 2. Every setting
 
-208 entries of `docs/settings.toml`. Kind: env (engine, read at run time), build (`-D` flag, rebuild), server-env (baro-serve),
+222 entries of `docs/settings.toml`. Kind: env (engine, read at run time), build (`-D` flag, rebuild), server-env (baro-serve),
 shell (`tools/baro`), request (a request field), external (read by MAX). Internal = status bench-only (benches, tests, probes).
 In GUI: the face lists every setting of group sampling, engine, model and front, Basic or behind the Advanced toggle (`face/settings.mojo:157-159`).
 
@@ -73,8 +73,10 @@ In GUI: the face lists every setting of group sampling, engine, model and front,
 | `BARO_KVQ` | build | `f32` | yes | stable | int8 KV cache: see section 1 | Engine tab | no endpoint shows the KV type (README.md:315 says /props does; serve/src/main.rs:506-519 returns only n_ctx and model): compare `pack-fit PACK --tmax N` and the memory used |
 | `BARO_MOE_G` | build | `96` | yes | stable | none recorded | Engine tab, Advanced toggle | - |
 | `BARO_TRACE_SUM` | build | `0` | yes | stable | none recorded | Engine tab, Advanced toggle | - |
+| `BARO_IMP_MUTANT` | build | `0` | yes | stable | none recorded | Engine tab, Advanced toggle | - |
 | `BARO_ACT_BF16` | build | `0` | yes | stable | none recorded | Engine tab, Advanced toggle | - |
 | `BARO_SP_QKV_S` | build | `4` | yes | stable | none recorded | Engine tab, Advanced toggle | - |
+| `BARO_QKN_MUTANT` | build | `0` | yes | experimental | none recorded | Engine tab, Advanced toggle | - |
 | `BARO_SP_O_S` | build | `1` | yes | stable | none recorded | Engine tab, Advanced toggle | - |
 | `BARO_SP_DOWN_S` | build | `1` | yes | stable | none recorded | Engine tab, Advanced toggle | - |
 | `BARO_SP_HEAD_S` | build | `1` | yes | stable | none recorded | Engine tab, Advanced toggle | - |
@@ -260,6 +262,18 @@ In GUI: the face lists every setting of group sampling, engine, model and front,
 | `BARO_DF_PROF` | env | `false` | yes | experimental | none recorded | Engine tab, Advanced toggle | - |
 | `BARO_DF_SHIFT` | env | `0` | yes | experimental | none recorded | Engine tab, Advanced toggle | - |
 | `BARO_FEWROW` | build | `false` | yes | experimental | none recorded | Engine tab, Advanced toggle | - |
+| `BARO_LOG_PROMPTS` | env | `0` | yes | experimental | none recorded | Engine tab, Advanced toggle | - |
+| `BARO_CUDART_LIB` | env | `libcudart.so` | yes | experimental | none recorded | Engine tab, Advanced toggle | - |
+| `BARO_SP_MEGA` | env | `false` | yes | experimental | none recorded | Engine tab, Advanced toggle | - |
+| `BARO_SP_MEGA_N` | env | `0` | yes | experimental | none recorded | Engine tab, Advanced toggle | - |
+| `BARO_SP_BYTES` | env | unset | yes | bench-only (internal) | internal, no standard | Engine tab, Advanced toggle | - |
+| `BARO_TRACE_FGB` | env | `false` | yes | bench-only (internal) | internal, no standard | Engine tab, Advanced toggle | - |
+| `BARO_SM_MUTANT` | build | `0` | yes | experimental | none recorded | Engine tab, Advanced toggle | - |
+| `BARO_BRAIN_DIR` | server-env | `~/Brain/baro-agent` | yes | experimental | none recorded | Front tab, Advanced toggle | - |
+| `BARO_CRAWL4AI` | server-env | `http://127.0.0.1:11235` | yes | experimental | none recorded | Front tab, Advanced toggle | - |
+| `BARO_CRAWL4AI_TOKEN` | server-env | unset | yes | experimental | none recorded | Front tab, Advanced toggle | - |
+| `BARO_TWINS` | env | `1` | yes | experimental | none recorded | Engine tab, Advanced toggle | - |
+| `BARO_PACK_B` | env | empty | yes | experimental | none recorded | Engine tab, Advanced toggle | - |
 
 ## 3. Command-line flags
 
@@ -286,13 +300,15 @@ In GUI: the face lists every setting of group sampling, engine, model and front,
 
 ## 4. Gaps
 
-### Read by the code, not in `docs/settings.toml` (35)
+### Read by the code, not in `docs/settings.toml` (38)
 
 Found by the scan described at the top of `tools/operate-audit.mojo` (production directories). `tools/settings-check` covers `serve/*.mojo`, `kernels/`,
 `tools/*.mojo`, `serve/src/*.rs` and `tools/baro`, but not `serve/src/bin/`, `face/`, `cpu/`, `embed/` or other shell scripts.
 
 | name | read at |
 | --- | --- |
+| `BARO_ANTHROPIC_PILOT_ADMITTED` | serve/pilot_anthropic.sh:12 |
+| `BARO_ANTHROPIC_SERVE_ADMITTED` | serve/serve_anthropic.sh:9 |
 | `BARO_BUILD_FLAGS` | tools/bake.sh:68 |
 | `BARO_CHAT_TEMPLATE_FILE` | tools/test_server.sh:37 |
 | `BARO_DEVICES` | tools/baro-multi-serve:17 |
@@ -314,6 +330,7 @@ Found by the scan described at the top of `tools/operate-audit.mojo` (production
 | `BARO_RUN_ENV` | tools/bake.sh:75 |
 | `BARO_TEXT_GGUF` | serve/src/vision.rs:31 |
 | `BARO_THREADS` | cpu/engine_cpu.mojo:324 |
+| `BARO_TOOL_ARGS` | tools/baro-chat.mojo:10 |
 | `BARO_TTS_BIN` | serve/src/audio.rs:98 |
 | `BARO_TTS_OUT_DIR` | serve/src/audio.rs:100 |
 | `BARO_TTS_TIMEOUT_SECS` | serve/src/audio.rs:101 |

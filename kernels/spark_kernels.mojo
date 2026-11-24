@@ -88,14 +88,28 @@ def amar_gemv_q8[
     n: Int32,
     k_dim: Int32,
 ):
-    comptime assert A.flat_rank == 2 and Q.flat_rank == 2 and S.flat_rank == 2
     comptime assert C.flat_rank == 1 and Ob.flat_rank == 1
-    var N = Int(n)
-    var K = Int(k_dim)
     var lane = Int(lane_id())
     var row = Int(block_idx.x) * ROW_WAVES + Int(thread_idx.x) // WARP_SIZE
-    if row >= N:
+    if row >= Int(n):
         return
+    var total = gemv_q8_row(A, Q, S, row, lane, Int(k_dim))
+    if lane == 0:
+        gemv_epi[EPI, ODT=ADT](C, Ob, row, total)
+
+
+@always_inline
+def gemv_q8_row[
+    ALayout: TensorLayout, QLayout: TensorLayout, SLayout: TensorLayout, ADT: DType
+](
+    A: TileTensor[ADT, ALayout, MutAnyOrigin],
+    Q: TileTensor[DType.int8, QLayout, MutAnyOrigin],
+    S: TileTensor[DType.float16, SLayout, MutAnyOrigin],
+    row: Int,
+    lane: Int,
+    K: Int,
+) -> Float32:
+    comptime assert A.flat_rank == 2 and Q.flat_rank == 2 and S.flat_rank == 2
     comptime QV = 16
     comptime STEP = WARP_SIZE * QV
     comptime UNROLL = 4
@@ -124,9 +138,7 @@ def amar_gemv_q8[
             var a = rebind[SIMD[ADT, QV]](Av[0, kv // QV]).cast[f32]()
             acc += q * d * a
         kk += STEP
-    var total = warp.sum(acc.reduce_add())
-    if lane == 0:
-        gemv_epi[EPI, ODT=ADT](C, Ob, row, total)
+    return warp.sum(acc.reduce_add())
 
 
 def amar_rope_kv_append[

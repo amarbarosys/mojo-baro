@@ -406,6 +406,7 @@ def pack_dense(model, outdir):
     n_layers = kv[f"{arch}.block_count"]
     has_bias = "blk.0.attn_q.bias" in infos
     has_gate = "blk.0.attn_gate.weight" in infos
+    has_qkn = "blk.0.attn_q_norm.weight" in infos
     tied = "output.weight" not in infos
 
     outdir.mkdir(parents=True, exist_ok=True)
@@ -457,6 +458,10 @@ def pack_dense(model, outdir):
 
             for part in ("ffn_gate.weight", "ffn_up.weight", "ffn_down.weight"):
                 emit_mat(b + part, [b + part])
+
+            if has_qkn:  # qwen3 per-head q/k RMS-norm gains [HD]: last in the layer (spark OFF_QN, OFF_KN)
+                for part in ("attn_q_norm.weight", "attn_k_norm.weight"):
+                    emit(b + part, _read_f32(f, data_start, infos, b + part), "f32", int(np.prod(infos[b + part][0])))
 
         emit("output_norm.weight", _read_f32(f, data_start, infos, "output_norm.weight"),
              "f32", int(np.prod(infos["output_norm.weight"][0])))

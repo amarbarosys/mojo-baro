@@ -2,13 +2,15 @@ from std.ffi import c_ssize_t, external_call
 from std.math import ceildiv
 from std.math import log, exp
 from std.os import getenv, setenv
-from std.sys import has_accelerator, get_defined_int
+from std.os.path import getsize
+from std.sys import has_accelerator, get_defined_int, size_of
 from std.time import perf_counter_ns
 from max.algorithm import parallelize
 from max.gpu.host import DeviceContext, DeviceBuffer, HostBuffer
 from layout import TileTensor, TensorLayout, row_major
 from attn import KVQ, KVT, KVPAGE, KVPAD
-from slens_kernels import amar_rope_micro, amar_attn_micro, amar_micro_init
+from slens_kernels import amar_rope_micro, amar_attn_micro, amar_micro_init, amar_rows_add_vec
+from implants import Implants
 from elementwise import amar_rmsnorm_cast, amar_rmsnorm_cast_steer, amar_scale_one, amar_tok_copy, amar_rmsnorm
 from matmul_skinny import ROW_WAVES, ROW_THREADS
 from tokenizer import Tokenizer
@@ -23,16 +25,17 @@ from grammar.automaton import Bitset
 from grammar.matcher import Matcher
 from matmul_wmma_pipe import amar_matmul_wmma_pipe
 from q4x_kernels import UP
-from prefill_rows import pf_dequant_kq, pf_dequant_q8, pf_cast16, pf_qkv_split, pf_add, pf_act_mul
+from prefill_rows import pf_dequant_kq, pf_dequant_q8, pf_cast16, pf_qkv_split, pf_add, pf_act_mul, pf_head_rms
 from gemv_kq import amar_gemv_kq, amar_gemv_kq_gateup, amar_gemv_kq_splitk, GT_Q4K, GT_Q6K
 from moe import Q4K_BYTES, Q6K_BYTES
+from spark_mega import amar_spark_mega, SM_OK, SM_G, SM_T, SM_LS
 from spark_kernels import (
     amar_embed_lookup_f32, amar_gemv_q8, amar_argmax_part, amar_argmax_final, amar_rope_kv_append, amar_attn_decode_swa_gated, amar_rope_plain, amar_bias_add,
     amar_trace_sum, amar_attn_split_part, amar_attn_split_merge, amar_rope_qkv, att_span_len, ATT_NSMAX,
 )
 from profile import (
     H, FFN, VOCAB, N_LAYERS, NQH, NKVH, HD, NORM_EPS, NROT_FULL, BASE_FULL, NROT_SWA, BASE_SWA,
-    SWA_WIN, SWA_PERIOD, SWA_FULL_PHASE, ROPE_NEOX, QKV_BIAS, HAS_GATE, ATTN_SCALE,
+    SWA_WIN, SWA_PERIOD, SWA_FULL_PHASE, ROPE_NEOX, QKV_BIAS, HAS_GATE, QK_NORM, ATTN_SCALE,
     ACTIVATION_GELU, TMAX, ROPE_FREQS,
 )
 from gguf_reader import GGUFModel
@@ -115,7 +118,10 @@ comptime OFF_FFN_NORM = OFF_O + 1
 comptime OFF_FFN_GATE = OFF_O + 2
 comptime OFF_FFN_UP = OFF_O + 3
 comptime OFF_DOWN = OFF_O + 4
-comptime LSTRIDE = OFF_O + 5
+comptime OFF_QN = OFF_O + 5 if QK_NORM else -1  # qwen3 attn_q_norm / attn_k_norm gains [HD], last in the layer
+comptime OFF_KN = OFF_O + 6 if QK_NORM else -1
+comptime LSTRIDE = OFF_O + 5 + (2 if QK_NORM else 0)
+comptime QKN_MUTANT = get_defined_int["BARO_QKN_MUTANT", 0]() == 1  # gate mutant: skip the q/k norm, keep the layout
 # -D BARO_TRACE_SUM=1 (diagnostic build, bench/p4-trace-soak.sh): one FNV checksum per
 # (position, layer, stage) written on the device with no host sync, dumped per request to
 # BARO_TRACE_SUM_DIR. Stages per layer: 0 = QKV after bias, 1 = residual after attention,
@@ -124,6 +130,7 @@ comptime LSTRIDE = OFF_O + 5
 # that produced a transient wrong value. Off (the default) compiles to nothing.
 comptime TRACE_SUM = get_defined_int["BARO_TRACE_SUM", 0]() == 1
 comptime ADT = DType.bfloat16 if get_defined_int["BARO_ACT_BF16", 0]() == 1 else DType.float32
+comptime IMP_MUTANT = get_defined_int["BARO_IMP_MUTANT", 0]() == 1  # gate mutant: implants run one layer early
 comptime TRACE_STRIDE = 3 * N_LAYERS + 1
 
 comptime x_l = row_major[1, H]()
@@ -438,6 +445,16 @@ def rope_ff(wbuf: DeviceBuffer[DType.uint8], off: List[Int]) -> P:
     return P(unsafe_from_address=Int(wbuf.unsafe_ptr()))
 
 
+def qk_norm(ctx: DeviceContext, wbuf: DeviceBuffer[DType.uint8], off: List[Int], e: Int, q: Int, k: Int, rows: Int) raises:
+    """qwen3: RMS-norm each q and k head (rows tokens) in place after the QKV split, before rope. No-op elsewhere."""
+    comptime if QK_NORM and not QKN_MUTANT:
+        var w = Int(wbuf.unsafe_ptr())
+        ctx.enqueue_function[pf_head_rms[HD]](P(unsafe_from_address=q), P(unsafe_from_address=w + off[e + OFF_QN]), NORM_EPS,
+            Int32(rows * NQH), grid_dim=ceildiv(rows * NQH, 64), block_dim=64)
+        ctx.enqueue_function[pf_head_rms[HD]](P(unsafe_from_address=k), P(unsafe_from_address=w + off[e + OFF_KN]), NORM_EPS,
+            Int32(rows * NKVH), grid_dim=ceildiv(rows * NKVH, 64), block_dim=64)
+
+
 def pf_t32[L: TensorLayout](ctx: DeviceContext, a: Int, l: L) -> TileTensor[f32, L, MutAnyOrigin]:
     var b = DeviceBuffer[f32](ctx, P(unsafe_from_address=a), l.size(), owning=False)
     return rebind[TileTensor[f32, L, MutAnyOrigin]](TileTensor(b, l))
@@ -491,6 +508,7 @@ def prefill_rows(
             var bias = P(unsafe_from_address=Int(wbuf.unsafe_ptr()) + off[e + OFF_QKV_BIAS]) if QKV_BIAS else P(unsafe_from_address=tmp)
             ctx.enqueue_function[pf_qkv_split[QKV_BIAS]](P(unsafe_from_address=tmp), bias, P(unsafe_from_address=qp), P(unsafe_from_address=kp),
                 P(unsafe_from_address=vp), Int32(QDIM), Int32(KVDIM), Int32(T), grid_dim=ceildiv(T * QKV, 256), block_dim=256)
+            qk_norm(ctx, wbuf, off, e, qp, kp, T)
             if swa:
                 ctx.enqueue_function[k_rope_swa_p](Qp, Int32(c0), Int32(NQH), BASE_SWA, ffp, grid_dim=(NQH, T), block_dim=NROT_SWA // 2)
                 ctx.enqueue_function[k_kv_swa_p](Kc, Vc, Kp, Vp, tp, Int32(c0), BASE_SWA, Int32(i), ffp, grid_dim=(NKVH, 2, T), block_dim=HD)
@@ -545,6 +563,7 @@ def slens_pass[MG: Int](
         var bias = P(unsafe_from_address=Int(wbuf.unsafe_ptr()) + off[e + OFF_QKV_BIAS]) if QKV_BIAS else P(unsafe_from_address=tmp)
         ctx.enqueue_function[pf_qkv_split[QKV_BIAS]](P(unsafe_from_address=tmp), bias, P(unsafe_from_address=qp), P(unsafe_from_address=kp),
             P(unsafe_from_address=vp), Int32(QDIM), Int32(KVDIM), Int32(R), grid_dim=ceildiv(R * QKV, 256), block_dim=256)
+        qk_norm(ctx, wbuf, off, e, qp, kp, R)
         ctx.enqueue_function[amar_rope_micro[HD, NROT_FULL, ROPE_NEOX, ROPE_FREQS]](P(unsafe_from_address=qp), Int32(T), Int32(NQH), BASE_FULL, ffp, grid_dim=(NQH, R), block_dim=NROT_FULL // 2)
         ctx.enqueue_function[amar_rope_micro[HD, NROT_FULL, ROPE_NEOX, ROPE_FREQS]](P(unsafe_from_address=kp), Int32(T), Int32(NKVH), BASE_FULL, ffp, grid_dim=(NKVH, R), block_dim=NROT_FULL // 2)
         ctx.enqueue_function[amar_attn_micro[HD, NQH, NKVH, ADT]](P(unsafe_from_address=qp), P(unsafe_from_address=kp), P(unsafe_from_address=vp), aop,
@@ -823,6 +842,29 @@ def tok_line(id: Int, tok: Int) -> String:
     return String("{\"id\":") + String(id) + ",\"tok\":" + String(tok) + "}"
 
 
+def logits_topk_line(id: Int, row: HostBuffer[f32], tk: Int) -> String:
+    """The top tk raw logits of the row, descending (engine.mojo's logits_topk line)."""
+    var ids = List[Int](length=tk, fill=-1)
+    var vals = List[Float64](length=tk, fill=-1e30)
+    for vi in range(VOCAB):
+        var lv = Float64(row[vi])
+        var at = 0
+        while at < tk and lv <= vals[at]:
+            at += 1
+        if at < tk:
+            var j = tk - 1
+            while j > at:
+                ids[j] = ids[j - 1]
+                vals[j] = vals[j - 1]
+                j -= 1
+            ids[at] = vi
+            vals[at] = lv
+    var tl = String("{\"id\":") + String(id) + ",\"logits_topk\":["
+    for i in range(tk):
+        tl += ("," if i > 0 else "") + "{\"id\":" + String(ids[i]) + ",\"logit\":" + String(vals[i]) + "}"
+    return tl + "]}"
+
+
 # Export-only state file for the llama.cpp bridge (P1 item 4): serve/engine.mojo's
 # BAROST01 with conv_n = ssm_n = 0 and a zero salt, the first ceil(pos/KVPAGE) pages
 # of the page-major pool. Spark keeps the identity page table and has no state_load.
@@ -913,6 +955,37 @@ def main() raises:
         load_steer(ctx, sv_d, sv_h, steer_path, -1)
     var SV = TileTensor(sv_d, sv_l)
     var abl_h = ctx.enqueue_create_host_buffer[f32](H)
+    # BARO_IMPLANTS=FILE (mojo-neuron docs/format-implants.md): host rank-k side FFN after a layer's FFN, as engine.mojo.
+    # Request fields implants (0 = off), implants_lo / _k / _scale / _layer. A loaded file turns batched prefill off.
+    var imp_path = getenv("BARO_IMPLANTS", "")
+    var imp_loaded = imp_path != ""
+    var imp = Implants(N_LAYERS)
+    if imp_loaded:
+        imp.load(imp_path, H)
+    var imp_on = imp_loaded
+    var imp_scale: Float32 = 1.0
+    var imp_lo = 0
+    var imp_klim = -1
+    var imp_layer = -1
+    var imp_x = List[Float32](length=H, fill=0)
+    var imp_dl = List[Float32](length=H, fill=0)
+    var imp_xh = ctx.enqueue_create_host_buffer[ADT](H)
+    var imp_h = ctx.enqueue_create_host_buffer[f32](H)
+    var imp_d = ctx.enqueue_create_buffer[f32](H)
+    # BARO_CAPTURE=DIR (mojo-neuron docs/format-capture.md, field x only): the FFN input row the implant hook reads, per
+    # position, at BARO_CAPTURE_LAYERS. Turns batched prefill off.
+    var cap_dir = getenv("BARO_CAPTURE", "")
+    var cap_l = List[Bool](length=N_LAYERS, fill=False)
+    if cap_dir != "":
+        var ls = String("")
+        for t in getenv("BARO_CAPTURE_LAYERS", "0").split(","):
+            var cl = Int(t)
+            if cl < 0 or cl >= N_LAYERS:
+                raise Error("BARO_CAPTURE_LAYERS: layer out of range " + String(cl))
+            cap_l[cl] = True
+            ls += ("," if ls.byte_length() > 0 else "") + String(cl)
+        with open(cap_dir + "/meta.json", "w") as f:
+            f.write(String("{\"model\":\"") + getenv("BARO_CAPTURE_MODEL", packdir) + "\",\"dtype\":\"f16\",\"h\":" + String(H) + ",\"n_layers\":" + String(N_LAYERS) + ",\"fields\":\"x\",\"layers\":[" + ls + "]}\n")
     var force = List[Int]()
     var force_path = getenv("BARO_FORCE", "")
     if force_path != "":
@@ -920,7 +993,25 @@ def main() raises:
 
     var off = List[Int]()
     var kq = List[Int]()
-    var wbuf = load_pack(ctx, packdir, off, kq)
+    var wbuf_a = load_pack(ctx, packdir, off, kq)
+    # BARO_TWINS=2: a second model in this process with its own copy of the pack (BARO_PACK_B, default BARO_PACK) and
+    # its own KV pool; a request picks it with "engine": 1. wbuf / kc_d / vc_d are non-owning views re-bound per request.
+    var twins = getenv("BARO_TWINS", "1") == "2"
+    var packdir_b = getenv("BARO_PACK_B", packdir)
+    var off_b = List[Int]()
+    var kq_b = List[Int]()
+    var wbuf_b = load_pack(ctx, packdir_b, off_b, kq_b) if twins else ctx.enqueue_create_buffer[DType.uint8](1)
+    if twins:
+        if len(off_b) != len(off) or len(kq_b) != len(kq):
+            raise Error("BARO_PACK_B layout differs from BARO_PACK")
+        for i in range(len(off)):
+            if off_b[i] != off[i]:
+                raise Error("BARO_PACK_B offset " + String(i) + " differs from BARO_PACK")
+        for i in range(len(kq)):
+            if kq_b[i] != kq[i]:
+                raise Error("BARO_PACK_B quant table differs from BARO_PACK")
+    var wsize = Int(getsize(packdir + "/pack.bin"))
+    var wbuf = DeviceBuffer[DType.uint8](ctx, wbuf_a.unsafe_ptr(), wsize, owning=False)
 
     # Buffers allocated once (serve/PROTOCOL.md); a served request refills
     # toks_h/toks_d from position 0 and every kernel below only ever reads a
@@ -975,8 +1066,12 @@ def main() raises:
             persistent_adapter.value().forward_batch_in_place(semantic_input.values, semantic_input.positions)
             print("semantic adapter: applied non-linear MLP (rank 256) in-place from", adapter_dir)
         print("semantic binding:", semantic_input.binding_id(), "positions:", semantic_input.positions, "dim:", semantic_input.dim)
-    var kc_d = ctx.enqueue_create_buffer[KVT](KVPOOL)
-    var vc_d = ctx.enqueue_create_buffer[KVT](KVPOOL)
+    var kc_a = ctx.enqueue_create_buffer[KVT](KVPOOL)
+    var vc_a = ctx.enqueue_create_buffer[KVT](KVPOOL)
+    var kc_b = ctx.enqueue_create_buffer[KVT](KVPOOL if twins else 1)
+    var vc_b = ctx.enqueue_create_buffer[KVT](KVPOOL if twins else 1)
+    var kc_d = DeviceBuffer[KVT](ctx, kc_a.unsafe_ptr(), KVPOOL, owning=False)
+    var vc_d = DeviceBuffer[KVT](ctx, vc_a.unsafe_ptr(), KVPOOL, owning=False)
     var kvtab_h = ctx.enqueue_create_host_buffer[DType.int32](TPAGES)
     for i in range(TPAGES):
         kvtab_h[i] = Int32(i)
@@ -998,7 +1093,7 @@ def main() raises:
     var att_split = att_split_min < TMAX
     var att_pg = ctx.enqueue_create_buffer[DType.float32](NQH * ATT_NSMAX * (HD + 2) if att_split else 1)
     var att_pgp = Pointer[Float32, MutAnyOrigin](unsafe_from_address=Int(att_pg.unsafe_ptr()))
-    var pf_on = not TRACE_SUM and getenv("BARO_PREFILL_ROWS", "1") != "0" and not ablate
+    var pf_on = not TRACE_SUM and getenv("BARO_PREFILL_ROWS", "1") != "0" and not ablate and not imp_loaded and cap_dir == ""
     var pf_arena = ctx.enqueue_create_buffer[DType.uint8](pf_arena_bytes() if pf_on else 1)
     ctx.synchronize()
 
@@ -1043,10 +1138,35 @@ def main() raises:
     var dump_dir = getenv("BARO_DUMP_LOGITS_DIR", "")
     var OutNorm = wf(ctx, wbuf, off[1 + LSTRIDE * N_LAYERS], H, h_l)
     var ffp = rope_ff(wbuf, off)
+    # BARO_SP_MEGA=1: greedy one-shot decode steps run in one persistent kernel (kernels/spark_mega.mojo), BARO_SP_MEGA_N
+    # tokens per launch (0 = all that fit below the split-attention length). q8 packs without bias, gate or SWA only.
+    var sm_on = False
+    var sm_n = atol(getenv("BARO_SP_MEGA_N", "0"))
+    var sm_off_h = ctx.enqueue_create_host_buffer[DType.int64](len(off))
+    var sm_off_d = ctx.enqueue_create_buffer[DType.int64](len(off))
+    var sm_ctr_h = ctx.enqueue_create_host_buffer[DType.uint32](4)
+    var sm_ctr_d = ctx.enqueue_create_buffer[DType.uint32](4)
+    var sm_force_h = ctx.enqueue_create_host_buffer[DType.int32](TMAX)
+    var sm_force_d = ctx.enqueue_create_buffer[DType.int32](TMAX)
+    var sm_amv_d = ctx.enqueue_create_buffer[f32](SM_G)
+    var sm_ami_d = ctx.enqueue_create_buffer[DType.int32](SM_G)
+    comptime if SM_OK:
+        comptime assert SM_LS == LSTRIDE and OFF_O == 2
+        sm_on = getenv("BARO_SP_MEGA", "0") == "1"
+        for i in range(len(off)):
+            sm_off_h[i] = Int64(off[i])
+            if kq[3 * i] != 0:
+                sm_on = False
+        for i in range(4):
+            sm_ctr_h[i] = 0
+        ctx.enqueue_copy(dst_buf=sm_off_d, src_buf=sm_off_h)
+        ctx.enqueue_copy(dst_buf=sm_ctr_d, src_buf=sm_ctr_h)
+        ctx.synchronize()
+    print("BARO_SP_MEGA:", 1 if sm_on else 0, " grid:", SM_G, " tokens per launch:", sm_n)
     var grt: Optional[GrammarRuntime] = None
 
     if serve:
-        print("{\"ready\":true,\"tmax\":" + String(TMAX) + ",\"mrows\":1,\"kmax\":0,\"spec_k\":0,\"pack\":\"" + packdir + "\"}")
+        print("{\"ready\":true,\"tmax\":" + String(TMAX) + ",\"mrows\":1,\"kmax\":0,\"spec_k\":0,\"pack\":\"" + packdir + "\",\"twins\":" + String(2 if twins else 1) + ",\"pack_b\":\"" + (packdir_b if twins else String("")) + "\"}")
 
     # No cancel support this milestone (M4, briefs/2026-09-15-wiring-lane.md):
     # spark has no draft head and no spec decode, so a request always runs to
@@ -1076,6 +1196,9 @@ def main() raises:
         var sp_semantic_values_path = String("")
         var sp_semantic_positions = 0
         var sp_semantic_now_s = Int64(0)
+        var eng = 0
+        var kv_from = -1
+        var kv_keep = 0
         if serve:
             var line_in = read_line(0)
             if not line_in:
@@ -1179,6 +1302,48 @@ def main() raises:
                         gain_k.append(Float32(Float64(q[2])))
                 except e:
                     perr = String(e)
+            imp_on = imp_loaded
+            imp_scale = 1.0
+            imp_lo = 0
+            imp_klim = -1
+            imp_layer = -1
+            var ln = line_in.value()
+            var ikeys: List[Int] = [json_key(ln, "implants"), json_key(ln, "implants_lo"), json_key(ln, "implants_k"), json_key(ln, "implants_layer")]
+            var ivals: List[Int] = [1, 0, -1, -1]
+            for ii in range(4):
+                if perr == "" and ikeys[ii] >= 0 and not json_int(ln, ikeys[ii], ivals[ii]):
+                    perr = "implants fields must be integers (implants_scale a number)"
+            var iks = json_key(ln, "implants_scale")
+            var fsc: Float64 = 1.0
+            if perr == "" and iks >= 0 and not json_float(ln, iks, fsc):
+                perr = "implants_scale must be a number"
+            if perr == "" and not imp_loaded and (ikeys[1] >= 0 or ikeys[2] >= 0 or ikeys[3] >= 0 or iks >= 0):
+                perr = "implants_lo / implants_k / implants_scale / implants_layer need the engine started with BARO_IMPLANTS=FILE"
+            if perr == "" and imp_loaded:
+                imp_on = ivals[0] != 0
+                imp_lo = ivals[1]
+                imp_klim = ivals[2]
+                imp_layer = ivals[3]
+                imp_scale = Float32(fsc)
+                if imp_klim >= 0 and imp_lo > imp_klim:
+                    perr = "implants_lo " + String(imp_lo) + " is above implants_k " + String(imp_klim) + ": empty row range"
+            # "engine": 0|1 picks the model; "kv_from": S + "kv_keep": N reuse KV positions 0..N of engine S's last request
+            # (copied when S != engine) and prefill only prompt[N:], token by token. The caller owns that prompt[:N]
+            # equals what engine S held at those positions.
+            var tkeys: List[Int] = [json_key(ln, "engine"), json_key(ln, "kv_from"), json_key(ln, "kv_keep")]
+            var tvals: List[Int] = [0, -1, 0]
+            for ti in range(3):
+                if perr == "" and tkeys[ti] >= 0 and not json_int(ln, tkeys[ti], tvals[ti]):
+                    perr = "engine / kv_from / kv_keep must be integers"
+            eng = tvals[0]
+            kv_from = tvals[1]
+            kv_keep = tvals[2]
+            if perr == "" and (eng < 0 or eng > (1 if twins else 0)):
+                perr = "engine " + String(eng) + " not loaded (BARO_TWINS=2 loads engine 1)"
+            if perr == "" and kv_keep != 0 and (kv_from < 0 or kv_from > (1 if twins else 0) or kv_keep < 0 or kv_keep > len(prompt) - 1):
+                perr = "kv_keep needs kv_from of a loaded engine and 0 < kv_keep < prompt length"
+            if perr == "" and kv_keep > 0 and semantic_input.active:
+                perr = "kv_keep does not combine with a semantic binding"
             if perr == "" and len(prompt) < 1:
                 perr = "empty prompt"
             if perr == "" and req_n < 1:
@@ -1203,8 +1368,8 @@ def main() raises:
                 perr = "presence_penalty/frequency_penalty are not yet wired for this engine (spark); only the dense/MoE engine (serve/engine.mojo) supports them"
             if perr == "" and sample.embed == 1:
                 perr = "embed is not wired for this engine (spark); only the dense engine (serve/engine.mojo) emits it"
-            if perr == "" and (sample.hidden == 1 or sample.logits_topk > 0):
-                perr = "hidden/logits_topk are not wired for this engine (spark); use the dense engine (serve/engine.mojo)"
+            if perr == "" and sample.hidden == 1:
+                perr = "hidden is not wired for this engine (spark); use the dense engine (serve/engine.mojo)"
             var schema_raw = parse_schema_field(line_in.value()) if perr == "" else String("")
             if perr == "" and schema_raw != "":
                 if not grt:
@@ -1269,6 +1434,20 @@ def main() raises:
                     ps += String(prompt[i]) + " "
             else:
                 prompt = read_prompt(getenv("BARO_PROMPT", packdir + "/prompt-tokens.txt"))
+        wbuf = DeviceBuffer[DType.uint8](ctx, wbuf_a.unsafe_ptr() if eng == 0 else wbuf_b.unsafe_ptr(), wsize, owning=False)
+        kc_d = DeviceBuffer[KVT](ctx, kc_a.unsafe_ptr() if eng == 0 else kc_b.unsafe_ptr(), KVPOOL, owning=False)
+        vc_d = DeviceBuffer[KVT](ctx, vc_a.unsafe_ptr() if eng == 0 else vc_b.unsafe_ptr(), KVPOOL, owning=False)
+        Kc = TileTensor(kc_d, cache_l)
+        Vc = TileTensor(vc_d, cache_l)
+        Emb = wf(ctx, wbuf, off[0], VOCAB * H, emb_l)
+        OutNorm = wf(ctx, wbuf, off[1 + LSTRIDE * N_LAYERS], H, h_l)
+        ffp = rope_ff(wbuf, off)
+        if kv_keep > 0 and kv_from != eng:
+            var kn = ceildiv(kv_keep, KVPAGE) * (KVPOOL // TPAGES)
+            ctx.enqueue_copy(dst_buf=DeviceBuffer[KVT](ctx, kc_d.unsafe_ptr(), kn, owning=False),
+                src_buf=DeviceBuffer[KVT](ctx, kc_a.unsafe_ptr() if kv_from == 0 else kc_b.unsafe_ptr(), kn, owning=False))
+            ctx.enqueue_copy(dst_buf=DeviceBuffer[KVT](ctx, vc_d.unsafe_ptr(), kn, owning=False),
+                src_buf=DeviceBuffer[KVT](ctx, vc_a.unsafe_ptr() if kv_from == 0 else vc_b.unsafe_ptr(), kn, owning=False))
         var n_sem = semantic_input.positions if semantic_input.active else 0
         var n_prompt = len(prompt) + n_sem
         var n_total = n_prompt + gen_n
@@ -1295,7 +1474,11 @@ def main() raises:
         ctx.synchronize()
         var t_pf_start = perf_counter_ns()
         var start = 0
-        if n_prompt > 3 and not semantic_input.active and pf_on and len(gain_l) == 0:
+        var sm_done = 0
+        var sm_launches = 0
+        if kv_keep > 0:
+            start = kv_keep
+        elif n_prompt > 3 and not semantic_input.active and pf_on and len(gain_l) == 0:
             # the last prompt row stays token-by-token: it launches the decode kernels once outside the decode timer
             # (first launches after a batched prefill cost ~5 ms, measured 2026-10-26)
             prefill_rows(ctx, wbuf, off, kq, Emb, Toks, Kc, Vc, Int(kvtab_d.unsafe_ptr()), n_prompt - 2, pf_arena, steer_now, SV)
@@ -1305,6 +1488,26 @@ def main() raises:
                 ctx.synchronize()
                 t_gen_start = perf_counter_ns()
                 print("prefill_s:", Float64(t_gen_start - t_pf_start) / 1e9, " prefill rows:", n_prompt - 1, " chunk: 0")
+            comptime if SM_OK:
+                if (sm_on and not serve and pos >= n_prompt - 1 and not semantic_input.active and not ablate and not steer_now and not imp_loaded
+                        and cap_dir == "" and len(gain_l) == 0 and not dump_layers and dump_logits_path == "" and semantic_dump_path == ""):
+                    if pos < sm_done:
+                        continue
+                    var nt = min(n_total - 1 - pos, att_split_min - 1 - pos)
+                    if sm_n > 0:
+                        nt = min(nt, sm_n)
+                    if nt >= 1:
+                        for j in range(nt):
+                            var fj = pos + 1 + j - n_prompt
+                            sm_force_h[pos + 1 + j] = Int32(force[fj]) if fj < len(force) else Int32(-1)
+                        ctx.enqueue_copy(dst_buf=sm_force_d, src_buf=sm_force_h)
+                        ctx.enqueue_function[amar_spark_mega[ADT]](wbuf.unsafe_ptr(), sm_off_d.unsafe_ptr(), x_d.unsafe_ptr(), xb_d.unsafe_ptr(),
+                            qkv_d.unsafe_ptr(), kc_d.unsafe_ptr(), vc_d.unsafe_ptr(), kvtab_d.unsafe_ptr(), aob_d.unsafe_ptr(), fgb_d.unsafe_ptr(),
+                            logits_d.unsafe_ptr(), sm_amv_d.unsafe_ptr(), sm_ami_d.unsafe_ptr(), toks_d.unsafe_ptr(), pred_d.unsafe_ptr(),
+                            sm_force_d.unsafe_ptr(), sm_ctr_d.unsafe_ptr(), ffp, trace_d.unsafe_ptr(), NORM_EPS, BASE_FULL, ATTN_SCALE, Int32(H), Int32(pos), Int32(nt), grid_dim=SM_G, block_dim=SM_T)
+                        sm_done = pos + nt
+                        sm_launches += 1
+                        continue
             if semantic_input.active and pos < n_sem:
                 for i in range(H):
                     semantic_hidden_h[i] = semantic_input.values[pos * H + i]
@@ -1336,6 +1539,7 @@ def main() raises:
                 comptime if QKV_BIAS:
                     var QkvBias = wf(ctx, wbuf, off[e + OFF_QKV_BIAS], QKV, qkv1_l)
                     ctx.enqueue_function[k_bias](Qkv1, QkvBias, Int32(QKV), grid_dim=ceildiv(QKV, 256), block_dim=256)
+                qk_norm(ctx, wbuf, off, e, Int(qkv_d.unsafe_ptr()), Int(qkv_d.unsafe_ptr()) + QDIM * 4, 1)
                 comptime if TRACE_SUM:
                     ctx.enqueue_function[amar_trace_sum](qkv_d.unsafe_ptr(), trace_d.unsafe_ptr(), Int32(QKV), Int32(pos * TRACE_STRIDE + 3 * i), grid_dim=1, block_dim=1)
                 if swa:
@@ -1366,6 +1570,19 @@ def main() raises:
                 comptime if TRACE_SUM:
                     ctx.enqueue_function[amar_trace_sum](x_d.unsafe_ptr(), trace_d.unsafe_ptr(), Int32(H), Int32(pos * TRACE_STRIDE + 3 * i + 1), grid_dim=1, block_dim=1)
                 ctx.enqueue_function[k_rms](X, FfnNorm, Xb, Int32(H), NORM_EPS, grid_dim=1, block_dim=256)
+                var ihl = (i + 1) % N_LAYERS if IMP_MUTANT else i  # mutant build: the set of layer i + 1 runs at layer i
+                var imp_here = imp_on and imp.set_of[ihl] >= 0 and (imp_layer < 0 or imp_layer == ihl)
+                if imp_here or cap_l[i]:
+                    ctx.enqueue_copy(dst_buf=imp_xh, src_buf=xb_d)
+                    ctx.synchronize()
+                    for j in range(H):
+                        imp_x[j] = imp_xh[j].cast[f32]()
+                if cap_l[i]:
+                    var o = List[Scalar[DType.float16]](length=H, fill=0)
+                    for j in range(H):
+                        o[j] = Scalar[DType.float16](max(min(imp_x[j], 65504.0), -65504.0))
+                    with open(cap_dir + "/L" + String(i) + ".f16", "a") as f:
+                        f.write_bytes(Span[UInt8](unsafe_ptr=o.unsafe_ptr().bitcast[UInt8](), length=H * 2))
                 if not gateup(ctx, Xb, wbuf, off, kq, e + OFF_FFN_GATE, e + OFF_FFN_UP, FFN, H, Fgb1):
                     gemv[0](ctx, Xb, wbuf, off, kq, e + OFF_FFN_GATE, FFN, H, q_ffn, s_ffn, G1, Dummy)
                     gemv[2 if ACTIVATION_GELU else 3](ctx, Xb, wbuf, off, kq, e + OFF_FFN_UP, FFN, H, q_ffn, s_ffn, G1, Fgb1)
@@ -1373,9 +1590,18 @@ def main() raises:
                     for gi in range(len(gain_l)):
                         if gain_l[gi] == i:
                             ctx.enqueue_function[amar_scale_one](fgb_d.unsafe_ptr(), Int32(gain_n[gi]), gain_k[gi], grid_dim=1, block_dim=1)
+                comptime if TRACE_SUM and ADT == f32:
+                    if getenv("BARO_TRACE_FGB", "") == "1":  # debug: slot 3 i holds the FFN activation instead of qkv
+                        ctx.enqueue_function[amar_trace_sum](fgb_d.unsafe_ptr(), trace_d.unsafe_ptr(), Int32(FFN), Int32(pos * TRACE_STRIDE + 3 * i), grid_dim=1, block_dim=1)
                 gemv[1, S=DOWN_S](ctx, Fgb, wbuf, off, kq, e + OFF_DOWN, H, FFN, q_down, s_down, X1, Dummy)
                 if ablate:
                     ablate_project(ctx, x_d, abl_h, abl_prev, abl_lam[2 * i + 1], abl_lam + 2 * N_LAYERS + i * H)
+                if imp_here and imp.delta(imp.set_of[ihl], imp_x, imp_lo, imp_klim, imp_scale, imp_dl):
+                    for j in range(H):
+                        imp_h[j] = imp_dl[j]
+                    ctx.enqueue_copy(dst_buf=imp_d, src_buf=imp_h)
+                    ctx.enqueue_function[amar_rows_add_vec](P(unsafe_from_address=Int(x_d.unsafe_ptr())), P(unsafe_from_address=Int(imp_d.unsafe_ptr())), Int32(H), Int32(H), grid_dim=ceildiv(H, 256), block_dim=256)
+                    ctx.synchronize()
                 comptime if TRACE_SUM:
                     ctx.enqueue_function[amar_trace_sum](x_d.unsafe_ptr(), trace_d.unsafe_ptr(), Int32(H), Int32(pos * TRACE_STRIDE + 3 * i + 2), grid_dim=1, block_dim=1)
                 if dump_layers and pos == n_prompt - 1:
@@ -1383,6 +1609,12 @@ def main() raises:
                     ctx.synchronize()
                     with open(dump_layers_path, "a") as f:
                         f.write_bytes(Span[UInt8](unsafe_ptr=semantic_hidden_h.unsafe_ptr().unsafe_bitcast[UInt8](), length=H * 4))
+            if cap_dir != "":
+                var ti: List[Int32] = [Int32(prompt[pos]) if pos < len(prompt) else (Int32(generated_ids[pos - n_prompt]) if pos - n_prompt < len(generated_ids) else Int32(-1)), Int32(req_id)]
+                with open(cap_dir + "/tokens.i32", "a") as f:
+                    f.write_bytes(Span[UInt8](unsafe_ptr=ti.unsafe_ptr().bitcast[UInt8](), length=4))
+                with open(cap_dir + "/req.i32", "a") as f:
+                    f.write_bytes(Span[UInt8](unsafe_ptr=ti.unsafe_ptr().unsafe_offset(1).bitcast[UInt8](), length=4))
             if pos >= n_prompt - 1:
                 if steer_now:
                     ctx.enqueue_function[k_rms_steer](X, OutNorm, Xb, Int32(H), NORM_EPS, SV, Int32((N_LAYERS - 1) * H), grid_dim=1, block_dim=256)
@@ -1464,6 +1696,10 @@ def main() raises:
                     ctx.enqueue_copy(dst_buf=tok1_h, src_buf=DeviceBuffer[DType.int32](ctx, toks_d.unsafe_ptr().unsafe_offset(pos + 1), 1, owning=False))
                     ctx.synchronize()
                     var new_tok = Int(tok1_h[0])
+                    if sample.logits_topk > 0:
+                        ctx.enqueue_copy(dst_buf=row_h, src_buf=DeviceBuffer[f32](ctx, logits_d.unsafe_ptr(), VOCAB, owning=False))
+                        ctx.synchronize()
+                        print(logits_topk_line(req_id, row_h, min(sample.logits_topk, 20)))
                     if grammar.__bool__():
                         ref mm = grammar.value()
                         if new_tok < 0:
@@ -1520,6 +1756,35 @@ def main() raises:
         ctx.synchronize()
         var dt = Float64(perf_counter_ns() - t_gen_start) / 1e9
         var n_gen = len(generated_ids) if serve else gen_n
+        if sm_on:
+            ctx.enqueue_copy(dst_buf=sm_ctr_h, src_buf=sm_ctr_d)
+            ctx.synchronize()
+            print("spark mega launches:", sm_launches, " fail word:", sm_ctr_h[2], "" if sm_ctr_h[2] == 0 else " NOT-RESIDENT: a grid barrier timed out, tokens after it are invalid")
+        var sp_bytes = getenv("BARO_SP_BYTES", "")
+        if sp_bytes != "" and not serve:
+            # byte test of a decode path: every K and V row written by this request (all layers), the last logits row and the last x
+            var tv = n_prompt + n_gen - 1
+            var kn = ((tv - 1) // KVPAGE + 1) * N_LAYERS * NKVH * KVHSTR
+            var kh = ctx.enqueue_create_host_buffer[KVT](kn)
+            var vh = ctx.enqueue_create_host_buffer[KVT](kn)
+            var lh = ctx.enqueue_create_host_buffer[f32](VOCAB)
+            var xh = ctx.enqueue_create_host_buffer[f32](H)
+            ctx.enqueue_copy(dst_buf=kh, src_buf=DeviceBuffer[KVT](ctx, kc_d.unsafe_ptr(), kn, owning=False))
+            ctx.enqueue_copy(dst_buf=vh, src_buf=DeviceBuffer[KVT](ctx, vc_d.unsafe_ptr(), kn, owning=False))
+            ctx.enqueue_copy(dst_buf=lh, src_buf=DeviceBuffer[f32](ctx, logits_d.unsafe_ptr(), VOCAB, owning=False))
+            ctx.enqueue_copy(dst_buf=xh, src_buf=DeviceBuffer[f32](ctx, x_d.unsafe_ptr(), H, owning=False))
+            ctx.synchronize()
+            comptime ES = size_of[Scalar[KVT]]()
+            with open(sp_bytes, "w") as f:
+                for t in range(tv):
+                    for li in range(N_LAYERS):
+                        for hh in range(NKVH):
+                            var o = (((t // KVPAGE) * N_LAYERS + li) * NKVH + hh) * KVHSTR + (t % KVPAGE) * HD
+                            f.write_bytes(Span[UInt8](unsafe_ptr=kh.unsafe_ptr().unsafe_offset(o).unsafe_bitcast[UInt8](), length=HD * ES))
+                            f.write_bytes(Span[UInt8](unsafe_ptr=vh.unsafe_ptr().unsafe_offset(o).unsafe_bitcast[UInt8](), length=HD * ES))
+                f.write_bytes(Span[UInt8](unsafe_ptr=lh.unsafe_ptr().unsafe_bitcast[UInt8](), length=VOCAB * 4))
+                f.write_bytes(Span[UInt8](unsafe_ptr=xh.unsafe_ptr().unsafe_bitcast[UInt8](), length=H * 4))
+            print("BARO_SP_BYTES:", tv, "positions,", tv * N_LAYERS * NKVH * 2 * HD * ES + VOCAB * 4 + H * 4, "bytes ->", sp_bytes)
         ctx.enqueue_copy(dst_buf=toks_h, src_buf=toks_d)
         ctx.synchronize()
         var s = String("")

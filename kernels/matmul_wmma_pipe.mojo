@@ -3,7 +3,7 @@ from max.gpu import MAX_THREADS_PER_BLOCK_METADATA
 from max.gpu.memory import AddressSpace
 from max.gpu.sync import barrier, schedule_group_barrier, AMDScheduleBarrierMask
 from max.gpu import block_idx, thread_idx
-from std.math import ceildiv
+from std.math import ceildiv, erf
 from layout import TileTensor, TensorLayout, row_major, stack_allocation
 from arch import mma, acc_row
 from std.sys import get_defined_int
@@ -18,9 +18,9 @@ comptime WARPS_M = 4
 comptime WARPS_N = 2
 comptime WTILE_M = 2
 comptime WTILE_N = 4
-comptime BLK_K = 32
-comptime PAD_A = 0
-comptime PAD_B = 0
+comptime BLK_K = get_defined_int["WMMA_BLK_K", 32]()  # -D overrides for a caller sweep; defaults unchanged
+comptime PAD_A = get_defined_int["WMMA_PAD_A", 0]()   # (newera bge_gpu: wavewait showed LDS queue 18 %, barrier 24 %)
+comptime PAD_B = get_defined_int["WMMA_PAD_B", 0]()
 comptime TRANS_B = 2
 comptime ALIGNED = 1
 comptime C_F16 = get_defined_int["WMMA_C_F16", 1]()  # -D WMMA_C_F16=0: f32 C (newera tools/bge_gpu.mojo)
@@ -65,6 +65,54 @@ def amar_matmul_wmma_pipe[
     A: TileTensor[DType.float16, ALayout, MutAnyOrigin],
     B: TileTensor[DType.float16, BLayout, MutAnyOrigin],
     C: TileTensor[DType.float16 if CF16 == 1 else DType.float32, CLayout, MutAnyOrigin],
+    m: Int32,
+    n: Int32,
+    k_dim: Int32,
+):
+    wmma_pipe_body[ALayout, BLayout, CLayout, WM, WN, TM, TN, TB_, CF16, 0](
+        A, B, C, MutPointer[Scalar[DType.float32], MutAnyOrigin](unsafe_from_address=Int(A.ptr)), m, n, k_dim
+    )
+
+
+@__llvm_metadata(MAX_THREADS_PER_BLOCK_METADATA=StaticTuple[Int32, 1](Int32(LB_MAX)))
+def amar_matmul_wmma_pipe_gelu[
+    ALayout: TensorLayout,
+    BLayout: TensorLayout,
+    CLayout: TensorLayout,
+    WM: Int = WARPS_M,
+    WN: Int = WARPS_N,
+    TM: Int = WTILE_M,
+    TN: Int = WTILE_N,
+    TB_: Int = TB,
+](
+    A: TileTensor[DType.float16, ALayout, MutAnyOrigin],
+    B: TileTensor[DType.float16, BLayout, MutAnyOrigin],
+    C: TileTensor[DType.float16, CLayout, MutAnyOrigin],
+    bias: MutPointer[Scalar[DType.float32], MutAnyOrigin],
+    m: Int32,
+    n: Int32,
+    k_dim: Int32,
+):
+    wmma_pipe_body[ALayout, BLayout, CLayout, WM, WN, TM, TN, TB_, 1, 1](A, B, C, bias, m, n, k_dim)
+
+
+@always_inline
+def wmma_pipe_body[
+    ALayout: TensorLayout,
+    BLayout: TensorLayout,
+    CLayout: TensorLayout,
+    WM: Int,
+    WN: Int,
+    TM: Int,
+    TN: Int,
+    TB_: Int,
+    CF16: Int,
+    EPI: Int,
+](
+    A: TileTensor[DType.float16, ALayout, MutAnyOrigin],
+    B: TileTensor[DType.float16, BLayout, MutAnyOrigin],
+    C: TileTensor[DType.float16 if CF16 == 1 else DType.float32, CLayout, MutAnyOrigin],
+    bias: MutPointer[Scalar[DType.float32], MutAnyOrigin],
     m: Int32,
     n: Int32,
     k_dim: Int32,
@@ -879,6 +927,12 @@ def amar_matmul_wmma_pipe[
                 var row = acc_row(block_row + (warp_m * WTILE_M + tm) * WMMA_M, i, half)
                 var col = block_col + (warp_n * WTILE_N + tn) * WMMA_N + h
                 if ALIGNED == 1 or (row < M and col < N):
-                    C[row, col] = rebind[C.ElementType](
-                        acc[(tm * WTILE_N + tn) * 8 + i].cast[CD]()
-                    )
+                    comptime if EPI == 1:
+                        var u = acc[(tm * WTILE_N + tn) * 8 + i] + bias[unsafe_offset=col]
+                        C[row, col] = rebind[C.ElementType](
+                            (u * 0.5 * (1 + erf(u * 0.7071067811865476))).cast[CD]()
+                        )
+                    else:
+                        C[row, col] = rebind[C.ElementType](
+                            acc[(tm * WTILE_N + tn) * 8 + i].cast[CD]()
+                        )

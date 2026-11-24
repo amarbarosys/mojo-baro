@@ -1,0 +1,29 @@
+{
+  "name": "stop_sequence",
+  "method": "POST",
+  "path": "/v1/messages",
+  "request": {
+    "model": "claude-3-5-sonnet-20241022",
+    "max_tokens": 1024,
+    "stop_sequences": ["STOP"],
+    "messages": [
+      {"role": "user", "content": "Count to 5"}
+    ]
+  },
+  "status": 200,
+  "response": {
+    "id": "msg_01X9z8A7bC",
+    "type": "message",
+    "role": "assistant",
+    "content": [
+      {"type": "text", "text": "1 2 3 "}
+    ],
+    "model": "claude-3-5-sonnet-20241022",
+    "stop_reason": "stop_sequence",
+    "stop_sequence": "STOP",
+    "usage": {
+      "input_tokens": 12,
+      "output_tokens": 4
+    }
+  }
+}
