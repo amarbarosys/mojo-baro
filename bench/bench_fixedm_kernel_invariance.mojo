@@ -2,12 +2,9 @@
 # Tests whether row 0 output is bit-identical when rows 1..3 or 1..7 hold filler set F1 vs F2.
 
 from std.math import ceildiv
-from std.memory import bitcast
 from std.sys import has_accelerator
-from std.time import perf_counter_ns
-from std.ffi import external_call
 
-from max.gpu.host import DeviceContext, DeviceBuffer, HostBuffer
+from max.gpu.host import DeviceContext, DeviceBuffer
 from layout import TileTensor, row_major
 
 from matmul_skinny import (

@@ -18,7 +18,7 @@ spread_max=${SPREAD_MAX:-0.02}
 NUM_CU=${NUM_CU:-$(bench/gpu-info.py | python3 -c 'import json,sys; print(json.load(sys.stdin)["compute_units"])')}
 [ -n "$NUM_CU" ] || { echo "race-fp16.sh: could not read compute_units from bench/gpu-info.py" >&2; exit 1; }
 echo "num_cu $NUM_CU (read from GPU)  spread_max $spread_max"
-declare -A samples
+declare -A samples; wrong=()
 for ((r=1; r<=rounds; r++)); do
   for arm in "$@"; do
     label=${arm%%=*}; bin=${arm#*=}
@@ -37,6 +37,7 @@ for ((r=1; r<=rounds; r++)); do
       printf "round %d  %-10s %8.0f  %s\n" "$r" "$label" "$g" "$ok"
     fi
     samples[$label]+="$g "
+    [ "$ok" = '"correct": true' ] || { wrong+=("$label@$r"); }
   done
 done
 echo "--- medians over $rounds rounds"
@@ -50,4 +51,5 @@ for arm in "$@"; do
     "$(awk -v s="$sp" 'BEGIN{print s*100}')" "$verdict"
 done
 [ "$rc" -eq 0 ] || echo "race-fp16.sh: spread exceeds SPREAD_MAX=$spread_max -- the instrument is too noisy to compare arms (PROTOCOL-RULES P6)" >&2
+[ ${#wrong[@]} -eq 0 ] || { echo "FAIL race-fp16: kernel output not correct in ${wrong[*]}: a gflops figure of a wrong kernel is no sample" >&2; rc=1; }
 exit $rc

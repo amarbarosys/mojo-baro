@@ -6,7 +6,6 @@ staging). Median of REPEATS, each ITERS launches, us per GEMM. Shapes: ffn_gate 
 
 usage: bench_kq_prefill PACKDIR   (an engine-pack --kq of the Ornith Q4_K_M file)
 """
-from std.math import ceildiv
 from std.sys import argv
 from std.time import perf_counter_ns
 from max.gpu.host import DeviceContext, DeviceBuffer

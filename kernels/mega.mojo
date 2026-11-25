@@ -7,7 +7,7 @@ from max.gpu.primitives import warp
 from std.math import cos, fma, log1p, rsqrt, sin
 from bexp import exp, log
 from std.math import sqrt
-from std.sys import get_defined_int, llvm_intrinsic
+from std.sys import get_defined_int
 from std.memory import bitcast
 from std.utils import StaticTuple
 from max.gpu.memory import AddressSpace
@@ -19,8 +19,8 @@ from elementwise import EW_THREADS
 from matmul_skinny import ROW_WAVES, ROW_THREADS, q4_dot_blocks, bf16x16_to_f32
 from gemv_kq import kq_lane_part_ld, kq_lane_part_ld2, kq_tree16, kq_wave_sum, kq_bytes, GT_Q4K, GT_Q6K
 from ssm import CONV, KDIM, NH_K, NH_V, SSTATE, SSM_EPS
-from attn import HD, NQH, NKVH, KVQ8, KVT, TCAP, KVPAGE, KVPSH, KVHSTR, kv_off, kv_tab_off, NROT, YARN_LOW, YARN_HIGH, FREQ_BASE, FREQ_SCALE, MSCALE, attn_head_body, attn_head_span
-from model import H, FFN, QF, KV, N_LAYERS, MEGA_ALLOWED
+from attn import HD, NQH, NKVH, KVQ8, KVT, TCAP, kv_tab_off, NROT, YARN_LOW, YARN_HIGH, FREQ_BASE, FREQ_SCALE, MSCALE, attn_head_span
+from model import H, FFN, QF, KV
 
 # SSM inner width and attention output width; equal to H on Qwythos-9B only.
 comptime INNER = NH_V * SSTATE
@@ -533,7 +533,6 @@ def ssm_phases[
     comptime G_QKV = CONV // ROW_WAVES
     comptime G_Z = INNER // ROW_WAVES
     comptime G_AB = NH_V // ROW_WAVES
-    comptime G_ALL = G_QKV + G_Z + 2 * G_AB
     comptime G_OUT = H // ROW_WAVES
     comptime GZ_IN = 0 if KQ else G_Z
     var tid = Int(thread_idx.x)

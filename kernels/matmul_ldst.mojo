@@ -1,26 +1,3 @@
-"""Register-tiled GEMM with a transposed A tile in shared memory.
-
-Same blocking as `amar_matmul_regtile` (BM32 BN32 BK8 TM2 TN2) so the only variable
-is the shared-memory layout of A.
-
-In `amar_matmul_regtile`, A's tile is `sa[BM][BK]` and the inner loop reads
-`sa[ty * TM + i, k]` for i in 0..TM: those TM values are BK apart, so each one
-costs its own scalar LDS read.  B's tile is already read contiguously.  With
-TM = TN = 2 that is 4 LDS reads feeding 4 FMAs -- a 1:1 ratio against a VALU
-that wants to be fed faster than the LDS pipe can issue.
-
-Storing A transposed as `sa[BK][BM]` makes the TM values adjacent, so the pair
-is one 64-bit LDS read.  Per k-step the inner loop drops from 4 LDS reads to 2.
-
-The `+ LDS_PAD` on the row stride is load-bearing twice over:
-  * without it the transposed store `sa[c, r]` has stride BM = 32 floats, so all
-    BK threads sharing a row `r` hit the same bank -- an 8-way write conflict.
-    A stride of BM + 2 spreads them across 8 distinct banks.
-  * the pad must stay even so `2 * ty` keeps 8-byte alignment and the SIMD[2]
-    read stays a single `ds_read_b64`.  An odd pad (the usual +1 trick) removes
-    the conflict but breaks the alignment and costs more than it saves.
-"""
-
 from max.gpu.memory import AddressSpace
 from max.gpu.sync import barrier
 from max.gpu import block_idx, thread_idx
@@ -33,7 +10,7 @@ comptime BN = 32
 comptime BK = 8
 comptime TM = 2
 comptime TN = 2
-comptime NTHREADS = (BM // TM) * (BN // TN)  # 256
+comptime NTHREADS = (BM // TM) * (BN // TN)
 comptime LDS_PAD = 2
 
 
@@ -60,15 +37,12 @@ def amar_matmul_ldst[
     var block_row = block_idx.y * BM
     var block_col = block_idx.x * BN
 
-    # A is held transposed: [BK][BM + LDS_PAD] instead of [BM][BK].
     var sa = stack_allocation[dtype, address_space=AddressSpace.SHARED](
         row_major[BK, BM + LDS_PAD]()
     )
     var sb = stack_allocation[dtype, address_space=AddressSpace.SHARED](
         row_major[BK, BN]()
     )
-    # SIMD views over the same storage: one element is the TM (or TN) values a
-    # thread consumes together, so the read lowers to a single 64-bit LDS op.
     var sav = sa.vectorize[1, TM]()
     var sbv = sb.vectorize[1, TN]()
     comptime assert sav.flat_rank == 2 and sbv.flat_rank == 2
@@ -77,9 +51,6 @@ def amar_matmul_ldst[
 
     var k_tile = 0
     while k_tile < K:
-        # Staging indices are unchanged from regtile so the global read stays
-        # coalesced (BK consecutive threads read BK consecutive floats of one
-        # row); only the destination is transposed.
         comptime for i in range(BM * BK // NTHREADS):
             var e = tid + i * NTHREADS
             var r = e // BK

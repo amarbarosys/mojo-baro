@@ -53,7 +53,7 @@ from cert_hook import CertHook
 from slens_kernels import amar_rows_add_vec
 from gemv_kq import amar_gemv_kq, GT_Q4K, GT_Q6K
 from turbo_rows import amar_turbo_rows, amar_turbo_rows_q8, amar_turbo_rows_dot2
-from fewrow import amar_fewrow_wmma, FW_THREADS, FW_WAVES
+from fewrow import amar_fewrow_wmma, amar_fewrow_iu4, amar_fw_prep4, amar_fewrow_iu4r, amar_fw_prep4r, FW_THREADS, FW_WAVES
 from std.sys import get_defined_int
 
 comptime TURBO = get_defined_int["BARO_TURBO", 1]() == 1
@@ -63,6 +63,14 @@ comptime TURBO_DOT2 = get_defined_int["BARO_TURBO_DOT2", 1]() == 1
 # dflash2 D1: Q4 windows of m > 4 rows on amar_fewrow_wmma D=4 instead of q4rowb[SM] (WMMA order, not bit-exact)
 comptime FEWROW = get_defined_int["BARO_FEWROW", 0]() == 1
 comptime FEWROW_D = 4
+# verify8-r2: BARO_FEWROW=2 sends Q4 windows of m > 4 rows to amar_fewrow_iu4 (4-bit integer WMMA on the Q4_0 bytes;
+# activations as BARO_FW_PLANES signed nibble planes per 32-block, not bit-exact: 3 planes = 3.7e-4 of max on the FFN shapes)
+comptime FEWROW4 = get_defined_int["BARO_FEWROW", 0]() == 2
+# BARO_FEWROW=3: amar_fewrow_iu4r (two planes per WMMA, signed weight nibbles, D = 10), same plane count knob
+comptime FEWROW4R = get_defined_int["BARO_FEWROW", 0]() == 3
+comptime FW_PLANES = get_defined_int["BARO_FW_PLANES", 3]()
+comptime FW_KMAX = max(max(FFN, INNER), max(EH, ATT))
+comptime FW_QBYTES = (FW_KMAX // 32) * max(((FW_PLANES + 2) // 2) * 256, 128 * FW_PLANES) if FEWROW4 or FEWROW4R else 16
 
 
 @always_inline
@@ -488,6 +496,49 @@ def gemm_w[
 
 
 
+def gemm_w8[
+    N: Int, K: Int, AL: TensorLayout, PL: TensorLayout
+](
+    ctx: DeviceContext,
+    A: TileTensor[bf16, AL, MutAnyOrigin],
+    wbuf: DeviceBuffer[DType.uint8], o: Int, kind: Int,
+    P: TileTensor[f32, PL, MutAnyOrigin],
+    m: Int,
+    fwq: DeviceBuffer[DType.uint8], fws: DeviceBuffer[f32],
+) raises:
+    comptime if FEWROW4R and N % 16 == 0 and (K // 32) % FW_WAVES == 0 and (K // 32) // FW_WAVES >= 4 and K <= FW_KMAX:
+        if kind == 1 and m > 4:
+            comptime NSR = (FW_PLANES + 2) // 2
+            comptime DR = 10 if (K // 32) // FW_WAVES >= 10 else 4
+            comptime q_l = row_major[N, K // 2]()
+            comptime s_l = row_major[N, K // 32]()
+            comptime aq_l = row_major[(K // 32) * NSR, 256]()
+            comptime as_l = row_major[K // 32, 8]()
+            var Aq = TileTensor(DeviceBuffer[DType.uint8](ctx, fwq.unsafe_ptr(), (K // 32) * NSR * 256, owning=False), aq_l)
+            var As = TileTensor(DeviceBuffer[f32](ctx, fws.unsafe_ptr(), (K // 32) * 8, owning=False), as_l)
+            ctx.enqueue_function[amar_fw_prep4r[FW_PLANES, AL, type_of(aq_l), type_of(as_l)]](
+                A, Aq, As, Int32(m), grid_dim=(8, K // 32), block_dim=WARP_SIZE)
+            ctx.enqueue_function[amar_fewrow_iu4r[N, K, DR, FW_PLANES, type_of(aq_l), type_of(as_l), type_of(q_l), type_of(s_l), PL]](
+                Aq, As, tens_q4q(ctx, wbuf, o, N * K, q_l), tens_q4s(ctx, wbuf, o, N * K, s_l), P, Int32(m),
+                grid_dim=N // 16, block_dim=FW_THREADS)
+            return
+    comptime if FEWROW4 and fewrow_ok[N, K]() and K <= FW_KMAX:
+        if kind == 1 and m > 4:
+            comptime q_l = row_major[N, K // 2]()
+            comptime s_l = row_major[N, K // 32]()
+            comptime aq_l = row_major[8, (K // 32) * FW_PLANES * 16]()
+            comptime as_l = row_major[K // 32, 16]()
+            var Aq = TileTensor(DeviceBuffer[DType.uint8](ctx, fwq.unsafe_ptr(), 8 * (K // 32) * FW_PLANES * 16, owning=False), aq_l)
+            var As = TileTensor(DeviceBuffer[f32](ctx, fws.unsafe_ptr(), (K // 32) * 16, owning=False), as_l)
+            ctx.enqueue_function[amar_fw_prep4[FW_PLANES, AL, type_of(aq_l), type_of(as_l)]](
+                A, Aq, As, Int32(m), grid_dim=(8, K // 32), block_dim=WARP_SIZE)
+            ctx.enqueue_function[amar_fewrow_iu4[N, K, FEWROW_D, FW_PLANES, type_of(aq_l), type_of(as_l), type_of(q_l), type_of(s_l), PL]](
+                Aq, As, tens_q4q(ctx, wbuf, o, N * K, q_l), tens_q4s(ctx, wbuf, o, N * K, s_l), P, Int32(m),
+                grid_dim=N // 16, block_dim=FW_THREADS)
+            return
+    gemm_w[N, K](ctx, A, wbuf, o, kind, P, m)
+
+
 def gemm_kq[
     N: Int, K: Int, AL: TensorLayout, PL: TensorLayout
 ](
@@ -713,6 +764,8 @@ struct WindowBufs(Copyable, Movable):
     var steer_on: Bool
     var tap_d: DeviceBuffer[f32]  # dflash2: f32[DF_NTAP, MROWS, H], post-layer residual of DF_TAPS per window row (tap_on)
     var tap_on: Bool
+    var fwq_d: DeviceBuffer[DType.uint8]  # BARO_FEWROW=2: nibble planes u8[8, FW_KMAX / 32, FW_PLANES, 16] (else 16 bytes)
+    var fws_d: DeviceBuffer[f32]  # BARO_FEWROW=2: per block scale and -8 * scale * sum, f32[FW_KMAX / 32, 16]
     var cert: CertHook
     var wbuf: DeviceBuffer[DType.uint8]
     var off: List[Int]
@@ -1737,7 +1790,7 @@ def step_window(ctx: DeviceContext, mut b: WindowBufs, cfg: WindowCfg, mut st: W
                     var AoBm = TileTensor(b.resb_d, attm_layout)
 
                     comptime if MEGA_ALLOWED:
-                        gemm_w[QF, H](ctx, CurBm, b.wbuf, b.off[w + 1], b.kind[w + 1], Pqf, m)
+                        gemm_w8[QF, H](ctx, CurBm, b.wbuf, b.off[w + 1], b.kind[w + 1], Pqf, m, b.fwq_d, b.fws_d)
                         b.cert.tap(ctx, layer, m, 0, b.curb_d, b.p_qf_d)
                     else:
                         ctx.enqueue_function[moe_matmul_q8d_m1x[type_of(xm_layout)]](
@@ -1753,13 +1806,13 @@ def step_window(ctx: DeviceContext, mut b: WindowBufs, cfg: WindowCfg, mut st: W
                         # slots 8-11: llama Qcur_full-N, the fused q+gate projection
                         ctx.enqueue_copy(dst_buf=DeviceBuffer[f32](ctx, b.dbg_d.unsafe_ptr().unsafe_offset(8 * H), QF, owning=False), src_buf=DeviceBuffer[f32](ctx, b.qf_d.unsafe_ptr(), QF, owning=False))
                     comptime if MEGA_ALLOWED:
-                        gemm_w[KV, H](ctx, CurBm, b.wbuf, b.off[w + 2], b.kind[w + 2], Pkv, m)
+                        gemm_w8[KV, H](ctx, CurBm, b.wbuf, b.off[w + 2], b.kind[w + 2], Pkv, m, b.fwq_d, b.fws_d)
                         b.cert.tap(ctx, layer, m, 1, b.curb_d, b.p_kv_d)
 
                     comptime if MEGA_ALLOWED:
                         ctx.enqueue_function[r_kv](Pkv, Kflat, Int32(m), Int32(KV), grid_dim=ceildiv(m * KV, 256), block_dim=256)
                     comptime if MEGA_ALLOWED:
-                        gemm_w[KV, H](ctx, CurBm, b.wbuf, b.off[w + 3], b.kind[w + 3], Pkv, m)
+                        gemm_w8[KV, H](ctx, CurBm, b.wbuf, b.off[w + 3], b.kind[w + 3], Pkv, m, b.fwq_d, b.fws_d)
                         b.cert.tap(ctx, layer, m, 2, b.curb_d, b.p_kv_d)
 
                     comptime if MEGA_ALLOWED:
@@ -1821,7 +1874,7 @@ def step_window(ctx: DeviceContext, mut b: WindowBufs, cfg: WindowCfg, mut st: W
                     ctx.enqueue_function[gmul_k](Aoflat, Gate, AoB, Int32(m * ATT), grid_dim=ceildiv(m * ATT, 256), block_dim=256)
                     trace_rows[bf16](ctx, np_on, "aob", layer, Int(b.resb_d.unsafe_ptr()), m, ATT, ATT)
                     comptime if MEGA_ALLOWED:
-                        gemm_w[H, ATT](ctx, AoBm, b.wbuf, b.off[w + 6], b.kind[w + 6], Ph, m)
+                        gemm_w8[H, ATT](ctx, AoBm, b.wbuf, b.off[w + 6], b.kind[w + 6], Ph, m, b.fwq_d, b.fws_d)
                         b.cert.tap(ctx, layer, m, 3, b.resb_d, b.p_h_d)
                     else:
                         ctx.enqueue_function[moe_matmul_q8d_m1_add[type_of(h_layout), type_of(attm_layout), type_of(h_layout)]](
@@ -1869,10 +1922,10 @@ def step_window(ctx: DeviceContext, mut b: WindowBufs, cfg: WindowCfg, mut st: W
                     var ResBmOld = TileTensor(b.resb_d, xmi_layout)
 
                     comptime if MEGA_ALLOWED:
-                        gemm_w[CONV, H](ctx, CurBm, b.wbuf, b.off[w + 1], b.kind[w + 1], Pq, m)
-                        gemm_w[INNER, H](ctx, CurBm, b.wbuf, b.off[w + 2], b.kind[w + 2], TileTensor(b.p_h_d, p_hi), m)
-                        gemm_w[NH_V, H](ctx, CurBm, b.wbuf, b.off[w + 3], b.kind[w + 3], Pab, m)
-                        gemm_w[NH_V, H](ctx, CurBm, b.wbuf, b.off[w + 4], b.kind[w + 4], Pab2, m)
+                        gemm_w8[CONV, H](ctx, CurBm, b.wbuf, b.off[w + 1], b.kind[w + 1], Pq, m, b.fwq_d, b.fws_d)
+                        gemm_w8[INNER, H](ctx, CurBm, b.wbuf, b.off[w + 2], b.kind[w + 2], TileTensor(b.p_h_d, p_hi), m, b.fwq_d, b.fws_d)
+                        gemm_w8[NH_V, H](ctx, CurBm, b.wbuf, b.off[w + 3], b.kind[w + 3], Pab, m, b.fwq_d, b.fws_d)
+                        gemm_w8[NH_V, H](ctx, CurBm, b.wbuf, b.off[w + 4], b.kind[w + 4], Pab2, m, b.fwq_d, b.fws_d)
                     else:
                         ctx.enqueue_function[moe_matmul_q8d_m1x[type_of(xm_layout)]](
                             CurBm, b.wbuf.unsafe_ptr(), Int64(b.off[moe_base + 1]), b.qkv_d.unsafe_ptr(), Int32(CONV),
@@ -1975,7 +2028,7 @@ def step_window(ctx: DeviceContext, mut b: WindowBufs, cfg: WindowCfg, mut st: W
                         if lp_trace:
                             print("lp trace: pc", 5, " done, layer", layer)
                     comptime if MEGA_ALLOWED:
-                        gemm_w[H, INNER](ctx, ResBmOld, b.wbuf, b.off[w + 9], b.kind[w + 9], Ph, m)
+                        gemm_w8[H, INNER](ctx, ResBmOld, b.wbuf, b.off[w + 9], b.kind[w + 9], Ph, m, b.fwq_d, b.fws_d)
                     else:
                         ctx.enqueue_function[moe_matmul_q8d_m1_add[type_of(h_layout), type_of(moe_inner_m_layout), type_of(h_layout)]](
                             ResBm, b.wbuf.unsafe_ptr().unsafe_offset(b.off[decode_base + 9]), row_f32(ctx, b.p_h_d, 0, H, h_layout), row_f32(ctx, b.x_d, token_row * H, H, h_layout), Int32(H), Int32(NH_V * SSTATE), Int32(H * NH_V * SSTATE),
@@ -2069,7 +2122,7 @@ def step_window(ctx: DeviceContext, mut b: WindowBufs, cfg: WindowCfg, mut st: W
                     gemm_q8dot(ctx, AqH, AsH, Wfgq, Wfgs, Pg, m, FFN, H)
                 else:
                     comptime if MEGA_ALLOWED:
-                        gemm_w[FFN, H](ctx, CurBm, b.wbuf, b.off[w + 1], b.kind[w + 1], Pg, m)
+                        gemm_w8[FFN, H](ctx, CurBm, b.wbuf, b.off[w + 1], b.kind[w + 1], Pg, m, b.fwq_d, b.fws_d)
                         b.cert.tap(ctx, layer, m, 4, b.curb_d, b.p_ffn_d)
                 if cfg.pf4:
                     ctx.synchronize()
@@ -2080,7 +2133,7 @@ def step_window(ctx: DeviceContext, mut b: WindowBufs, cfg: WindowCfg, mut st: W
                     gemm_q8dot(ctx, AqH, AsH, Wfuq, Wfus, Pu, m, FFN, H)
                 else:
                     comptime if MEGA_ALLOWED:
-                        gemm_w[FFN, H](ctx, CurBm, b.wbuf, b.off[w + 2], b.kind[w + 2], Pu, m)
+                        gemm_w8[FFN, H](ctx, CurBm, b.wbuf, b.off[w + 2], b.kind[w + 2], Pu, m, b.fwq_d, b.fws_d)
                         b.cert.tap(ctx, layer, m, 5, b.curb_d, b.p_ffn2_d)
                 if cfg.pf4:
                     ctx.synchronize()
@@ -2112,7 +2165,7 @@ def step_window(ctx: DeviceContext, mut b: WindowBufs, cfg: WindowCfg, mut st: W
                     gemm_q8dot(ctx, AqF, AsF, Wfdq, Wfds, Ph2, m, H, FFN)
                 else:
                     comptime if MEGA_ALLOWED:
-                        gemm_w[H, FFN](ctx, FgBm, b.wbuf, b.off[w + 3], b.kind[w + 3], Ph2, m)
+                        gemm_w8[H, FFN](ctx, FgBm, b.wbuf, b.off[w + 3], b.kind[w + 3], Ph2, m, b.fwq_d, b.fws_d)
                         b.cert.tap(ctx, layer, m, 6, b.fgb_d, b.p_h_d)
                 if cfg.pf4:
                     ctx.synchronize()
@@ -2247,7 +2300,7 @@ def step_window(ctx: DeviceContext, mut b: WindowBufs, cfg: WindowCfg, mut st: W
                 )
                 var Wheadq = tens_q8q(ctx, b.wbuf, b.off[w + 1], H * VOCAB, q_h_v)
                 var Wheads = tens_q8s(ctx, b.wbuf, b.off[w + 1], H * VOCAB, s_h_v)
-                gemm_w[VOCAB, H](ctx, CurBm, b.wbuf, b.off[w + 1], b.kind[w + 1], Pv, m)
+                gemm_w8[VOCAB, H](ctx, CurBm, b.wbuf, b.off[w + 1], b.kind[w + 1], Pv, m, b.fwq_d, b.fws_d)
                 ctx.enqueue_function[r_head](Pv, Logitsm, Int32(m), Int32(VOCAB), grid_dim=ceildiv(m * VOCAB, 256), block_dim=256)
             if head_folded:
                 pass

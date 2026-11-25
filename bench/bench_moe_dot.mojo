@@ -8,7 +8,7 @@ from std.sys import has_accelerator
 from std.time import perf_counter_ns
 from max.gpu import WARP_SIZE
 from max.gpu.host import DeviceContext, DeviceBuffer
-from layout import TileTensor, TensorLayout, row_major
+from layout import TileTensor, row_major
 from elementwise import amar_quantize_q8_rows
 from moe import (
     moe_gate_up_q4k_pack, amar_moe_down_q4k, moe_gate_up_q4k_dot, amar_moe_down_q4k_dot,

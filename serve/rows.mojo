@@ -11,7 +11,7 @@ from std.os import getenv
 from max.gpu.host import DeviceContext, DeviceBuffer
 from layout import TileTensor, TensorLayout, row_major
 from registry import *
-from window import WindowBufs, gemm_w, row_f32, row_bf16, tens_f32, tens_bf16, tok_line, is_attn
+from window import WindowBufs, gemm_w, row_f32, tens_f32, tens_bf16, tok_line, is_attn
 from dattn import dattn_nsplit
 from sample import SAMP_THREADS
 from serve_proto import SampleParams

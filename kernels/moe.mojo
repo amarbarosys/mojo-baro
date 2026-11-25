@@ -4,12 +4,11 @@ from max.gpu.primitives import warp
 from std.memory import bitcast
 from std.builtin.globals import global_constant
 from std.bit import pop_count
-from std.sys import llvm_intrinsic, get_defined_int
+from std.sys import get_defined_int
 from std.math import fma
 from bexp import exp
 from max.gpu.memory import AddressSpace
-from max.gpu.sync import barrier
-from layout import TileTensor, TensorLayout, row_major, stack_allocation
+from layout import TileTensor, TensorLayout
 
 comptime f32 = DType.float32
 comptime f16 = DType.float16

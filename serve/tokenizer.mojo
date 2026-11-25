@@ -125,6 +125,60 @@ struct Reader:
         return v
 
 
+struct _PairHeap:
+    """Max-heap of SPM merge candidates: highest score first, then the lower left symbol."""
+    var score: List[Float32]
+    var left: List[Int]
+    var right: List[Int]
+    var size: List[Int]
+    var h: List[Int]
+
+    def __init__(out self):
+        self.score = List[Float32]()
+        self.left = List[Int]()
+        self.right = List[Int]()
+        self.size = List[Int]()
+        self.h = List[Int]()
+
+    def before(self, a: Int, b: Int) -> Bool:
+        return self.score[a] > self.score[b] or (self.score[a] == self.score[b] and self.left[a] < self.left[b])
+
+    def push(mut self, sc: Float32, l: Int, r: Int, z: Int):
+        self.score.append(sc)
+        self.left.append(l)
+        self.right.append(r)
+        self.size.append(z)
+        var k = len(self.h)
+        self.h.append(len(self.score) - 1)
+        while k > 0:
+            var p = (k - 1) // 2
+            if not self.before(self.h[k], self.h[p]):
+                break
+            var t = self.h[k]
+            self.h[k] = self.h[p]
+            self.h[p] = t
+            k = p
+
+    def pop(mut self) -> Int:
+        var top = self.h[0]
+        var last = self.h.pop()
+        var m = len(self.h)
+        if m > 0:
+            self.h[0] = last
+            var k = 0
+            while 2 * k + 1 < m:
+                var c = 2 * k + 1
+                if c + 1 < m and self.before(self.h[c + 1], self.h[c]):
+                    c += 1
+                if not self.before(self.h[c], self.h[k]):
+                    break
+                var t = self.h[k]
+                self.h[k] = self.h[c]
+                self.h[c] = t
+                k = c
+        return top
+
+
 def _pos(r: Int) -> Int:
     return r
 
@@ -140,11 +194,11 @@ struct Tokenizer(Movable):
     var merge_of: Dict[Int, Int]
     var merges: List[Int]
     var byte_id: List[Int]
-    var special_first: Set[Int]
+    var special_first: List[Bool]  # by first byte: can a special token start here
     var scores: List[Float32]
     var pre: String
     var patterns: List[Pattern]
-    var specials: List[List[Int]]
+    var specials: List[List[UInt8]]  # UTF-8 bytes of each control, user-defined or unknown token
     var special_ids: List[Int]
     var bos_id: Int
     var eos_id: Int
@@ -165,11 +219,11 @@ struct Tokenizer(Movable):
         self.merge_of = Dict[Int, Int]()
         self.merges = List[Int]()
         self.byte_id = List[Int]()
-        self.special_first = Set[Int]()
+        self.special_first = List[Bool](length=256, fill=False)
         self.scores = List[Float32]()
         self.pre = String("default")
         self.patterns = List[Pattern]()
-        self.specials = List[List[Int]]()
+        self.specials = List[List[UInt8]]()
         self.special_ids = List[Int]()
         self.bos_id = -1
         self.eos_id = -1
@@ -189,10 +243,14 @@ struct Tokenizer(Movable):
             for b in range(256):
                 self.byte_id.append(self.tok2id.get(String(Codepoint.from_u32(UInt32(self.b2u[b])).value()), -1))
         for i in range(len(self.tokens)):
-            if self.types[i] == T_CONTROL or self.types[i] == T_USER:
-                self.specials.append(to_codepoints(self.tokens[i]))
-                if len(self.specials[len(self.specials) - 1]) > 0:
-                    self.special_first.add(self.specials[len(self.specials) - 1][0])
+            if self.types[i] == T_CONTROL or self.types[i] == T_USER or self.types[i] == T_UNKNOWN:
+                var sb = List[UInt8]()
+                for b in self.tokens[i].as_bytes():
+                    sb.append(b)
+                if len(sb) == 0:
+                    continue
+                self.special_first[Int(sb[0])] = True
+                self.specials.append(sb^)
                 self.special_ids.append(i)
 
     def _byte_maps(mut self):
@@ -215,7 +273,7 @@ struct Tokenizer(Movable):
         if magic != 0x46554747:
             raise Error("gguf: bad magic")
         var version = r.u32()
-        if version != 3:
+        if version != 3 and version != 2:  # v2 and v3 share the little-endian layout read here
             raise Error("gguf: unsupported version " + String(version))
         _ = r.u64()
         var n_kv = r.u64()
@@ -305,8 +363,8 @@ struct Tokenizer(Movable):
         if not saw_add_space_prefix_key:
             self.add_space_prefix = self.is_spm
         self.ignore_merges = self.pre == "llama3" or self.pre == "llama-bpe" or self.pre == "minicpm5"
-        if not saw_add_bos_key and self.ignore_merges:
-            self.add_bos = True
+        if not saw_add_bos_key and (self.ignore_merges or self.is_spm):
+            self.add_bos = True  # llama.cpp defaults: SPM adds BOS, BPE does not
         if self.is_g4:
             self.add_bos = True  # llama.cpp overrides add_bos to true for the gemma4 pre-tokenizer
 
@@ -338,7 +396,12 @@ struct Tokenizer(Movable):
         elif self.pre == "cohere2moe" or self.pre == "tiny_aya":
             self.patterns.append(Pattern(r"\d{1,3}(?=(?:\d{3})*\b)"))
             self.patterns.append(Pattern(r"[^\r\n\p{L}\p{N}]?[\p{Lu}\p{Lt}\p{Lm}\p{Lo}\p{M}]*[\p{Ll}\p{Lm}\p{Lo}\p{M}]+(?:'[sS]|'[tT]|'[rR][eE]|'[vV][eE]|'[mM]|'[lL][lL]|'[dD])?|[^\r\n\p{L}\p{N}]?[\p{Lu}\p{Lt}\p{Lm}\p{Lo}\p{M}]+[\p{Ll}\p{Lm}\p{Lo}\p{M}]*(?:'[sS]|'[tT]|'[rR][eE]|'[vV][eE]|'[mM]|'[lL][lL]|'[dD])?|\p{N}{1,3}| ?[^\s\p{L}\p{N}]+[\r\n/]*|\s*[\r\n]+|\s+(?!\S)|\s+"))
-        elif self.pre == "gpt-2" or self.pre == "default" or self.pre == "granite-docling" or self.pre == "exaone4":
+        elif self.pre == "default":  # also a file with no tokenizer.ggml.pre
+            self.patterns.append(Pattern(r"[\p{P}\$\+<=>\^~\|]+"))
+            self.patterns.append(Pattern(r"'s|'t|'re|'ve|'m|'ll|'d| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)"))
+            self.patterns.append(Pattern(r"\p{N}+"))
+            self.patterns.append(Pattern(r"[0-9][0-9][0-9]"))
+        elif self.pre == "gpt-2" or self.pre == "granite-docling" or self.pre == "exaone4":
             self.patterns.append(Pattern(r"'s|'t|'re|'ve|'m|'ll|'d| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"))
         elif self.pre == "a.x-4.0" or self.pre == "gigachat" or self.pre == "jais" or self.pre == "jina-de" or self.pre == "jina-es" or self.pre == "jina-v1-en" or self.pre == "jina-v2-code" or self.pre == "jina-v2-de" or self.pre == "jina-v2-es" or self.pre == "mellum" or self.pre == "modern-bert" or self.pre == "mpt" or self.pre == "olmo" or self.pre == "phi-2" or self.pre == "roberta-bpe" or self.pre == "trillion":
             self.patterns.append(Pattern(r"'s|'t|'re|'ve|'m|'ll|'d| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)"))
@@ -355,6 +418,13 @@ struct Tokenizer(Movable):
             self.patterns.append(Pattern(r"\s+$"))
             self.patterns.append(Pattern(r"[一-龥ࠀ-一가-퟿]+"))
             self.patterns.append(Pattern(r"\p{N}"))
+        elif self.pre == "deepseek-llm":
+            self.patterns.append(Pattern(r"[\r\n]"))
+            self.patterns.append(Pattern(r"\s?[A-Za-zµÀ-ÖØ-öø-ƺƼ-ƿǄ-ʓʕ-ʯͰ-ͳͶͷͻ-ͽͿΆΈ-ΊΌΎ-ΡΣ-ϵϷ-ҁҊ-ԯԱ-ՖႠ-ჅᎠ-Ᏽᏸ-ᏽᲐ-ᲺᲽ-Ჿᴀ-ᴫᵫ-ᵷᵹ-ᶚḀ-ἕἘ-Ἕἠ-ὅὈ-Ὅὐ-ὗὙὛὝὟ-ώᾀ-ᾴᾶ-ᾼιῂ-ῄῆ-ῌῐ-ΐῖ-Ίῠ-Ῥῲ-ῴῶ-ῼℂℇℊ-ℓℕℙ-ℝℤΩℨK-ℭℯ-ℴℹℼ-ℿⅅ-ⅉⅎↃↄⰀ-ⱻⱾ-ⳤⳫ-ⳮⳲⳳꙀ-ꙭꚀ-ꚛꜢ-ꝯꝱ-ꞇꞋ-ꞎꭰ-ꮿﬀ-ﬆﬓ-ﬗＡ-Ｚａ-ｚ𐐀-𐑏𐒰-𐓓𐓘-𐓻𐲀-𐲲𐳀-𐳲𑢠-𑣟𞤀-𞥃]+"))
+            self.patterns.append(Pattern(r"\s?[!-/:-~！-／：-～‘-‟　-。]+"))
+            self.patterns.append(Pattern(r"\s+$"))
+            self.patterns.append(Pattern(r"[一-龥ࠀ-一가-퟿]+"))
+            self.patterns.append(Pattern(r"\p{N}+"))
         elif self.pre == "exaone-moe":
             self.patterns.append(Pattern(CONTR + r"|[^\r\n\p{L}\p{N}]?(?:\p{L}\p{M}*(?: \p{L}\p{M}*)*)+|\p{N}| ?[^\s\p{L}\p{N}]+[\r\n/]?|\s*[\r\n]|\s+(?!\S)|\s+"))
         elif self.pre == "falcon":
@@ -420,9 +490,8 @@ struct Tokenizer(Movable):
             syms[best] = best_m & 0xFFFFFFFF
             _ = syms.pop(best + 1)
         for id in syms:
-            if id < 0:
-                raise Error("tokenizer: byte not in vocab")
-            out.append(id)
+            if id >= 0:  # a byte with no token is dropped, as llama.cpp does (falcon has no token for some bytes)
+                out.append(id)
 
     def _hex_digit(self, n: Int) -> String:
         var code = UInt32(48 + n) if n < 10 else UInt32(55 + n)
@@ -447,37 +516,60 @@ struct Tokenizer(Movable):
             raw.append(b)
         return UInt8(self._hex_val(raw[3]) * 16 + self._hex_val(raw[4]))
 
+    def _spm_pair(self, text: String, st: List[Int], ln: List[Int], l: Int, r: Int, mut heap: _PairHeap):
+        var id = self.tok2id.get(String(text[byte=st[l] : st[l] + ln[l] + ln[r]]), -1)
+        if id >= 0:
+            heap.push(self.scores[id], l, r, ln[l] + ln[r])
+
     def _spm(self, text: String, mut out: List[Int]) raises:
-        var cps = to_codepoints(text)
-        var syms = List[String]()
-        for j in range(len(cps)):
-            syms.append(from_codepoints(cps, j, j + 1))
-        while len(syms) > 1:
-            var best = -1
-            var best_score: Float32 = 0.0
-            for i in range(len(syms) - 1):
-                var cand = String(syms[i])
-                cand += syms[i + 1]
-                var id = self.tok2id.get(cand, -1)
-                if id < 0:
-                    continue
-                var sc = self.scores[id]
-                if best < 0 or sc > best_score:
-                    best = i
-                    best_score = sc
-            if best < 0:
-                break
-            var merged = String(syms[best])
-            merged += syms[best + 1]
-            syms[best] = merged^
-            _ = syms.pop(best + 1)
-        for s in syms:
-            var id = self.tok2id.get(s, -1)
+        """Merge the adjacent pair with the highest score first, the leftmost on a tie, until no pair is a token.
+        Symbols are byte ranges of text in a linked list; candidate pairs wait in a max-heap, and a popped pair
+        whose sides changed since it was pushed is dropped. n log n, where the full rescan per merge was n^2."""
+        var tb = text.as_bytes()
+        var n = len(tb)
+        var st = List[Int]()
+        var ln = List[Int]()
+        var i = 0
+        while i < n:
+            var c = Int(tb[i])
+            var l = min(1 if c < 0x80 else (2 if c < 0xE0 else (3 if c < 0xF0 else 4)), n - i)
+            st.append(i)
+            ln.append(l)
+            i += l
+        var ns = len(st)
+        if ns == 0:
+            return
+        var nx = List[Int](capacity=ns)
+        var pv = List[Int](capacity=ns)
+        for k in range(ns):
+            pv.append(k - 1)
+            nx.append(k + 1 if k + 1 < ns else -1)
+        var heap = _PairHeap()
+        for k in range(ns - 1):
+            self._spm_pair(text, st, ln, k, k + 1, heap)
+        while len(heap.h) > 0:
+            var e = heap.pop()
+            var l = heap.left[e]
+            var r = heap.right[e]
+            if ln[l] == 0 or ln[r] == 0 or ln[l] + ln[r] != heap.size[e]:
+                continue
+            ln[l] += ln[r]
+            ln[r] = 0
+            nx[l] = nx[r]
+            if nx[l] >= 0:
+                pv[nx[l]] = l
+                self._spm_pair(text, st, ln, l, nx[l], heap)
+            if pv[l] >= 0:
+                self._spm_pair(text, st, ln, pv[l], l, heap)
+        var k = 0
+        while k >= 0:
+            var id = self.tok2id.get(String(text[byte=st[k] : st[k] + ln[k]]), -1)
             if id >= 0:
                 out.append(id)
             else:
-                for b in s.as_bytes():
-                    out.append(self._byte_tok(b))
+                for j in range(st[k], st[k] + ln[k]):
+                    out.append(self._byte_tok(tb[j]))
+            k = nx[k]
 
     def _spm_encode(self, chunk: String, is_prev_special: Bool, mut out: List[Int]) raises:
         var text = String(" ") if (self.add_space_prefix and is_prev_special) else String("")
@@ -539,18 +631,20 @@ struct Tokenizer(Movable):
                         out.append(self._byte_tok(b))
             i = j
 
-    def _match_special(self, cps: List[Int], at: Int) -> Int:
+    def _match_special(self, tb: Span[UInt8, _], at: Int) -> Int:
+        """Index of the longest special token whose bytes start at byte at, or -1. A special starts with a UTF-8
+        lead byte, so it never matches inside a character."""
         var best = -1
         var best_len = 0
-        if at < len(cps) and cps[at] not in self.special_first:
+        if not self.special_first[Int(tb[at])]:
             return -1
         for k in range(len(self.specials)):
             var n = len(self.specials[k])
-            if n <= best_len or at + n > len(cps):
+            if n <= best_len or at + n > len(tb):
                 continue
             var ok = True
             for j in range(n):
-                if cps[at + j] != self.specials[k][j]:
+                if tb[at + j] != self.specials[k][j]:
                     ok = False
                     break
             if ok:
@@ -562,39 +656,67 @@ struct Tokenizer(Movable):
         return self.tokens[id] if id >= 0 and id < len(self.tokens) else String("")
 
     def encode(self, text: String, add_special: Bool = True) raises -> List[Int]:
+        var pos = List[Int]()
+        var cnt = List[Int]()
+        return self.encode_cuts(text, add_special, False, pos, cnt)
+
+    def encode_cuts(self, text: String, add_special: Bool, record: Bool, mut pos: List[Int], mut cnt: List[Int]) raises -> List[Int]:
+        """encode; with record, also every byte position at an edge of a special token (and the end of the text) in
+        pos, with the number of ids before it in cnt. The text between two specials is encoded on its own, so
+        encode(text[:pos[k]]) is exactly the first cnt[k] ids."""
         var out = List[Int]()
         if add_special and self.add_bos and self.bos_id >= 0:
             out.append(self.bos_id)
-        var cps = to_codepoints(text)
+        var tb = text.as_bytes()
+        var n = len(tb)
         var start = 0
         var i = 0
         var is_prev_special = True
-        while i <= len(cps):
-            var k = -1 if i == len(cps) else self._match_special(cps, i)
-            if k >= 0 or i == len(cps):
+        var memo = Dict[String, Int]()  # this call only: a short piece seen before -> (where its ids start in out) << 16 | count
+        while i <= n:
+            var k = -1 if i == n else self._match_special(tb, i)
+            if k >= 0 or i == n:
                 if i > start:
+                    var chunk = String(text[byte=start:i])
                     if self.is_spm:
-                        self._spm_encode(from_codepoints(cps, start, i), is_prev_special, out)
+                        self._spm_encode(chunk, is_prev_special, out)
                     elif self.is_g4:
-                        self._g4_encode(cps, start, i, out)
+                        var cps = to_codepoints(chunk)
+                        self._g4_encode(cps, 0, len(cps), out)
                     else:
-                        for piece in self._pieces(from_codepoints(cps, start, i)):
+                        for piece in self._pieces(chunk):
+                            var hit = memo.get(piece, -1)
+                            if hit >= 0:
+                                for j in range(hit & 0xFFFF):
+                                    var id = out[(hit >> 16) + j]
+                                    out.append(id)
+                                continue
+                            var p = len(out)
                             self._bpe(piece, out)
+                            if piece.byte_length() <= 32:
+                                memo[String(piece)] = (p << 16) | (len(out) - p)
                     is_prev_special = False
+                if record:
+                    pos.append(i)
+                    cnt.append(len(out))
                 if k >= 0:
                     out.append(self.special_ids[k])
                     i += len(self.specials[k])
                     start = i
                     is_prev_special = True
+                    if record:
+                        pos.append(i)
+                        cnt.append(len(out))
                 else:
                     i += 1
             else:
                 i += 1
         return out^
 
-    def decode(self, ids: List[Int], keep_special: Bool = False) -> String:
+    def decode(self, ids: List[Int], keep_special: Bool = False, strip_space: Bool = True) -> String:
+        """strip_space=False keeps the SPM prefix space of a piece (the raw token_to_piece bytes)."""
         var bytes = List[UInt8]()
-        var is_prev_special = True
+        var is_prev_special = strip_space
         for id in ids:
             if id < 0 or id >= len(self.tokens):
                 continue
@@ -602,7 +724,7 @@ struct Tokenizer(Movable):
             if ty == T_CONTROL and not keep_special:
                 is_prev_special = True
                 continue
-            if ty == T_CONTROL or ty == T_USER:
+            if ty == T_CONTROL or ty == T_USER or ty == T_UNKNOWN:
                 for b in self.tokens[id].as_bytes():
                     bytes.append(b)
                 is_prev_special = True

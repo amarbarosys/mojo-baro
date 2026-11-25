@@ -1,9 +1,3 @@
-"""Mojo GEMM kernels for gfx1100 (RDNA3, warp=32).
-
-Variants are registered here and benchmarked by bench/bench.mojo against the
-hipBLASLt baseline reached through the C-ABI shim.
-"""
-
 from max.gpu.memory import AddressSpace
 from max.gpu.sync import barrier
 from max.gpu import block_idx, thread_idx
@@ -23,7 +17,6 @@ def amar_matmul_naive[
     n: Int32,
     k_dim: Int32,
 ):
-    """One thread per output element; every read goes to global memory."""
     comptime assert A.flat_rank == 2 and B.flat_rank == 2 and C.flat_rank == 2
 
     var M = Int(m)
@@ -51,7 +44,6 @@ def amar_matmul_tiled[
     n: Int32,
     k_dim: Int32,
 ):
-    """Shared-memory tiling: each A/B tile is read once per block, not per thread."""
     comptime assert A.flat_rank == 2 and B.flat_rank == 2 and C.flat_rank == 2
 
     var M = Int(m)
@@ -73,8 +65,6 @@ def amar_matmul_tiled[
     var acc: Scalar[dtype] = 0
     var k_tile = 0
     while k_tile < K:
-        # Cooperative load; out-of-range lanes pad with zero so the inner
-        # product stays correct for non-multiple-of-TILE shapes.
         if row < M and k_tile + tx < K:
             sa[ty, tx] = rebind[sa.ElementType](A[row, k_tile + tx])
         else:
@@ -94,18 +84,13 @@ def amar_matmul_tiled[
         C[row, col] = rebind[C.ElementType](acc)
 
 
-# --- Register-tiled variant -------------------------------------------------
-# Each thread computes a TM x TN patch of C instead of a single element, so the
-# values loaded from shared memory are reused TM/TN times in registers. This is
-# where the arithmetic intensity comes from: the tiled kernel above is still
-# bound by shared-memory traffic, one load per multiply-add.
 
 comptime BM = 32
 comptime BN = 32
 comptime BK = 8
 comptime TM = 2
 comptime TN = 2
-comptime NTHREADS = (BM // TM) * (BN // TN)  # 256
+comptime NTHREADS = (BM // TM) * (BN // TN)
 
 
 def amar_matmul_regtile[
@@ -137,14 +122,10 @@ def amar_matmul_regtile[
     var sb = stack_allocation[dtype, address_space=AddressSpace.SHARED](
         row_major[BK, BN]()
     )
-    # SIMD values, not stack_allocation: a stack allocation here is scratch
-    # memory, which on AMD lives in device memory and made this kernel slower
-    # than the naive one. Comptime-unrolled indices keep these in registers.
     var acc = SIMD[dtype, TM * TN](0)
 
     var k_tile = 0
     while k_tile < K:
-        # 256 threads cooperatively stage BM*BK and BK*BN elements: 4 each.
         comptime for i in range(BM * BK // NTHREADS):
             var e = tid + i * NTHREADS
             var r = e // BK
@@ -168,7 +149,6 @@ def amar_matmul_regtile[
                 sb[r, c] = 0
         barrier()
 
-        # Outer product: one shared read feeds TN (or TM) fused multiply-adds.
         for k in range(BK):
             var a_reg = SIMD[dtype, TM](0)
             comptime for i in range(TM):

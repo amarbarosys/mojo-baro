@@ -5,7 +5,6 @@ from max.gpu.host import DeviceContext, DeviceBuffer, HostBuffer
 from std.math import ceildiv
 from std.memory import bitcast
 from std.sys import size_of
-from std.sys.intrinsics import llvm_intrinsic
 
 comptime u64 = DType.uint64
 comptime i64 = DType.int64

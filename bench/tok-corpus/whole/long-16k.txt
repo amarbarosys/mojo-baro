@@ -1,0 +1,1529 @@
+# Engine <-> server protocol
+
+`serve/engine.mojo` (qwen35, qwen35moe) and `serve/spark.mojo` (the dense
+families: llama, qwen2, granite, spark2_5) are both single-request decoders
+that speak this same line protocol under `BARO_SERVE=1`, sharing the
+byte-scanner reader and request parser in `serve/serve_proto.mojo` rather
+than each defining their own wire format. `serve/src` (`baro-serve`, Rust)
+keeps one engine process alive (either binary, selected with `--engine`) and
+turns HTTP requests into addressed engine lines. Device execution remains
+one request at a time in this step. This file is the
+contract between the two, and the seam where the process boundary is later
+replaced by a C ABI. Not every optional field is acted on by every engine:
+spark has no draft head (`spec` is parsed and ignored, `spec_k` in its
+`ready` line is always `0`) and no prefix-checkpoint chain (`ckpt` is parsed
+and ignored); `stop` and the required id/prompt/n fields are honored by
+both.
+
+## Process model
+
+```
+client --HTTP--> baro-serve --stdin JSON lines--> engine (BARO_SERVE=1)
+                            <--stdout JSON lines--
+```
+
+- The server spawns `.work/engine` (`--engine`) with `BARO_SERVE=1` and
+  `BARO_PACK=<pack>` (`--pack`), inheriting its own environment, so every
+  other `BARO_*` knob (`BARO_SPEC`, `BARO_SPEC_K`, `BARO_MEGA`,
+  `BARO_DRAFT_Q4`, ...) still reaches the engine.
+- The engine loads the pack and allocates every buffer **once**, prints the
+  ready line, then blocks on stdin.
+- Device requests are strictly serial: the engine advances one request at a
+  time. The server worker may write later addressed request lines before the
+  current request's terminal line; HTTP requests wait in a bounded queue (64)
+  and get `503` beyond it.
+- Stdin EOF ends the engine: the request loop exits and the process
+  returns 0. That is the clean shutdown; the server closes stdin on
+  SIGINT and kills the child only if it has not exited after 30 s.
+- `BARO_SERVE=0` (default) is the unchanged one-shot path: prompt from
+  `BARO_PROMPT`/`<pack>/prompt-tokens.txt`, `GEN_N` tokens, `GENERATED:`
+  line, draft receipt, exit. Every existing gate runs that path.
+
+## A3(a) wire-admission delta
+
+The A3(a) wire permits the server to write a second request line before the
+first request has printed its terminal `done` or `error` line. The engine
+still advances one request at a time in this item; this is admission and
+addressing, not device batching. The engine keeps each accepted request's id,
+and every `tok`, `done`, or `error` line carries that id so the server can
+route output to the waiting HTTP response without dropping lines for another
+request.
+
+The old contract's strict-serial statement above therefore changes only at
+the stdin/stdout boundary: HTTP work may be admitted ahead of completion,
+while device execution remains serial until A3(c). A malformed line remains a
+log/error and must not be mistaken for a request. The A3(a) gate records the
+second request's admission before the first terminal line, then checks both
+id streams to completion.
+
+## Lines the engine prints (stdout)
+
+One JSON object per line, no embedded newlines. Any line that does not
+start with `{`, is not a JSON object, or fails the field checks below is a
+**log line** and is forwarded to the server's stderr — never acted on.
+The engine keeps printing its usual diagnostics (`pack loaded in`,
+`tok/s_gen:`, `GENERATED:`, ...) between the JSON lines.
+
+| line | when | fields |
+|---|---|---|
+| `{"ready":true,"tmax":128,"mrows":8,"kmax":8,"spec_k":2,"pack":"..."}` | once, after init | `tmax` = KV/token capacity: `len(prompt)+n <= tmax` or the request is rejected. `mrows` = prefill chunk, `kmax` = max draft width, `spec_k` = the draft width in effect (`spec-k.txt` / `BARO_SPEC_K`). |
+| `{"id":ID,"tok":T}` | per generated token, in order | `T` is the token id chosen at the next position (greedy at `temperature` 0, sampled otherwise). In spec mode a verified window emits its accepted tokens plus the correction token together. |
+| `{"id":ID,"done":true,"n":N,"prefill_s":..,"decode_s":..,"tok_s":..,"finish":"length"\|"stop"\|"cancelled"}` | after the last token | `n` = tokens actually generated (`<=` request `n`: less than requested when `finish` is `"stop"` or `"cancelled"`), `tok_s` = `(n-1)/decode_s` (0 when n<=1), matching the one-shot `tok/s_gen`. With spec: `"drafted"`, `"accepted"`, `"k"`. |
+| `{"id":ID,"embed":[F,...]}` | once, only when the request carries `"embed":true`; after the first token line, before `done` | `H` floats: the post-final-norm hidden state of the LAST PROMPT TOKEN, L2-normalized on the engine side (P0a-e). The request runs with the head unfolded (as a sampled request does), because the folded head never writes that row; tokens are unchanged. Send `n:1`, `spec:false`. The spark engine and the multi-sequence path (`BARO_SEQS > 1`) answer an error line instead. Gate: `bench/p0ae-embed-gate.sh` (cosine against llama.cpp `--pooling last`). |
+| `{"id":ID,"hidden":[F,...]}` | once after each generated token when the request carries `"hidden":true` | `H` raw f32 post-final-norm values for the hidden row that produced the preceding token. Dense/MoE engine only. The request uses the non-spec launch path. |
+| `{"id":ID,"logits_topk":[{"id":T,"logit":F},...]}` | once after each generated token when the request carries `"logits_topk":K` | The top `K` raw pre-penalty logits, `1 <= K <= 20`, ordered by descending value. Dense/MoE engine and spark (spark: the row that produced the token, read after the token line's sync). Spark also takes `implants`, `implants_lo`, `implants_k`, `implants_scale`, `implants_layer` with `BARO_IMPLANTS=FILE`, and `BARO_CAPTURE=DIR` (field `x` only), as engine.mojo (mojo-neuron `docs/format-implants.md`, gate `scripts/spark-implants-check.sh`). |
+| `{"id":ID,"error":"..."}` | instead of tokens | request rejected before any GPU work: bad JSON, missing/negative fields, empty prompt, `n < 1`, `len(prompt)+n > tmax`. The loop continues. |
+
+`id` is echoed from the request. The engine parses `id` first, so an error
+for an unparseable line carries `"id":0`.
+
+### State words (2026-11-10)
+
+Every terminal state has a word on the wire, so a client reads a field and never infers a state from
+a hang, a log line or a number. All fields are additive: a reader that ignores them sees the old line.
+
+| Line | Field | Values | Meaning |
+|---|---|---|---|
+| ready | `"tier"` | `off`, `page-cache`, `hot`, `pinned`, `pinned+zc`, `pinned+cpu`, each with an optional `+mmap` | expert-tier mode of this engine |
+| ready | `"seqs"` | N | sequences this engine decodes at once |
+| done | `"fail"` | N | megakernel fail word; non-zero = the tokens of this request are invalid (the front answers `502 engine_invalid_tokens`) |
+| done | `"finish"` | adds `"error"` | the request ended on an engine error (KV pool exhausted, lens base missing); an `error` line with the same `id` came first |
+| done | `"path"` | `mega`, `mega_win`, `spec`, `launch`, `pair`, `seqs` | decode path that ran |
+| done | `"grammar"` | `none`, `wait`, `match`, `done` | grammar matcher phase at the end; with a grammar also `"gdraws"`, `"gaccepted"`, `"grejected"` |
+| done | `"captured"` | N | positions written under `BARO_CAPTURE` |
+| done | `"load_tier"` | `hot`, `file`, `ipc` | where the restored state came from |
+| error | text | named reasons | unknown `latent_id`, fork on an empty chain, a prompt past the window after a prefix extension and a lens request without its base answer with an error line; the engine stays alive |
+
+`grejected > 0` means a masked draw produced a token the grammar refused: a host/device desync, reported
+by the front as the warning `grammar_rejected_tokens`. An idle or stale `{"cancel":ID}` is dropped with
+the log line `cancel: id N is not decoding, dropped`; one parser serves every engine.
+
+Exercised on the card 2026-11-15 (`bench/fsm-wire-gate.sh` probes, `bench/fsm-http-502-gate.sh`): a live non-zero `fail`
+(test knob `BARO_TEST_FAILWORD=1` presets the fail word; real front answers 502 `engine_invalid_tokens`), KV pool
+exhaustion mid-decode (`BARO_SEQS=3 BARO_KV_POOL=1`: error line then `finish:"error"`), `captured`, and the `grejected`
+word on a served grammar. Still CPU only: a non-zero `grejected` count and the admission refusal `kv pool full` (429).
+
+HTTP side (`baro-serve`): `/health` carries `engine_state` (`starting`, `idle`, `busy`, `dead`,
+`stopping`) and per engine `{state, depth, reason}`; the port answers `503` with phase `starting` or
+`warming` while the pack loads, and `503` with `"status":"engine_dead"` when no engine can take work, so
+`curl -sf /health` succeeds only on a server that can serve (`baro-front` answers the same codes). The
+router's probe reads this code, not the open port; an upstream with no `/health` route (404, 405) is judged
+by its port. A dead engine in a pool is skipped. A client that drops its stream cancels its request. A stream that ends with no terminal
+event is `502` (SSE: an error chunk before `[DONE]`). Turn, fork and chat responses carry `state_source`
+(`none`, `explicit`, `created`, `auto`) and `tier_source`. The router's `/health` says `ok`, `degraded`,
+`starting` or `down`.
+
+## Lines the server writes (stdin)
+
+```
+{"id":ID,"prompt":[INT,...],"n":N,"spec":BOOL,"stop":[[INT,...],...],"ckpt":[INT,...]}\n
+{"cancel":ID}\n
+```
+
+- `id`: unsigned integer, assigned by the server (monotonic, starts at 1).
+- `prompt`: non-empty list of non-negative token ids, in order.
+- `n`: tokens to generate, `>= 1` (an upper bound: `stop` or `cancel` can end
+  generation sooner, see below).
+- `spec`: optional; `true`/`false` selects MTP speculative decode for this
+  request. Absent => the engine's `BARO_SPEC` default.
+- `stop`: optional, default `[]`. A list of token-id sequences; once the
+  tail of the tokens generated so far equals any of them, the engine stops
+  (that sequence's tokens are still emitted as `tok` lines and counted in
+  `n`) and reports `"finish":"stop"`. Checked once per decode window (not
+  mid-window), and only synced back from the GPU when `stop` is non-empty --
+  a request with no `stop` pays nothing for this. `serve/src/main.rs` builds
+  `stop` from the tokenizer's own EOS-like ids (each a length-1 sequence)
+  plus any caller `stop` string, tokenized.
+- `ckpt`: optional, default `[]` (M1b role-boundary checkpoints). Token
+  positions where `serve/prefix.mojo` should also take a prefix checkpoint,
+  in addition to the periodic 1024-token grid and the prompt-end point.
+  `serve/src/main.rs` sends, for a chat request, the token length after
+  each message when the conversation so far is rendered with no generation
+  prompt (`Text::role_boundaries`) -- a later turn's full prompt starts
+  with exactly those same bytes, since history does not change, so these
+  positions are restore points for it. Index 0 (by convention the system
+  prompt) is saved pinned against eviction; every hint is saved as a
+  role-boundary checkpoint, evicted only after every periodic-grid one. A
+  hint that misses a real tokenization boundary wastes a checkpoint slot,
+  never corrupts a restore -- `lookup` still requires the stored SHA-256
+  hash (salted per pack, so two packs never share a checkpoint) to match.
+- `temperature`/`top_p`/`top_k`/`min_p`/`seed`/`presence_penalty`/
+  `frequency_penalty`: optional (C3 control block). Parsed into
+  `SampleParams`. `temperature > 0` makes `serve/engine.mojo` draw with
+  the device sampler (`kernels/sample.mojo`, `amar_sample_row`) inside the
+  decode loop (M5 `8ddd477`), composed with speculation by the accept rule
+  in `amar_spec_accept` (A1 `b3c0d90`, `bench/spec-sample-protocol.md`);
+  `top_p`, `top_k`, `min_p` and `seed` apply there. The two penalties are
+  parsed and carried but not acted on. `serve/sample_ref.mojo` is the host
+  reference, matched against the device kernels. `serve/spark.mojo` parses
+  the block and still decodes greedy. Absent, the request line is identical
+  to before this field existed.
+- `tool_re` / `tool_re0` (strings, regex in `grammar/regex.mojo` syntax):
+  optional, written by `baro-serve` when the request has `tools`, no
+  `response_format`, and a template wire it parses (`<function=` XML or JSON
+  in `<tool_call>`). `serve/engine.mojo` (single and `BARO_SEQS>2` paths)
+  scans the output for `<tool_call>` and then draws the text through the end
+  of the tool name masked by `tool_re` (`\s*<function=(hold|turn)>`), so a
+  call can only name a tool of the request; `tool_re0` (the name alone) is
+  armed at the first draw for `tool_choice` "required". The matcher lets go
+  once the name ends; arguments and plain text stay free. Tool requests run
+  with spec and the megakernel off on the single path; on the seqs path the
+  slot takes its own m = 1 step for the name tokens only. `serve/spark.mojo`
+  ignores both fields.
+- `schema` (a JSON Schema object) and `reasoning` (bool, default true):
+  optional, written by `baro-serve` from `response_format` and
+  `chat_template_kwargs.enable_thinking`. `serve/engine.mojo` compiles the
+  schema into a grammar matcher (`serve/grammar_rt.mojo`, `grammar/`) and
+  draws every generated token with `amar_sample_row_masked`, at any
+  temperature (masked argmax at `temperature <= 0`). With `reasoning` true
+  the mask starts after `</think>` appears in the output. The request runs
+  with spec, the megakernel and truncation (`top_p`/`top_k`/`min_p`) off,
+  stops with `"finish":"stop"` when the document is complete, and the
+  engine logs `grammar masked draws: N accepted: N` per request
+  (`bench/grammar-protocol.md`). Spark uses the same grammar runtime and masked sampler.
+- `hidden`: optional bool for the HTTP completion routes. When true, the wire
+  emits a raw hidden row after each generated token. `logits_topk`: optional
+  integer from 1 to 20 for the same routes. The wire emits raw pre-penalty
+  top-k logits after each generated token. These options force non-spec decode
+  and are refused by `serve/spark.mojo`.
+- `{"cancel":ID}`: a second line shape, written to the same stdin at any
+  point while `ID` is decoding (the request line for the *next* id is never
+  written before this one's `done` line, so a stray line mid-request can
+  only be this). The engine polls for it once per decode window (`poll(0,
+  POLLIN, timeout=0)`, never blocking, never touching the GPU queue); a
+  match breaks the loop and the `done` line reports `"finish":"cancelled"`
+  with `n` = tokens actually generated. A cancel for a request that is not
+  the one currently decoding (already finished, or still queued on the
+  server side) is silently dropped -- cancelling a queued request is not
+  supported.
+
+The engine's parser is a byte scanner, not a JSON library: keys must be
+double-quoted, values must be plain integers / `true` / `false` / arrays of
+the shapes above, and no other structure is interpreted. Extra keys are
+ignored.
+
+## Per-request state
+
+Before each request the engine zeroes the conv/SSM slot rings, both KV
+caches (trunk and draft) and the megakernel counters, and resets the
+position to 0, so the request runs exactly as the one-shot path would.
+Verified: three back-to-back requests (no-spec, spec, no-spec) on the q4
+pack each reproduce `ref-tokens-64.txt` (`tools/test_server.sh`,
+`.work/lane/gate1.log`).
+
+## Multi-session engine (`BARO_SEQS=N`, N > 2, dense packs)
+
+`baro-serve --parallel N [--kv-pool P]` starts the engine with `BARO_SEQS=N`, `BARO_KV_SHARE=1`
+and `BARO_KV_POOL=P`; the engine must be built `-D BARO_SEQ_CAP>=N` (`-D BARO_SLOTS=2` keeps the
+SSM ring at two entries per slot: 32 slots hold 3.2 GB of recurrent state instead of 14.5 GB). The
+wire is unchanged: every request line is admitted at once, `tok`/`done`/`error` lines carry their
+id, and lines of different ids interleave. Up to N requests hold a slot each; more wait in the
+engine's pending list. Per loop the engine admits into free slots, runs every pending prefill
+(`BARO_SEQS_PF=all`), then one decode step for every decoding slot in groups of up to 8 rows
+(`serve/rows.mojo`). Each request restores the longest prefix checkpoint (its KV pages shared
+read-only, the partial page copied, the SSM state copied into its slot), takes further pages one at
+a time as it decodes, and frees them at `done`.
+
+- Admission takes pages for the prompt plus `BARO_SEQS_RESERVE` (512) decode tokens. When they are not
+  free while other requests run, the line waits in the engine's queue until pages free up (no
+  checkpoint is evicted for it); with nothing else running the engine evicts checkpoints and, if that
+  is not enough, answers `{"id":ID,"error":"kv pool full: ..."}` (`429`). `baro-serve --max-inflight Q`
+  (64) is the hard bound: past Q requests waiting or running, a new one gets `429` before it reaches the
+  engine. A slot that outgrows its reserve and cannot get its next page ends with
+  `kv pool exhausted at pos N` (`502`).
+- Served per slot: prompt, `n`, `stop`, `ckpt`, `temperature`/`top_p`/`top_k`/`min_p`/`seed`
+  (device sampler per row, same seed and counter as the single-sequence path). Refused with an error
+  line: `schema`, `embeds`, `embed`, `hidden`, `logits_topk`, `top_logprobs`, penalties, state
+  save/load, control lines. No speculation, no megakernel.
+- Identity: a request's ids equal the single-sequence engine's ids for the same prompt **and the same
+  restore point** (`timings.cached`). A deeper restore (an identical earlier prompt left a prompt-end
+  checkpoint) replays fewer rows through the kq WMMA prefill and can flip a near-tie, on either engine.
+  Gate: `bench/ailab/` (`baseline.sh`, `parity.sh` keyed on state and restore point, `burst.sh`).
+
+Streaming costs one host copy + synchronize per generated token on the
+non-spec path (spec mode reuses the accept-window copies it already
+makes): about 0.5% of tok/s_gen on the 5-token receipt prompt.
+
+## HTTP surface (`baro-serve`)
+
+| route | body | notes |
+|---|---|---|
+| `GET /health` | | `status`, `queue` (waiting+running), `tokenizer` (bool), `limits` (the ready line), `pack` |
+| `GET /v1/models` | | one model, id = pack directory name |
+| `POST /v1/completions` | `prompt` (string, or array of token ids), `max_tokens` (omitted: up to the window, TMAX minus prompt), `stream`, `spec` (extension), `stop` (string or array of strings), `temperature`/`top_p`/`top_k`/`min_p`/`seed`/`presence_penalty`/`frequency_penalty`/`logprobs`, plus `hidden` and `logits_topk` | response adds `choices[0].tokens`, `timings`, and requested top-level `hidden` or `logits_topk` arrays. In SSE, each latent row is a data chunk after its token chunk. |
+| `POST /v1/chat/completions` | `messages`, `max_tokens`/`max_completion_tokens`, `stream`, `spec`, `stop`, the same C3 sampler and latent fields, `tools`, `chat_template_kwargs`, `response_format` | needs the tokenizer; template from `tokenizer-meta.json` (`chat_template`, Jinja via minijinja + pycompat) else ChatML. `tools` and `chat_template_kwargs` are passed to the template (A5 `0950c6f`); non-streaming output returns parsed `choices[0].message.tool_calls`, while SSE emits OpenAI-shaped function-name and argument fragments as the model's `<tool_call>` wire arrives. `response_format` `{"type":"json_schema","json_schema":{"schema":...}}` is enforced on dense/MoE and Spark engines. Latent rows follow the same SSE and non-streaming shapes. `serve/spark.mojo` engines refuse latent fields with 400. |
+| `POST /v1/fork` | `prompt` (as `/v1/completions`), `branches`: array of `{max_tokens, spec, stop, sampler fields}` | runs the branches in order on one engine; branch 0 prefills and checkpoints the prompt, later branches restore it (B5 `a400c67`, `bench/fork-protocol.md`). Response `{"object":"fork","model","prompt_tokens","branches":[{index,id,text,tokens,finish_reason,usage,timings}]}`. |
+| `POST /v1/cancel` | `{"id": "cmpl-7"}` / `{"id": "chatcmpl-7"}` (the response `id`, or the SSE `id` field of its first chunk -- read while the request is still streaming) | `{"cancelled": bool}`; `true` only if that request was the one actively decoding. A queued-but-not-started or already-finished id returns `false`. |
+| `POST /tokenize` | `{"content": "...", "add_special": false}` | `{"tokens": [...]}` |
+| `POST /detokenize` | `{"tokens": [...]}` | `{"content": "..."}` |
+| `POST /v1/messages` | `messages`, `model`, `max_tokens`, `system`, `stream`, `stop_sequences`, `tools`, `tool_choice`, `temperature`, `top_p`, `thinking` | Anthropic Messages API. Translates request directly to the model chat template without an intermediate proxy. Returns an Anthropic message object or SSE event sequence. Auth accepts `x-api-key` and `Authorization: Bearer`. |
+| `POST /v1/messages/count_tokens` | `messages`, `system`, `tools`, `tool_choice`, `thinking` | Returns token count of the rendered chat template: `{"input_tokens": N}`. |
+| `POST /tool/crawl` | `{"url": "https://..."}` | The Baro phone app's page fetch, done by crawl4ai on this machine (`BARO_CRAWL4AI`, default `http://127.0.0.1:11235`; bearer token from `BARO_CRAWL4AI_TOKEN` or `CRAWL4AI_API_TOKEN`). Only http(s) URLs. Returns `{"text": markdown, "source": "crawl4ai"}`, at most 64 KB; 400 for a bad URL, 502 when crawl4ai fails. |
+| `GET /brain/pull` | none | The Baro phone app's Agent-Brain folder (`BARO_BRAIN_DIR`, default `~/Brain/baro-agent`) as a zip of stored entries, each with its mtime in the 0x5455 extra field. An empty zip while the folder does not exist. Symlinks and files over 1 MB are left out. |
+| `POST /brain/push` | zip body (stored entries) | The phone's merged folder. A new or identical file is written or skipped; a changed file is overwritten unless its own mtime is newer, then the pushed text is kept as `<file>.conflict-<YYYY-MM-DD>`. Returns `{"written", "conflicts", "unchanged"}`; 400 for compressed entries, a path that leaves the folder, or over 500 files / 1 MB each / 16 MB. |
+
+### Ollama compatibility surface (P0a)
+
+The Ollama routes share the existing `baro-serve` listener and model selected by
+`--pack`; there is no second Ollama port.  The compatibility surface is:
+
+| route | request and response contract |
+|---|---|
+| `GET /api/tags` | Returns one loaded model in Ollama's `models` array. |
+| `GET /api/ps` | Returns the loaded model while its engine is alive, otherwise an empty `models` array. |
+| `GET /api/version` | Returns the baro compatibility version. |
+| `POST /api/show` | Accepts `model` or `name`; returns model metadata for the loaded pack. |
+| `POST /api/pull` | Confirms the already loaded pack using Ollama NDJSON status frames. `stream:false` returns one success object. A different model returns `404`; importing or hot-swapping packs remains outside the server. |
+| `POST /api/chat` | Accepts Ollama `messages`, `options`, and `stream`. The default stream is `true`; streamed responses are newline-delimited JSON. `stream: false` returns one final JSON object. |
+| `POST /api/generate` | Accepts `prompt`, optional `system`, `raw`, `options`, and `stream`. The default stream is `true`; streamed responses are newline-delimited JSON. `stream: false` returns one final JSON object. |
+| `POST /api/embeddings` | Accepts a string `prompt` or `input` and returns one Ollama-shaped embedding vector from the P0a-e wire. Arrays of strings are also accepted. Spark and `BARO_SEQS > 1` refusals return `501` with `embeddings_pending`. |
+| `POST /v1/embeddings` | Accepts a string or array of strings in `input` and returns an OpenAI-shaped list of L2-normalized P0a-e vectors. `encoding_format`: `float` (default) or `base64` (little-endian f32 bytes). |
+
+The supported Ollama `options` mapping is `num_predict` to maximum generated
+tokens, `temperature`, `top_p`, `top_k`, `min_p`, `seed`, and `stop` to the
+existing sampler and stop fields. `repeat_penalty` and `num_ctx` are accepted
+for client compatibility but are not applied. `images`, tools, and format are
+accepted where present but are not implemented by this item. A client must not
+infer that an accepted option took effect without a read-back contract.
+
+Ollama stream chunks use `content-type: application/x-ndjson`, one JSON object
+per line, and finish with `done: true`, counts, durations, and the generated
+context. OpenAI routes continue to use SSE and are otherwise unchanged.
+The HTTP embedding wrapper is gated by `bench/p0a-contract-gate.sh` gate 4.
+The engine-vector parity gate remains `bench/p0ae-embed-gate.sh`: it compares
+the last-prompt-token vector with llama.cpp `--pooling last`, checks the 4096
+float dimension, normalization, determinism, identity with and without the
+flag, and malformed-flag refusal.
+
+`stream: true` returns SSE: one `data:` chunk per token (`text` delta and
+`tokens: [id]`), a final chunk with `finish_reason` + `usage` + `timings`
+(+ the full `tokens` list on completions), then `data: [DONE]`.
+
+Errors are `{"error": {"message", "type", "code"}}` with the HTTP status:
+`400` bad request (empty prompt, over-length, bad JSON), `503` no
+tokenizer / queue full / engine gone, `502` engine error mid-request.
+
+### Anthropic Messages compatibility surface
+
+`baro-serve` implements the Anthropic Messages API natively on loopback to support Claude Code
+and Anthropic SDK clients without an intermediate proxy.
+
+#### Authentication and headers
+Requests accept either `x-api-key: <key>` or `Authorization: Bearer <key>`. Anthropic version
+headers (`anthropic-version`, `anthropic-beta`) are accepted and ignored.
+
+#### Endpoints
+- `POST /v1/messages`: Execute a completion or streaming turn.
+- `POST /v1/messages/count_tokens`: Count input tokens for a prompt.
+
+#### Wire translation
+The adapter converts Anthropic format to the internal ChatML / Jinja chat template input:
+- System prompt: `system` (string or array of text content blocks) maps to `role: system`.
+- Messages: `messages` array of `{role, content}` objects.
+- Content blocks:
+  - `text`: Plain text payload.
+  - `tool_use`: Translated to function call with `id`, `name`, and serialized JSON arguments.
+  - `tool_result`: Translated to tool response with `tool_call_id` and string content.
+  - `thinking`: Converted to `<think>...</think>` tags for reasoning models.
+  - `image`: Refused immediately with HTTP 400 (`invalid_request_error`).
+- Tool definitions: `tools` array with `name`, `description`, and JSON schema `input_schema`.
+- Tool choice: `auto`, `any` (forced call), `tool` (named function), or `none`.
+- Sampler fields: `max_tokens`, `temperature`, `top_p`, `stop_sequences`.
+
+#### Non-streaming response
+Returns `{"id": "msg_<id>", "type": "message", "role": "assistant", "model": "...", "content": [...], "stop_reason": "...", "stop_sequence": null, "usage": {"input_tokens": N, "output_tokens": N}}`.
+- `stop_reason` values: `end_turn`, `max_tokens`, `tool_use`, `stop_sequence`.
+- Content blocks contain `text`, `thinking` (with `signature: ""`), or `tool_use` objects.
+
+#### Streaming SSE sequence
+When `stream: true`, the server emits Anthropic SSE events:
+1. `event: message_start` with initial message metadata and `input_tokens`.
+2. `event: content_block_start` with block `index` and type (`text`, `thinking`, or `tool_use`).
+3. `event: content_block_delta` with deltas: `text_delta`, `thinking_delta`, `signature_delta`, or `input_json_delta`.
+4. `event: content_block_stop` with block `index`.
+5. `event: message_delta` with final `stop_reason`, `stop_sequence`, and `output_tokens`.
+6. `event: message_stop` with empty object `{}`.
+7. Keepalive: `event: ping\ndata: {"type":"ping"}`.
+8. Streaming error: `event: error\ndata: {"type":"error","error":{"type":"api_error","message":"..."}}`.
+
+#### Token counting
+`POST /v1/messages/count_tokens` applies the loaded tokenizer and chat template to the
+rendered system prompt and message sequence, returning `{"input_tokens": N}`.
+
+## P3a speech input
+
+`POST /v1/audio/transcriptions` accepts an OpenAI-compatible multipart form. The required
+`file` part is an audio file; `model`, `language`, and `response_format` are optional fields.
+The server accepts `response_format=text` and returns the transcript as plain text, or
+`response_format=json` and returns `{"text":"..."}`. The default model is the coordinator's
+large Whisper model, and the default language is `en`.
+
+The first request starts one `whisper-server` sidecar on loopback with the selected model,
+English language, beam size 5, 8 threads, and GPU enabled when the gate admits it. The server
+proxies the file to the sidecar's `/inference` endpoint, waits for the JSON result, and forwards
+only the requested response shape. The sidecar stops after the idle timeout and is restarted for
+the next request. It never starts an LLM engine for an audio-only gate.
+
+The sidecar's effective model path, language, beam size, thread count, device, and listening
+address are logged before the first transcription and copied into the gate receipt. A malformed
+multipart request is `400`; a sidecar start or request failure is `502`; an unavailable model or
+sidecar capacity failure is `503`. The fixed P3a fixture gate compares the normalized `text`
+field or plain response byte for byte against the same `whisper-cli` model and settings.
+
+## P3b speech output
+
+`POST /v1/audio/speech` accepts JSON `input`, optional `model` and `voice`, `response_format` set
+to `wav`, and `speed` set to `1`. It runs the configured TTS command with arguments
+`TEXT VOICE OUTPUT_WAV`, defaulting to the local Piper runner, and returns `audio/wav`.
+
+### Tokenizer files (owned by the tokenizer lane)
+
+`<pack>/tokenizer.json` (HF `tokenizers` format; loaded with the Rust
+`tokenizers` crate, oniguruma regex backend) and, optionally,
+`<pack>/tokenizer-meta.json` with `chat_template` (string),
+`bos_token_id`/`eos_token_id` (or `bos_id`/`eos_id`), `bos_token`/
+`eos_token` (strings), `add_bos` (bool). Stop ids = `eos_token_id` plus
+`<|im_end|>` / `<|endoftext|>` when the vocabulary has them. Without
+`tokenizer.json` the server starts anyway and the text endpoints return
+`503`; `--tokenizer PATH` points at a file elsewhere. `--chat-template-file
+PATH` overrides the pack's `tokenizer-meta.json` template for this process.
+The file is UTF-8 raw Jinja. It is validated at startup and receives the same
+render context as an embedded template. Without the flag, the embedded
+template and then the existing ChatML fallback are unchanged.
+
+## The C-ABI seam
+
+Everything above the engine is written against three operations, and the
+process boundary is the only thing the line protocol adds:
+
+| stdin/stdout today | C ABI later |
+|---|---|
+| spawn + `ready` line | `baro_engine_t* baro_open(const char* pack)` returning the same limits struct |
+| request line | `int baro_generate(baro_engine_t*, const uint32_t* prompt, size_t n_prompt, uint32_t n, bool spec, baro_token_cb cb, void* user)` — `cb(user, token)` per token, return = done stats or a negative error code |
+| stdin EOF | `void baro_close(baro_engine_t*)` |
+
+`serve/src/engine.rs` is the only file that knows about the child
+process; `Engine::submit` / `Event` are the interface the handlers use and
+would be re-implemented over the ABI (one worker task still serialises
+calls, since the engine stays single-request). `serve/src/protocol.rs`
+(the line parser and its tests) is the part that disappears. Rust must
+bind Mojo's exported C symbols only — never the C++ hipBLASLt shim
+(`docs/BASELINE.md`, "Layers").
+
+## Verifying
+
+```
+tools/test_server.sh [OUTDIR]      # builds, then: clippy, cargo test, /health,
+                                   # completion == ref-tokens-64, SSE == ref,
+                                   # 2 queued == ref, 400 on over-length, SIGINT shutdown
+```
+
+Runs under `gpu-wait` by itself. Receipts land in `OUTDIR/SUMMARY.txt`
+(default `.work/server-test/`).
+"""Byte-level BPE tokenizer read straight from a GGUF header (no tensors touched).
+
+Mirrors tools/gguf-tokenizer.py: gpt2-model vocab + merges + token_type from the
+tokenizer.ggml.* keys, pre-tokenizer regexes per tokenizer.ggml.pre (llama.cpp's
+tables), control/user_defined tokens matched in the text before BPE. Regexes run
+on the vendored uregex/ (repo root, -I ., upstream ~/Projects/mojo/mojo-libs/libs/uregex).
+"""
+from std.collections import Dict, Set
+from std.memory import bitcast
+from uregex import Pattern
+
+
+def to_codepoints(s: StringSlice) -> List[Int]:
+    var out = List[Int]()
+    for c in s.codepoints():
+        out.append(Int(c.to_u32()))
+    return out^
+
+
+def from_codepoints(cps: List[Int], start: Int, end: Int) -> String:
+    var s = String("")
+    for i in range(start, end):
+        s += String(Codepoint.from_u32(UInt32(cps[i])).value())
+    return s^
+
+
+comptime T_NORMAL = 1
+comptime T_UNKNOWN = 2
+comptime T_CONTROL = 3
+comptime T_USER = 4
+comptime T_UNUSED = 5
+comptime T_BYTE = 6
+
+comptime HEADER_MAX = 96 << 20
+comptime HEADER_FIRST = 16 << 20
+
+
+struct Reader:
+    var buf: List[UInt8]
+    var pos: Int
+    var path: String
+
+    def __init__(out self, var buf: List[UInt8], path: String = ""):
+        self.buf = buf^
+        self.pos = 0
+        self.path = path
+
+    def need(mut self, n: Int) raises:
+        while self.pos + n > len(self.buf):
+            if self.path == "" or len(self.buf) >= HEADER_MAX:
+                raise Error("gguf: header longer than " + String(HEADER_MAX) + " bytes")
+            with open(self.path, "r") as f:
+                _ = f.seek(len(self.buf))
+                var more = f.read_bytes(min(max(len(self.buf), self.pos + n - len(self.buf)), HEADER_MAX - len(self.buf)))
+                if len(more) == 0:
+                    raise Error("gguf: file ends inside the header")
+                self.buf.extend(Span(more))
+
+    def u32(mut self) raises -> Int:
+        self.need(4)
+        var v = 0
+        for i in range(4):
+            v |= Int(self.buf[self.pos + i]) << (8 * i)
+        self.pos += 4
+        return v
+
+    def u64(mut self) raises -> Int:
+        self.need(8)
+        var v = 0
+        for i in range(8):
+            v |= Int(self.buf[self.pos + i]) << (8 * i)
+        self.pos += 8
+        return v
+
+    def f32(mut self) raises -> Float32:
+        self.need(4)
+        var b0 = UInt32(self.buf[self.pos])
+        var b1 = UInt32(self.buf[self.pos + 1])
+        var b2 = UInt32(self.buf[self.pos + 2])
+        var b3 = UInt32(self.buf[self.pos + 3])
+        var bits = b0 | (b1 << 8) | (b2 << 16) | (b3 << 24)
+        self.pos += 4
+        return bitcast[DType.float32, 1](bits)[0]
+
+    def string(mut self) raises -> String:
+        var n = self.u64()
+        self.need(n)
+        var s = String(unsafe_from_utf8=Span(self.buf)[self.pos : self.pos + n])
+        self.pos += n
+        return s^
+
+    def skip_scalar(mut self, vtype: Int) raises:
+        var n = 0
+        if vtype == 0 or vtype == 1 or vtype == 7:
+            n = 1
+        elif vtype == 2 or vtype == 3:
+            n = 2
+        elif vtype == 4 or vtype == 5 or vtype == 6:
+            n = 4
+        elif vtype == 10 or vtype == 11 or vtype == 12:
+            n = 8
+        else:
+            raise Error("gguf: unknown scalar type " + String(vtype))
+        self.need(n)
+        self.pos += n
+
+    def scalar_int(mut self, vtype: Int) raises -> Int:
+        var n = 0
+        if vtype == 0 or vtype == 1 or vtype == 7:
+            n = 1
+        elif vtype == 2 or vtype == 3:
+            n = 2
+        elif vtype == 4 or vtype == 5:
+            n = 4
+        elif vtype == 10 or vtype == 11:
+            n = 8
+        else:
+            self.skip_scalar(vtype)
+            return -1
+        self.need(n)
+        var v = 0
+        for i in range(n):
+            v |= Int(self.buf[self.pos + i]) << (8 * i)
+        self.pos += n
+        return v
+
+
+def _pos(r: Int) -> Int:
+    return r
+
+
+def _pos(r: Optional[Int]) -> Int:
+    return r.or_else(-1)
+
+
+struct Tokenizer(Movable):
+    var tokens: List[String]
+    var types: List[UInt8]
+    var tok2id: Dict[String, Int]
+    var merge_of: Dict[Int, Int]
+    var merges: List[Int]
+    var byte_id: List[Int]
+    var special_first: Set[Int]
+    var scores: List[Float32]
+    var pre: String
+    var patterns: List[Pattern]
+    var specials: List[List[Int]]
+    var special_ids: List[Int]
+    var bos_id: Int
+    var eos_id: Int
+    var pad_id: Int
+    var add_bos: Bool
+    var chat_template: String
+    var b2u: List[Int]
+    var u2b: Dict[Int, Int]
+    var is_spm: Bool
+    var add_space_prefix: Bool
+    var ignore_merges: Bool
+    var is_g4: Bool  # tokenizer.ggml.model gemma4: BPE on raw UTF-8, spaces as U+2581, newline runs split
+
+    def __init__(out self, gguf_path: String) raises:
+        self.tokens = List[String]()
+        self.types = List[UInt8]()
+        self.tok2id = Dict[String, Int]()
+        self.merge_of = Dict[Int, Int]()
+        self.merges = List[Int]()
+        self.byte_id = List[Int]()
+        self.special_first = Set[Int]()
+        self.scores = List[Float32]()
+        self.pre = String("default")
+        self.patterns = List[Pattern]()
+        self.specials = List[List[Int]]()
+        self.special_ids = List[Int]()
+        self.bos_id = -1
+        self.eos_id = -1
+        self.pad_id = -1
+        self.add_bos = False
+        self.chat_template = String("")
+        self.b2u = List[Int]()
+        self.u2b = Dict[Int, Int]()
+        self.is_spm = False
+        self.add_space_prefix = False
+        self.ignore_merges = False
+        self.is_g4 = False
+        self._byte_maps()
+        self._read_gguf(gguf_path)
+        if not self.is_spm:
+            self._compile_pre()
+            for b in range(256):
+                self.byte_id.append(self.tok2id.get(String(Codepoint.from_u32(UInt32(self.b2u[b])).value()), -1))
+        for i in range(len(self.tokens)):
+            if self.types[i] == T_CONTROL or self.types[i] == T_USER:
+                self.specials.append(to_codepoints(self.tokens[i]))
+                if len(self.specials[len(self.specials) - 1]) > 0:
+                    self.special_first.add(self.specials[len(self.specials) - 1][0])
+                self.special_ids.append(i)
+
+    def _byte_maps(mut self):
+        var n = 0
+        for b in range(256):
+            var printable = (b >= 33 and b <= 126) or (b >= 161 and b <= 172) or (b >= 174 and b <= 255)
+            var u = b
+            if not printable:
+                u = 256 + n
+                n += 1
+            self.b2u.append(u)
+            self.u2b[u] = b
+
+    def _read_gguf(mut self, path: String) raises:
+        var buf: List[UInt8]
+        with open(path, "r") as f:
+            buf = f.read_bytes(HEADER_FIRST)
+        var r = Reader(buf^, path)
+        var magic = r.u32()
+        if magic != 0x46554747:
+            raise Error("gguf: bad magic")
+        var version = r.u32()
+        if version != 3:
+            raise Error("gguf: unsupported version " + String(version))
+        _ = r.u64()
+        var n_kv = r.u64()
+        var model = String("")
+        var saw_add_bos_key = False
+        var saw_add_space_prefix_key = False
+        for _ in range(n_kv):
+            var key = r.string()
+            var vtype = r.u32()
+            if vtype == 8:
+                var s = r.string()
+                if key == "tokenizer.ggml.model":
+                    model = s
+                elif key == "tokenizer.ggml.pre":
+                    self.pre = s
+                elif key == "tokenizer.chat_template":
+                    self.chat_template = s
+            elif vtype == 9:
+                var etype = r.u32()
+                var n = r.u64()
+                if key == "tokenizer.ggml.tokens" and etype == 8:
+                    self.tokens.reserve(n)
+                    for i in range(n):
+                        self.tokens.append(r.string())
+                        self.tok2id[self.tokens[i]] = i
+                elif key == "tokenizer.ggml.merges" and etype == 8:
+                    if len(self.tok2id) == 0:
+                        raise Error("gguf: tokenizer.ggml.merges before tokenizer.ggml.tokens")
+                    self.merges.reserve(n)
+                    for i in range(n):
+                        var m = r.string()
+                        var sp = _pos(m.find(" ", 1))  # llama.cpp: the first space after the first byte
+                        var left = String(m[byte=:sp])
+                        var a = self.tok2id.get(left, -1)
+                        var right = String(m[byte=sp + 1:])
+                        var b = self.tok2id.get(right, -1)
+                        left += right
+                        var ab = self.tok2id.get(left, -1)
+                        if model == "gemma4" and (sp < 0 or a < 0 or b < 0 or ab < 0):
+                            continue  # a merge of strings no symbol can reach; llama.cpp keeps it as an unused rank
+                        if sp < 0 or a < 0 or b < 0 or ab < 0:
+                            raise Error("gguf: merge outside the vocab: " + m)
+                        self.merges.append((a << 32) | b)
+                        self.merge_of[(a << 32) | b] = (i << 32) | ab
+                elif key == "tokenizer.ggml.token_type":
+                    self.types.reserve(n)
+                    for _ in range(n):
+                        self.types.append(UInt8(r.scalar_int(etype)))
+                elif key == "tokenizer.ggml.scores" and etype == 6:
+                    self.scores.reserve(n)
+                    for _ in range(n):
+                        self.scores.append(r.f32())
+                elif etype == 8:
+                    for _ in range(n):
+                        _ = r.string()
+                elif etype == 9:
+                    raise Error("gguf: nested arrays unsupported")
+                else:
+                    for _ in range(n):
+                        r.skip_scalar(etype)
+            else:
+                var v = r.scalar_int(vtype)
+                if key == "tokenizer.ggml.bos_token_id":
+                    self.bos_id = v
+                elif key == "tokenizer.ggml.eos_token_id":
+                    self.eos_id = v
+                elif key == "tokenizer.ggml.padding_token_id":
+                    self.pad_id = v
+                elif key == "tokenizer.ggml.add_bos_token":
+                    self.add_bos = v == 1
+                    saw_add_bos_key = True
+                elif key == "tokenizer.ggml.add_space_prefix":
+                    self.add_space_prefix = v == 1
+                    saw_add_space_prefix_key = True
+        if model == "gpt2":
+            self.is_spm = False
+        elif model == "llama":
+            self.is_spm = True
+        elif model == "gemma4":
+            self.is_g4 = True
+        else:
+            raise Error("tokenizer.ggml.model=" + model + ": only gpt2 (BPE) or llama (SPM) is supported")
+        if len(self.tokens) == 0 or len(self.tokens) != len(self.types):
+            raise Error("gguf: tokens/token_type missing or mismatched")
+        if self.is_spm and len(self.scores) != len(self.tokens):
+            raise Error("gguf: tokenizer.ggml.scores missing or mismatched for SPM model")
+        if not saw_add_space_prefix_key:
+            self.add_space_prefix = self.is_spm
+        self.ignore_merges = self.pre == "llama3" or self.pre == "llama-bpe" or self.pre == "minicpm5"
+        if not saw_add_bos_key and self.ignore_merges:
+            self.add_bos = True
+        if self.is_g4:
+            self.add_bos = True  # llama.cpp overrides add_bos to true for the gemma4 pre-tokenizer
+
+    def _compile_pre(mut self) raises:
+        comptime CONTR = r"(?i:'s|'t|'re|'ve|'m|'ll|'d)"
+        if self.pre == "qwen2" or self.pre == "deepseek-r1-qwen" or self.pre == "f2llmv2" or self.pre == "grok-2" or self.pre == "hunyuan" or self.pre == "kormo" or self.pre == "megrez" or self.pre == "solar-open" or self.pre == "stablelm2":
+            self.patterns.append(Pattern(CONTR + r"|[^\r\n\p{L}\p{N}]?\p{L}+|\p{N}| ?[^\s\p{L}\p{N}]+[\r\n]*|\s*[\r\n]+|\s+(?!\S)|\s+"))
+        elif self.pre == "qwen35":
+            self.patterns.append(Pattern(CONTR + r"|[^\r\n\p{L}\p{N}]?[\p{L}\p{M}]+|\p{N}| ?[^\s\p{L}\p{M}\p{N}]+[\r\n]*|\s*[\r\n]+|\s+(?!\S)|\s+"))
+        elif self.pre == "llama3" or self.pre == "llama-bpe" or self.pre == "dbrx" or self.pre == "falcon-h1" or self.pre == "falcon3" or self.pre == "chatglm-bpe" or self.pre == "glm4" or self.pre == "jina-v5-nano" or self.pre == "lfm2" or self.pre == "llama-v3" or self.pre == "midm-2.0" or self.pre == "pixtral" or self.pre == "smaug-bpe":
+            self.patterns.append(Pattern(CONTR + r"|[^\r\n\p{L}\p{N}]?\p{L}+|\p{N}{1,3}| ?[^\s\p{L}\p{N}]+[\r\n]*|\s*[\r\n]+|\s+(?!\S)|\s+"))
+        elif self.pre == "spark2_5":
+            self.patterns.append(Pattern(r"\p{N}{1,3}"))
+            self.patterns.append(Pattern(r"[一-龥぀-ゟ゠-ヿ]+"))
+            self.patterns.append(Pattern(r"[!\"#$%&'()*+,\-./:;<=>?@\[\\\]^_`{|}~][A-Za-z]+|[^\r\n\p{L}\p{P}\p{S}]?[\p{L}\p{M}]+| ?[\p{P}\p{S}]+|[\r\n]|\s+(?!\S)|\s+"))
+            self.patterns.append(Pattern(r"\p{N}"))
+        elif self.pre == "minicpm5":
+            self.patterns.append(Pattern(r"\p{N}{1,3}"))
+            self.patterns.append(Pattern(CONTR + r"|[^\r\n\p{L}\p{N}]?\p{L}+|\p{N}+| ?[^\s\p{L}\p{N}]+[\r\n]*|\s*[\r\n]+|\s+(?!\S)|\s+"))
+        elif self.pre == "deepseek-v3" or self.pre == "hunyuan-dense" or self.pre == "hy_v4" or self.pre == "joyai-llm":
+            self.patterns.append(Pattern(r"\p{N}{1,3}"))
+            self.patterns.append(Pattern(r"[一-龥぀-ゟ゠-ヿ]+"))
+            self.patterns.append(Pattern(r"[!\"#$%&'()*+,\-./:;<=>?@\[\\\]^_`{|}~][A-Za-z]+|[^\r\n\p{L}\p{P}\p{S}]?[\p{L}\p{M}]+| ?[\p{P}\p{S}]+[\r\n]*|\s*[\r\n]+|\s+(?!\S)|\s+"))
+        elif self.pre == "bailingmoe" or self.pre == "bailingmoe2" or self.pre == "llada-moe":
+            self.patterns.append(Pattern(CONTR + r"|[^\r\n\p{L}\p{N}]?\p{L}+|\p{N}| ?[^\s\p{L}\p{N}]+[\r\n]*|\s*[\r\n]|\s+(?!\S)|\s+"))
+        elif self.pre == "exaone" or self.pre == "command-r" or self.pre == "codeshell" or self.pre == "mellum2" or self.pre == "minerva-7b" or self.pre == "refact" or self.pre == "smollm" or self.pre == "starcoder":
+            self.patterns.append(Pattern(r"\p{N}"))
+            self.patterns.append(Pattern(r"'s|'t|'re|'ve|'m|'ll|'d| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)"))
+        elif self.pre == "cohere2moe" or self.pre == "tiny_aya":
+            self.patterns.append(Pattern(r"\d{1,3}(?=(?:\d{3})*\b)"))
+            self.patterns.append(Pattern(r"[^\r\n\p{L}\p{N}]?[\p{Lu}\p{Lt}\p{Lm}\p{Lo}\p{M}]*[\p{Ll}\p{Lm}\p{Lo}\p{M}]+(?:'[sS]|'[tT]|'[rR][eE]|'[vV][eE]|'[mM]|'[lL][lL]|'[dD])?|[^\r\n\p{L}\p{N}]?[\p{Lu}\p{Lt}\p{Lm}\p{Lo}\p{M}]+[\p{Ll}\p{Lm}\p{Lo}\p{M}]*(?:'[sS]|'[tT]|'[rR][eE]|'[vV][eE]|'[mM]|'[lL][lL]|'[dD])?|\p{N}{1,3}| ?[^\s\p{L}\p{N}]+[\r\n/]*|\s*[\r\n]+|\s+(?!\S)|\s+"))
+        elif self.pre == "gpt-2" or self.pre == "default" or self.pre == "granite-docling" or self.pre == "exaone4":
+            self.patterns.append(Pattern(r"'s|'t|'re|'ve|'m|'ll|'d| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"))
+        elif self.pre == "a.x-4.0" or self.pre == "gigachat" or self.pre == "jais" or self.pre == "jina-de" or self.pre == "jina-es" or self.pre == "jina-v1-en" or self.pre == "jina-v2-code" or self.pre == "jina-v2-de" or self.pre == "jina-v2-es" or self.pre == "mellum" or self.pre == "modern-bert" or self.pre == "mpt" or self.pre == "olmo" or self.pre == "phi-2" or self.pre == "roberta-bpe" or self.pre == "trillion":
+            self.patterns.append(Pattern(r"'s|'t|'re|'ve|'m|'ll|'d| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)"))
+        elif self.pre == "chameleon" or self.pre == "gemma4" or self.pre == "granite-embed-multi-311m" or self.pre == "granite-embed-multi-97m" or self.pre == "sarvam-moe" or self.pre == "tekken" or self.pre == "whitespace":
+            pass
+        elif self.pre == "bloom" or self.pre == "gpt3-finnish" or self.pre == "poro-chat":
+            self.patterns.append(Pattern(r" ?[^(\s|.,!?…。，、।۔،)]+"))
+        elif self.pre == "gpt-4o" or self.pre == "kanana2" or self.pre == "llama4" or self.pre == "minimax-m2" or self.pre == "talkie":
+            self.patterns.append(Pattern(r"[^\r\n\p{L}\p{N}]?[\p{Lu}\p{Lt}\p{Lm}\p{Lo}\p{M}]*[\p{Ll}\p{Lm}\p{Lo}\p{M}]+(?i:'s|'t|'re|'ve|'m|'ll|'d)?|[^\r\n\p{L}\p{N}]?[\p{Lu}\p{Lt}\p{Lm}\p{Lo}\p{M}]+[\p{Ll}\p{Lm}\p{Lo}\p{M}]*(?i:'s|'t|'re|'ve|'m|'ll|'d)?|\p{N}{1,3}| ?[^\s\p{L}\p{N}]+[\r\n/]*|\s*[\r\n]+|\s+(?!\S)|\s+"))
+        elif self.pre == "deepseek-coder":
+            self.patterns.append(Pattern(r"[\r\n]"))
+            self.patterns.append(Pattern(r"\s?[A-Za-zµÀ-ÖØ-öø-ƺƼ-ƿǄ-ʓʕ-ʯͰ-ͳͶͷͻ-ͽͿΆΈ-ΊΌΎ-ΡΣ-ϵϷ-ҁҊ-ԯԱ-ՖႠ-ჅᎠ-Ᏽᏸ-ᏽᲐ-ᲺᲽ-Ჿᴀ-ᴫᵫ-ᵷᵹ-ᶚḀ-ἕἘ-Ἕἠ-ὅὈ-Ὅὐ-ὗὙὛὝὟ-ώᾀ-ᾴᾶ-ᾼιῂ-ῄῆ-ῌῐ-ΐῖ-Ίῠ-Ῥῲ-ῴῶ-ῼℂℇℊ-ℓℕℙ-ℝℤΩℨK-ℭℯ-ℴℹℼ-ℿⅅ-ⅉⅎↃↄⰀ-ⱻⱾ-ⳤⳫ-ⳮⳲⳳꙀ-ꙭꚀ-ꚛꜢ-ꝯꝱ-ꞇꞋ-ꞎꭰ-ꮿﬀ-ﬆﬓ-ﬗＡ-Ｚａ-ｚ𐐀-𐑏𐒰-𐓓𐓘-𐓻𐲀-𐲲𐳀-𐳲𑢠-𑣟𞤀-𞥃]+"))
+            self.patterns.append(Pattern(r"\s?[!-/:-~！-／：-～‘-‟　-。]+"))
+            self.patterns.append(Pattern(r"\s+$"))
+            self.patterns.append(Pattern(r"[一-龥ࠀ-一가-퟿]+"))
+            self.patterns.append(Pattern(r"\p{N}"))
+        elif self.pre == "exaone-moe":
+            self.patterns.append(Pattern(CONTR + r"|[^\r\n\p{L}\p{N}]?(?:\p{L}\p{M}*(?: \p{L}\p{M}*)*)+|\p{N}| ?[^\s\p{L}\p{N}]+[\r\n/]?|\s*[\r\n]|\s+(?!\S)|\s+"))
+        elif self.pre == "falcon":
+            self.patterns.append(Pattern(r"[\p{P}\$\+<=>\^~\|`]+"))
+            self.patterns.append(Pattern(r"'s|'t|'re|'ve|'m|'ll|'d| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)"))
+            self.patterns.append(Pattern(r"[0-9][0-9][0-9]"))
+        elif self.pre == "jais-2":
+            self.patterns.append(Pattern(CONTR + r"|[^\r\n\p{L}\p{N}]?\p{L}+|\p{N}{1,3}| ?[^\s\p{L}\p{N}]+[\r\n]*|\s*[\r\n]+|\s{512}(?!\S)|\s{256}(?!\S)|\s{128}(?!\S)|\s{64}(?!\S)|\s{32}(?!\S)|\s{16}(?!\S)|\s{8}(?!\S)|\s{4}(?!\S)|\s{1,2}(?!\S)|\s{1}"))
+        elif self.pre == "kimi-k2":
+            self.patterns.append(Pattern(r"\p{Han}+"))
+        elif self.pre == "laguna":
+            self.patterns.append(Pattern(r"[^\n]+|[\n]+"))
+            self.patterns.append(Pattern(CONTR + r"|[^\r\n\p{L}\p{N}]?\p{L}+|\p{N}| ?[^\s\p{L}\p{N}]+[\r\n]*|\s*[\r\n]+|\s+(?!\S)|\s+"))
+        elif self.pre == "seed-coder":
+            self.patterns.append(Pattern(CONTR + r"|[^\r\n\p{L}\p{N}]?\p{L}+|\p{N}{1}| ?[^\s\p{L}\p{N}\r\n]+|\s*[\r\n]+|\s+(?!\S)|\s+"))
+        elif self.pre == "superbpe":
+            self.patterns.append(Pattern(r"\p{N}+"))
+            self.patterns.append(Pattern(r"(?=(\d{3})+(?!\d))"))
+        elif self.pre == "viking":
+            self.patterns.append(Pattern(r" ?[^(\s|.,!?…。，、।۔،)]+"))
+            self.patterns.append(Pattern(r"\p{N}"))
+        elif self.pre == "youtu":
+            self.patterns.append(Pattern(r"[가-힣ㄱ-ㆎ]+|[！…“”‘’—：；，、-〿︰-﹏]+|[ㄅ-ㄯ]+|[一-龥぀-ゟ゠-ヿ]+"))
+            self.patterns.append(Pattern(r"[^\r\n\p{L}\p{N}]?[\p{Lu}\p{Lt}\p{Lm}\p{Lo}\p{M}]*[\p{Ll}\p{Lm}\p{Lo}\p{M}]+(?:'[sS]|'[tT]|'[rR][eE]|'[vV][eE]|'[mM]|'[lL][lL]|'[dD])?|[^\r\n\p{L}\p{N}]?[\p{Lu}\p{Lt}\p{Lm}\p{Lo}\p{M}]+[\p{Ll}\p{Lm}\p{Lo}\p{M}]*(?:'[sS]|'[tT]|'[rR][eE]|'[vV][eE]|'[mM]|'[lL][lL]|'[dD])?|\p{N}| ?[^\s\p{L}\p{N}]+[\r\n/]*|\s*[\r\n]+|\s+(?!\S)|\s+"))
+
+        else:
+            raise Error("tokenizer.ggml.pre=" + self.pre + ": no pre-tokenizer regex on file")
+
+
+    def _pieces(self, chunk: String) -> List[String]:
+        var pieces = List[String]()
+        pieces.append(chunk)
+        for p in self.patterns:
+            var next = List[String]()
+            for piece in pieces:
+                for q in p.split_keep(piece):
+                    next.append(q)
+            pieces = next^
+        return pieces^
+
+    def _bpe(self, piece: String, mut out: List[Int]) raises:
+        if self.ignore_merges and len(piece.as_bytes()) > 0:
+            var whole = String("")
+            for b in piece.as_bytes():
+                whole += String(Codepoint.from_u32(UInt32(self.b2u[Int(b)])).value())
+            var wid = self.tok2id.get(whole, -1)
+            if wid >= 0:
+                out.append(wid)
+                return
+        var syms = List[Int](capacity=len(piece.as_bytes()))
+        for b in piece.as_bytes():
+            syms.append(self.byte_id[Int(b)])
+        while len(syms) > 1:
+            var best = -1
+            var best_m = 1 << 62
+            for i in range(len(syms) - 1):
+                var m = self.merge_of.get((syms[i] << 32) | syms[i + 1], -1)
+                if m >= 0 and m < best_m:
+                    best_m = m
+                    best = i
+            if best < 0:
+                break
+            syms[best] = best_m & 0xFFFFFFFF
+            _ = syms.pop(best + 1)
+        for id in syms:
+            if id < 0:
+                raise Error("tokenizer: byte not in vocab")
+            out.append(id)
+
+    def _hex_digit(self, n: Int) -> String:
+        var code = UInt32(48 + n) if n < 10 else UInt32(55 + n)
+        return String(Codepoint.from_u32(code).value())
+
+    def _byte_tok(self, b: UInt8) raises -> Int:
+        var key = String("<0x")
+        key += self._hex_digit(Int(b) >> 4)
+        key += self._hex_digit(Int(b) & 15)
+        key += ">"
+        var id = self.tok2id.get(key, -1)
+        if id < 0:
+            raise Error("tokenizer: no byte token for " + key)
+        return id
+
+    def _hex_val(self, c: UInt8) -> Int:
+        return Int(c) - 48 if c <= 57 else Int(c) - 65 + 10
+
+    def _byte_from_tok(self, id: Int) -> UInt8:
+        var raw = List[UInt8]()
+        for b in self.tokens[id].as_bytes():
+            raw.append(b)
+        return UInt8(self._hex_val(raw[3]) * 16 + self._hex_val(raw[4]))
+
+    def _spm(self, text: String, mut out: List[Int]) raises:
+        var cps = to_codepoints(text)
+        var syms = List[String]()
+        for j in range(len(cps)):
+            syms.append(from_codepoints(cps, j, j + 1))
+        while len(syms) > 1:
+            var best = -1
+            var best_score: Float32 = 0.0
+            for i in range(len(syms) - 1):
+                var cand = String(syms[i])
+                cand += syms[i + 1]
+                var id = self.tok2id.get(cand, -1)
+                if id < 0:
+                    continue
+                var sc = self.scores[id]
+                if best < 0 or sc > best_score:
+                    best = i
+                    best_score = sc
+            if best < 0:
+                break
+            var merged = String(syms[best])
+            merged += syms[best + 1]
+            syms[best] = merged^
+            _ = syms.pop(best + 1)
+        for s in syms:
+            var id = self.tok2id.get(s, -1)
+            if id >= 0:
+                out.append(id)
+            else:
+                for b in s.as_bytes():
+                    out.append(self._byte_tok(b))
+
+    def _spm_encode(self, chunk: String, is_prev_special: Bool, mut out: List[Int]) raises:
+        var text = String(" ") if (self.add_space_prefix and is_prev_special) else String("")
+        text += chunk
+        var raw = List[UInt8]()
+        for b in text.as_bytes():
+            if b == 32:
+                raw.append(0xE2)
+                raw.append(0x96)
+                raw.append(0x81)
+            else:
+                raw.append(b)
+        var escaped = String(unsafe_from_utf8=Span(raw))
+        self._spm(escaped, out)
+
+    def _g4_encode(self, cps: List[Int], start: Int, end: Int, mut out: List[Int]) raises:
+        """gemma4: spaces become U+2581, the text splits into runs of newlines and runs of anything else, a run that is
+        one token is that token, else BPE merges (lowest rank first) over its codepoints; a codepoint outside the
+        vocab is emitted as <0xNN> byte tokens."""
+        var i = start
+        while i < end:
+            var nl = cps[i] == 10
+            var j = i
+            while j < end and (cps[j] == 10) == nl:
+                j += 1
+            var syms = List[Int]()
+            var sc = List[Int]()
+            for k in range(i, j):
+                var c = 0x2581 if cps[k] == 32 else cps[k]
+                sc.append(c)
+                syms.append(self.tok2id.get(String(Codepoint.from_u32(UInt32(c)).value()), -1))
+            var whole = -1
+            if nl:
+                whole = self.tok2id.get(from_codepoints(cps, i, j), -1)
+            if whole >= 0:
+                out.append(whole)
+                i = j
+                continue
+            while len(syms) > 1:
+                var best = -1
+                var best_m = 1 << 62
+                for k in range(len(syms) - 1):
+                    if syms[k] < 0 or syms[k + 1] < 0:
+                        continue
+                    var m = self.merge_of.get((syms[k] << 32) | syms[k + 1], -1)
+                    if m >= 0 and m < best_m:
+                        best_m = m
+                        best = k
+                if best < 0:
+                    break
+                syms[best] = best_m & 0xFFFFFFFF
+                _ = syms.pop(best + 1)
+                _ = sc.pop(best + 1)
+            for k in range(len(syms)):
+                if syms[k] >= 0:
+                    out.append(syms[k])
+                else:
+                    for b in String(Codepoint.from_u32(UInt32(sc[k])).value()).as_bytes():
+                        out.append(self._byte_tok(b))
+            i = j
+
+    def _match_special(self, cps: List[Int], at: Int) -> Int:
+        var best = -1
+        var best_len = 0
+        if at < len(cps) and cps[at] not in self.special_first:
+            return -1
+        for k in range(len(self.specials)):
+            var n = len(self.specials[k])
+            if n <= best_len or at + n > len(cps):
+                continue
+            var ok = True
+            for j in range(n):
+                if cps[at + j] != self.specials[k][j]:
+                    ok = False
+                    break
+            if ok:
+                best = k
+                best_len = n
+        return best
+
+    def token_str(self, id: Int) -> String:
+        return self.tokens[id] if id >= 0 and id < len(self.tokens) else String("")
+
+    def encode(self, text: String, add_special: Bool = True) raises -> List[Int]:
+        var out = List[Int]()
+        if add_special and self.add_bos and self.bos_id >= 0:
+            out.append(self.bos_id)
+        var cps = to_codepoints(text)
+        var start = 0
+        var i = 0
+        var is_prev_special = True
+        while i <= len(cps):
+            var k = -1 if i == len(cps) else self._match_special(cps, i)
+            if k >= 0 or i == len(cps):
+                if i > start:
+                    if self.is_spm:
+                        self._spm_encode(from_codepoints(cps, start, i), is_prev_special, out)
+                    elif self.is_g4:
+                        self._g4_encode(cps, start, i, out)
+                    else:
+                        for piece in self._pieces(from_codepoints(cps, start, i)):
+                            self._bpe(piece, out)
+                    is_prev_special = False
+                if k >= 0:
+                    out.append(self.special_ids[k])
+                    i += len(self.specials[k])
+                    start = i
+                    is_prev_special = True
+                else:
+                    i += 1
+            else:
+                i += 1
+        return out^
+
+    def decode(self, ids: List[Int], keep_special: Bool = False) -> String:
+        var bytes = List[UInt8]()
+        var is_prev_special = True
+        for id in ids:
+            if id < 0 or id >= len(self.tokens):
+                continue
+            var ty = self.types[id]
+            if ty == T_CONTROL and not keep_special:
+                is_prev_special = True
+                continue
+            if ty == T_CONTROL or ty == T_USER:
+                for b in self.tokens[id].as_bytes():
+                    bytes.append(b)
+                is_prev_special = True
+                continue
+            if self.is_spm or self.is_g4:
+                if ty == T_BYTE:
+                    bytes.append(self._byte_from_tok(id))
+                else:
+                    var raw = List[UInt8]()
+                    for b in self.tokens[id].as_bytes():
+                        raw.append(b)
+                    var piece = List[UInt8]()
+                    var j = 0
+                    var n = len(raw)
+                    while j < n:
+                        if j + 2 < n and raw[j] == 0xE2 and raw[j + 1] == 0x96 and raw[j + 2] == 0x81:
+                            piece.append(32)
+                            j += 3
+                        else:
+                            piece.append(raw[j])
+                            j += 1
+                    var off = 0
+                    if self.add_space_prefix and is_prev_special and len(piece) > 0 and piece[0] == 32:
+                        off = 1
+                    for k in range(off, len(piece)):
+                        bytes.append(piece[k])
+            else:
+                for c in self.tokens[id].codepoints():
+                    var b = self.u2b.get(Int(c.to_u32()), -1)
+                    if b >= 0:
+                        bytes.append(UInt8(b))
+            is_prev_special = False
+        return String(unsafe_from_utf8=Span(bytes))
+The quick brown fox jumps over the lazy dog. Don't, won't, I'LL, we've, it's, 'tis.
+Într-o țară îndepărtată, șoimul și țânțarul vorbeau despre brânză, mămăligă și fâneață.
+ROMÂNĂ CU MAJUSCULE: ȘTIINȚĂ, ÎNȚELEPCIUNE, ÂNGER; cedilă veche: ţară, şcoală, Ţăran, Şef.
+Ce faci? Bine, mulțumesc! „Ghilimele românești” și «ghilimele franceze» – cu linie de pauză.
+naïve café résumé coöperate Zoë façade jalapeño Ångström smörgåsbord Straße ĳ œuvre
+decomposed: é à ö ñ ș ț vs composed: é à ö ñ ș ț
+中文分词测试：今天天气很好，我们去公园散步吧。人工智能正在改变世界！
+繁體中文：這是一個測試句子，包含標點符號、數字１２３和全形字母ＡＢＣ。
+日本語のテキストです。カタカナとひらがな、漢字が混ざっています。ﾊﾝｶｸｶﾅ も。
+한국어 문장입니다. 띄어쓰기와 조사 처리를 확인합니다. ㄱㄴㄷ ㅏㅑㅓ
+العربية: مرحبا بالعالم! هذا نص تجريبي يحتوي على أرقام ١٢٣٤٥ وعلامات ترقيم، وتشكيل: مُحَمَّد.
+עברית: שלום עולם, זהו טקסט לבדיקה עם ניקוד: שָׁלוֹם.
+हिन्दी: नमस्ते दुनिया, यह एक परीक्षण वाक्य है। क्ष त्र ज्ञ श्र
+Русский: Съешь же ещё этих мягких французских булок, да выпей чаю. Ёжик.
+Ελληνικά: Ξεσκεπάζω την ψυχοφθόρα βδελυγμία. ς σ Σ
+ไทย: สวัสดีชาวโลก นี่คือข้อความทดสอบ ไม่มีช่องว่างระหว่างคำ
+Tiếng Việt: Tôi yêu tiếng nước tôi từ khi mới ra đời. ắ ằ ẳ ẵ ặ
+Türkçe: İstanbul'da ılık bir ığdır günü; i I ı İ ğ Ğ ş Ş.
+mixed: Hello世界こんにちは안녕مرحباПриветγειά – all without spaces: abc中文def日本語ghi
+math & symbols: ∑ᵢ xᵢ² ≤ ∫₀^∞ e^{−x²} dx = √π/2 ≠ ∞; ℝ ⊂ ℂ; α β γ δ; ©®™ § ¶ † ‡ • … ‰ ′ ″
+currency: $1,234.56 €99,99 £5 ¥1000 ₹500 ₿0.001 ¢ ₩ ₽ ₺ lei 12,50
+fullwidth ＡＢＣ１２３ and halfwidth ｱｲｳ, ligatures ﬁ ﬂ ﬀ, superscripts x² y³, fractions ½ ¼ ¾, roman Ⅳ Ⅻ
+simple: 🙂 😀 😂 🤔 👍 ❤️ 🔥 ✨ 🚀 🎉
+skin tones: 👍🏻 👍🏼 👍🏽 👍🏾 👍🏿 🤝🏽 🧑🏿‍🚀
+ZWJ families: 👨‍👩‍👧‍👦 👩‍👩‍👦 👨‍👨‍👧‍👧 🧑‍🤝‍🧑 👩‍❤️‍💋‍👨
+ZWJ professions: 👩‍💻 👨‍🚒 🧑‍🔬 👩🏽‍⚕️ 🏃‍♀️ 🏳️‍🌈 🏴‍☠️ 🐻‍❄️
+flags: 🇷🇴 🇯🇵 🇺🇸 🇩🇪 🇫🇷 🇬🇧 🏴󠁧󠁢󠁳󠁣󠁴󠁿 🏁
+keycaps: 1️⃣ 2️⃣ #️⃣ *️⃣ 0️⃣ and variation selectors: ☺ ☺︎ ☺️ ♥ ♥︎ ♥️
+no spaces:🙂🙂🙂👍🏽👨‍👩‍👧‍👦🇷🇴🔥text🚀moretext✨
+in text: I ❤️ tokenizers 🙂, they are 🔥🔥🔥 (not really 🙃)…
+symbols: ← ↑ → ↓ ↔ ⇒ ⇔ ✓ ✗ ★ ☆ ♠ ♣ ♥ ♦ ♪ ♫ ☀ ☁ ☂ ⚠ ⚡ ⛔ ✅ ❌ ❓ ❗
+box and braille: ┌─┬─┐ │ │ │ └─┴─┘ ░▒▓█ ⠁⠂⠃⠄ ▁▂▃▄▅▆▇
+lower one eighth block ▁ alone, ▁▁ doubled, a▁b inside, ▁leading
+rare planes: 𝒜𝓑𝔠𝕕 𝟘𝟙𝟚 𐍈 𓀀 🀄 🂡 🜁 🝖 🯰
+# serve/front: the Mojo HTTP front
+
+**State: in build, UNVERIFIED. `baro-serve` (Rust, `serve/src/`) is the default front.** Nothing
+here is linked into it. This directory replaces the Rust front on the core path once the checks
+in `docs/lanes/2026-11-09-mojo-front.md` (section Verification) pass.
+
+Libraries are vendored at repo root, drift-checked by `tools/ci-checks.sh`: `bento/` (HTTP/1.1
+server, SSE), `aio/` (epoll), `json/`, `posix/` (spawn, signals, sockets), `systemd/`. In-repo:
+`serve/tokenizer.mojo`, `minja/`. Build: `./.venv/bin/mojo build FILE -I . -o .work/OUT` (Mojo 1.2.0).
+
+## Frozen contract
+
+Three modules, three owners. Each lane builds and tests against this text, not against another
+lane's branch. A wrong contract is a QUESTION to the boss pane, never a silent change.
+
+```
+serve/front/text.mojo                                            lane front-text
+  struct Text(Movable):
+      __init__(out self, tokenizer_json: String, template_file: String = "") raises
+      encode(self, s: String, add_special: Bool) raises -> List[Int32]
+      decode(self, ids: Span[Int32, _]) -> String
+      apply_chat_template(self, messages: Json, tools: Json, kwargs: Json) raises -> String
+      tool_xml(self) -> Bool                    # template writes Qwen3.5 XML tool calls
+      stop_ids(self) -> List[Int32]             # eos and template stops, as Rust compute_stop defaults
+      detok(self) -> Detok                      # a fresh streaming detokenizer
+      A first argument ending in .gguf is loaded directly; else the engine tokenizer is built
+      from `source_gguf` of the sibling tokenizer-meta.json (named error when it is missing).
+  struct Detok(Movable):                        # streaming detokenizer, one per request
+      push(mut self, id: Int32) -> String       # text printable now; holds a partial UTF-8 tail
+      flush(mut self) -> String
+  role_boundaries(...), common_prefix(a, b): same results as serve/src/text.rs
+  Missing value = Json null. Results equal the Rust `Text` byte for byte.
+
+serve/front/engine_client.mojo                                   lane front-engine
+  comptime ENG_STARTING = 0; ENG_IDLE = 1; ENG_BUSY = 2; ENG_DEAD = 3; ENG_STOPPING = 4
+  comptime EV_TOKEN = 0; EV_DONE = 1; EV_ERROR = 2; EV_READY = 3; EV_DEAD = 4; EV_OTHER = 5
+  struct Request(Copyable, Movable): the fields of serve/src/protocol.rs `Request`, same names
+      line(self) -> String                      # the bytes Rust writes, pinned by a test
+  struct Event(Copyable, Movable): kind: Int; id: Int; tok: Int32; text: String  # text = error or raw JSON
+  struct EngineClient(Movable):
+      __init__(out self, argv: List[String], env: List[String]) raises   # spawns, does not wait
+          # child stdin+stdout = one AF_UNIX socketpair end (posix.spawn_pair, added upstream
+          # in mojo-posix); the parent end is fd(); shutdown = shutdown_write(fd) then wait
+      fd(self) -> Int32                         # child stdout, non-blocking, for an aio loop
+      state(self) -> Int;  state_name(self) -> String;  dead_reason(self) -> String
+      ready_info(self) -> Json                  # the ready line (tmax, mrows, kmax, spec_k, kv, pack)
+      submit(mut self, req: Request) raises     # named error unless IDLE or BUSY
+      cancel(mut self, id: Int) -> Bool         # True: written now; a queued id is cancelled when it reaches the head
+      poll(mut self, mut out: List[Event], timeout_ms: Int) raises -> Int   # reads lines, sees child exit
+      shutdown(mut self, grace_ms: Int)         # closes stdin first, then waits, then kills
+  One writer for the state: a private `_set(new, why)` that logs `engine: OLD -> NEW (why)`.
+  Single-threaded: one owner thread calls every method.
+
+serve/front/http.mojo + api.mojo                                 lane front-http
+  trait DetokLike:  push / flush, signatures as Detok
+  trait TextLike:   encode / decode / apply_chat_template / tool_xml / stop_ids, signatures as Text;
+                    `comptime D: DetokLike` and `detok(self) -> Self.D`
+  trait EngineLike: submit / cancel / poll / state / state_name / dead_reason / ready_info / shutdown,
+                    signatures as EngineClient
+  struct Front[T: TextLike, E: EngineLike] is a bento.server.Handler.
+  Handlers run on many worker threads; the engine has ONE owner, a dispatcher that holds the
+  EngineLike and gives each request its own event queue (bento/sync.mojo). No handler touches
+  the engine.
+  Routes: GET  /health /v1/models /models /props
+          POST /tokenize /detokenize /v1/cancel
+          POST /v1/completions /completions /v1/chat/completions /chat/completions (JSON and SSE)
+```
+
+## Six Rust defects the Mojo front does not copy
+
+`exchange/fsm-audit/report-A.md` found state the Rust front keeps in loose flags. Each row is a
+DELIBERATE DIFFERENCE: tested, and listed in the lane report. Everything else is parsed-value
+parity with the Rust front.
+
+| Rust today (report-A id) | Mojo front |
+|---|---|
+| M1: engine state inferred from 5 carriers; a death while idle is unseen; `/health` says ok with a dead engine | one `state()` tag; `poll` sees the child exit; `/health` returns `engine_state` and the exit reason |
+| M1: stop waits 30 s because stdin is never closed | SIGTERM or SIGINT drains, then `shutdown` closes stdin first; exit code 0 |
+| wire: a ready line with a missing field waits 600 s | named error `ready line: missing <field>` |
+| M2: a client disconnect does not cancel | disconnect mid-stream sends cancel; a request still queued is cancelled the moment it starts; `/v1/cancel` answers `state: queued, running or unknown` |
+| M3: a stream that ends with no terminal event returns a partial answer as success | `502 engine stream ended without a terminal event`; SSE sends an error chunk before `[DONE]` |
+| M4: the length guard is repeated by hand in 4 places | one check at submit |
+
+Not shown yet: that any of this holds against the real engine. The tests run against a stub.
+"""Text in, text out for the Mojo front: the Rust `Text` (serve/src/text.rs) in Mojo, byte for byte.
+
+Tokenizer: the engine's own (serve/tokenizer.mojo), which reads a GGUF. A first argument ending in `.gguf`
+is loaded directly; any other path is a pack's `tokenizer.json`, whose sibling `tokenizer-meta.json` names
+the GGUF (`source_gguf`) and carries the template, bos and eos. Missing sidecar, key or file is a named
+error, never a fallback. Build with `-I . -I serve` (the tokenizer imports resolve from serve/).
+"""
+from std.memory import ArcPointer
+from json import Json, parse, STR, OBJ, INT
+from minja.render import Renderer
+from minja.value import parse_json
+from tokenizer import Tokenizer
+
+comptime KEEP = 8
+
+
+def _file_text(path: String) raises -> String:
+    with open(path, "r") as f:
+        return f.read()
+
+
+def _utf8_prefix(b: Span[UInt8, _], i: Int) -> Int:
+    """Bytes of the valid UTF-8 sequence at i, or minus the bytes of the maximal invalid prefix (Rust from_utf8_lossy)."""
+    var n = len(b)
+    var b0 = Int(b[i])
+    if b0 < 0x80:
+        return 1
+    var need: Int
+    var lo = 0x80
+    var hi = 0xBF
+    if b0 >= 0xC2 and b0 <= 0xDF:
+        need = 1
+    elif b0 >= 0xE0 and b0 <= 0xEF:
+        need = 2
+        if b0 == 0xE0:
+            lo = 0xA0
+        elif b0 == 0xED:
+            hi = 0x9F
+    elif b0 >= 0xF0 and b0 <= 0xF4:
+        need = 3
+        if b0 == 0xF0:
+            lo = 0x90
+        elif b0 == 0xF4:
+            hi = 0x8F
+    else:
+        return -1
+    for k in range(1, need + 1):
+        if i + k >= n:
+            return -k
+        var c = Int(b[i + k])
+        if c < lo or c > hi:
+            return -k
+        lo = 0x80
+        hi = 0xBF
+    return need + 1
+
+
+def lossy(s: String) -> String:
+    """The text with each maximal invalid UTF-8 prefix replaced by one U+FFFD, as Rust's String::from_utf8_lossy."""
+    var b = s.as_bytes()
+    var i = 0
+    var bad = False
+    while i < len(b):
+        var k = _utf8_prefix(b, i)
+        if k < 0:
+            bad = True
+            break
+        i += k
+    if not bad:
+        return s
+    var out = List[UInt8](capacity=len(b) + 8)
+    i = 0
+    while i < len(b):
+        var k = _utf8_prefix(b, i)
+        if k < 0:
+            out.append(0xEF)
+            out.append(0xBF)
+            out.append(0xBD)
+            i += -k
+        else:
+            out.extend(b[i : i + k])
+            i += k
+    return String(unsafe_from_utf8=Span(out))
+
+
+def _decode(tok: Tokenizer, ids: List[Int]) -> String:
+    return lossy(tok.decode(ids, True))
+
+
+def common_prefix(a: List[Int32], b: List[Int32]) -> Int:
+    """Length of the longest common prefix of two token sequences."""
+    var n = min(len(a), len(b))
+    var i = 0
+    while i < n and a[i] == b[i]:
+        i += 1
+    return i
+
+
+def _ends_with(b: Span[UInt8, _], t: Span[UInt8, _]) -> Bool:
+    if len(t) > len(b):
+        return False
+    var off = len(b) - len(t)
+    for i in range(len(t)):
+        if b[off + i] != t[i]:
+            return False
+    return True
+
+
+struct Detok(Movable):
+    """Streaming detokenizer, one per request. Holds back a partial UTF-8 tail; decodes a window of recent
+    ids, not the whole prefix. The tokenizer is shared (read only), so any thread may own a Detok."""
+
+    var tok: ArcPointer[Tokenizer]
+    var win: List[Int]
+    var emitted: Int  # bytes of decode(win) already handed out
+
+    def __init__(out self, var tok: ArcPointer[Tokenizer]):
+        self.tok = tok^
+        self.win = List[Int]()
+        self.emitted = 0
+
+    def _take(mut self, stable: Int, full: String) -> String:
+        var b = full.as_bytes()
+        var delta = String(unsafe_from_utf8=b[self.emitted : stable])
+        self.emitted = stable
+        return delta^
+
+    def push(mut self, id: Int32) -> String:
+        """The text printable now (may be empty while a codepoint is incomplete)."""
+        self.win.append(Int(id))
+        var full = _decode(self.tok[], self.win)
+        var b = full.as_bytes()
+        var stable = len(b)
+        if stable >= 3 and b[stable - 3] == 0xEF and b[stable - 2] == 0xBF and b[stable - 1] == 0xBD:
+            stable -= 3
+        if stable <= self.emitted or (self.emitted < len(b) and (Int(b[self.emitted]) & 0xC0) == 0x80):
+            return String()
+        var delta = self._take(stable, full)
+        if stable == len(b) and len(self.win) >= 2 * KEEP:
+            var from_ = len(self.win) - KEEP
+            var tail_ids = List[Int]()
+            for i in range(from_, len(self.win)):
+                tail_ids.append(self.win[i])
+            var tail = _decode(self.tok[], tail_ids)
+            if _ends_with(b, tail.as_bytes()):
+                self.win = tail_ids^
+                self.emitted = tail.byte_length()
+        return delta^
+
+    def flush(mut self) -> String:
+        """End of stream: what push held back (a trailing U+FFFD from a cut codepoint)."""
+        var full = _decode(self.tok[], self.win)
+        var n = full.byte_length()
+        if n <= self.emitted:
+            return String()
+        var delta = self._take(n, full)
+        return delta^
+
+
+def _pos(r: Int) -> Int:
+    return r
+
+
+def _pos(r: Optional[Int]) -> Int:
+    return r.or_else(-1)
+
+
+struct Text(Movable):
+    var tok: ArcPointer[Tokenizer]
+    var template: String
+    var has_template: Bool
+    var bos_id: Int
+    var add_bos: Bool
+    var bos_token: String
+    var eos_token: String
+    var stops: List[Int32]
+
+    def __init__(out self, tokenizer_json: String, template_file: String = "") raises:
+        var gguf = tokenizer_json
+        var meta = Json()
+        var from_gguf = tokenizer_json.endswith(".gguf")
+        if not from_gguf:
+            var slash = _pos(tokenizer_json.rfind("/"))
+            var meta_path = (String(tokenizer_json[byte=: slash + 1]) if slash >= 0 else String("")) + "tokenizer-meta.json"
+            try:
+                meta = parse(_file_text(meta_path))
+            except e:
+                raise Error("tokenizer: source_gguf <unknown> not found: cannot read " + meta_path + " (" + String(e) + ")")
+            gguf = meta.text("source_gguf")
+            if gguf == "":
+                raise Error("tokenizer: source_gguf <unknown> not found: key absent in " + meta_path)
+        var tok: Tokenizer
+        try:
+            tok = Tokenizer(gguf)
+        except e:
+            raise Error("tokenizer: source_gguf " + gguf + " not found (" + String(e) + ")")
+        var eos_id: Int
+        if from_gguf:
+            self.template = tok.chat_template
+            self.bos_id = tok.bos_id
+            self.add_bos = tok.add_bos
+            self.bos_token = tok.token_str(tok.bos_id)
+            self.eos_token = tok.token_str(tok.eos_id)
+            eos_id = tok.eos_id
+            self.has_template = self.template != ""
+        else:
+            self.template = meta.text("chat_template")
+            self.has_template = meta.get("chat_template").kind() == STR
+            self.bos_id = _first_int(meta, "bos_token_id", "bos_id")
+            eos_id = _first_int(meta, "eos_token_id", "eos_id")
+            self.add_bos = meta.get("add_bos").truthy()
+            self.bos_token = meta.text("bos_token")
+            self.eos_token = meta.text("eos_token")
+        if template_file != "":
+            self.template = _file_text(template_file)
+            self.has_template = True
+        self.stops = List[Int32]()
+        if eos_id >= 0:
+            self.stops.append(Int32(eos_id))
+        for s in ["<|im_end|>", "<|endoftext|>"]:
+            var id = tok.tok2id.get(String(s), -1)
+            if id >= 0 and Int32(id) not in self.stops:
+                self.stops.append(Int32(id))
+        self.tok = ArcPointer(tok^)
+
+    def encode(self, s: String, add_special: Bool) raises -> List[Int32]:
+        var raw = self.tok[].encode(s, False)
+        var out = List[Int32](capacity=len(raw) + 1)
+        if add_special and self.add_bos and self.bos_id >= 0 and (len(raw) == 0 or raw[0] != self.bos_id):
+            out.append(Int32(self.bos_id))
+        for id in raw:
+            out.append(Int32(id))
+        return out^
+
+    def decode(self, ids: Span[Int32, _]) -> String:
+        var l = List[Int](capacity=len(ids))
+        for id in ids:
+            l.append(Int(id))
+        return _decode(self.tok[], l)
+
+    def detok(self) -> Detok:
+        return Detok(self.tok.copy())
+
+    def stop_ids(self) -> List[Int32]:
+        return self.stops.copy()
+
+    def tool_xml(self) -> Bool:
+        return self.has_template and "<function=" in self.template
+
+    def apply_chat_template(self, messages: Json, tools: Json, kwargs: Json) raises -> String:
+        return self._render(_norm(messages), True, tools, kwargs)
+
+    def _render(self, messages: Json, gen: Bool, tools: Json, kwargs: Json) raises -> String:
+        if not self.has_template:
+            var s = String()
+            for m in messages.items():
+                s += "<|im_start|>" + m.text("role") + "\n" + m.text("content") + "<|im_end|>\n"
+            if gen:
+                s += "<|im_start|>assistant\n"
+            return s^
+        var r = Renderer(self.template)
+        r.set_global("messages", parse_json(r.h, messages.dumps(False)))
+        r.set_global("add_generation_prompt", r.h.boolean(gen))
+        r.set_global("bos_token", r.h.string(self.bos_token))
+        r.set_global("eos_token", r.h.string(self.eos_token))
+        if not tools.is_null():
+            r.set_global("tools", parse_json(r.h, tools.dumps(False)))
+        if kwargs.kind() == OBJ:
+            for i in range(kwargs.len()):
+                r.set_global(kwargs.key_at(i), parse_json(r.h, kwargs.at(i).dumps(False)))
+        try:
+            return r.render()
+        except e:
+            raise Error("chat_template: " + String(e))
+
+    def _ids_of(self, messages: Json, gen: Bool, tools: Json, kwargs: Json, mut out: List[Int32]) -> Bool:
+        """Render and encode into out; False when either fails (a prefix that does not render is skipped)."""
+        try:
+            out = self.encode(self._render(messages, gen, tools, kwargs), True)
+            return True
+        except:
+            return False
+
+    def role_boundaries(self, messages: Json, tools: Json, kwargs: Json) -> List[Int]:
+        """Token length after each message rendered with no generation prompt, the start of the last
+        message's content, and where the next turn diverges: checkpoint hints, as Rust `role_boundaries`."""
+        var msgs = _norm(messages)
+        var items = msgs.items()
+        var out = List[Int]()
+        var full = List[Int32]()
+        var have_full = False
+        var ids = List[Int32]()
+        for k in range(1, len(items) + 1):
+            var part = Json.array()
+            for i in range(k):
+                part.push(items[i])
+            if not self._ids_of(part, False, tools, kwargs, ids):
+                continue
+            out.append(len(ids))
+            if k == len(items):
+                full = ids.copy()
+                have_full = True
+        if have_full and len(items) > 0:
+            var open = Json.array()
+            for i in range(len(items) - 1):
+                open.push(items[i])
+            var last = items[len(items) - 1].copy()
+            last.set("content", Json.of(String("")))
+            open.push(last)
+            if self._ids_of(open, False, tools, kwargs, ids):
+                var start = common_prefix(ids, full)
+                if start > 0 and start < len(full):
+                    out.append(start)
+        var nxt = msgs.copy()
+        var reply = Json.object()
+        reply.set("role", Json.of(String("assistant")))
+        reply.set("content", Json.of(String("x")))
+        nxt.push(reply)
+        var a = List[Int32]()
+        var b = List[Int32]()
+        if self._ids_of(nxt, False, tools, kwargs, a) and self._ids_of(msgs, True, tools, kwargs, b):
+            var at = common_prefix(a, b)
+            if at > 0 and at < len(b):
+                out.append(at)
+        sort(out)
+        var uniq = List[Int]()
+        for v in out:
+            if len(uniq) == 0 or uniq[len(uniq) - 1] != v:
+                uniq.append(v)
+        return uniq^
+
+
+def _first_int(meta: Json, key: String, alias_: String) -> Int:
+    var j = meta.get(key)
+    if j.is_null():
+        j = meta.get(alias_)
+    return j.int() if j.kind() == INT else -1
+
+
+def _norm(messages: Json) -> Json:
+    """Each message as role, content and tool_calls only: what Rust hands the template."""
+    var out = Json.array()
+    for m in messages.items():
+        var n = Json.object()
+        n.set("role", Json.of(m.text("role")))
+        n.set("content", m.get("content"))
+        var tc = m.get("tool_calls")
+        if not tc.is_null():
+            n.set("tool_calls", tc)
+        out.push(n)
+    return out^

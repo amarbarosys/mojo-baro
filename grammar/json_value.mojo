@@ -1,6 +1,4 @@
 # Copyright (c) 2026 AMARBARO · amarbaro.org labs. All rights reserved.
-from std.collections import Dict
-
 
 comptime JKindNull: Int = 0
 comptime JKindBool: Int = 1
@@ -149,14 +147,21 @@ struct JSONParser:
                 break
         if self.pos == start:
             raise Error("json: bad number at " + String(self.pos))
-        var text = String()
-        for i in range(start, self.pos):
-            text += String(chr(Int(self.data[i])))
+        var text = String(from_utf8=Span(self.data)[start : self.pos])
         var v = JSONValue()
         v.kind = JKindNumber
         v.n = Float64(text)
         v.s = text
         return doc.push(v^)
+
+    def _hex4(mut self) raises -> Int:
+        var cp = 0
+        for _ in range(4):
+            self.pos += 1
+            if self.pos >= len(self.data):
+                raise Error("json: bad \\u escape")
+            cp = cp * 16 + _hex_val(self.data[self.pos])
+        return cp
 
     def parse_string_raw(mut self) raises -> String:
         self.expect(34)
@@ -190,10 +195,15 @@ struct JSONParser:
                 elif e == 47:
                     out.append(47)
                 elif e == 117:
-                    var cp = 0
-                    for _ in range(4):
-                        self.pos += 1
-                        cp = cp * 16 + _hex_val(self.data[self.pos])
+                    var cp = self._hex4()
+                    if cp >= 0xD800 and cp < 0xDC00 and self.pos + 2 < len(self.data) and self.data[self.pos + 1] == 92 and self.data[self.pos + 2] == 117:
+                        self.pos += 2
+                        var lo = self._hex4()
+                        if lo >= 0xDC00 and lo < 0xE000:
+                            cp = 0x10000 + ((cp - 0xD800) << 10) + (lo - 0xDC00)
+                        else:
+                            _append_utf8(out, cp)
+                            cp = lo
                     _append_utf8(out, cp)
                 else:
                     out.append(e)
@@ -286,13 +296,7 @@ def parse_json_bytes(var data: List[UInt8]) raises -> JSONDoc:
 
 
 def read_file_bytes(path: String) raises -> List[UInt8]:
-    var f = open(path, "r")
-    var text = f.read()
-    var b = text.as_bytes()
-    var data: List[UInt8] = []
-    for i in range(len(b)):
-        data.append(b[i])
-    return data^
+    return open(path, "r").read_bytes()
 
 
 def parse_json_file(path: String) raises -> JSONDoc:

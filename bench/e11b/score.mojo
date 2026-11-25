@@ -2,7 +2,7 @@ from std.collections import Dict
 from std.math import sqrt
 from std.sys import argv
 
-from grammar.json_value import JSONDoc, JKindString, parse_json_bytes
+from grammar.json_value import JKindString, parse_json_bytes
 
 # Mojo port of tools/e11b_items_oracle.py score(): per game/arm correct/n,
 # paired delta vs arm 0 with a one-sided 95% lower bound, multi-candidate

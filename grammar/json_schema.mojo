@@ -1,5 +1,5 @@
 from grammar.automaton import Automaton
-from grammar.json_value import JSONDoc, JKindString, JKindNumber, JKindBool, JKindNull, JKindArray, JKindObject
+from grammar.json_value import JSONDoc, JKindString, JKindNumber, JKindBool, JKindNull
 from grammar.regex import ReDoc, ReNode, RKByteSet, RKConcat, RKAlt, compile_regex_to_rule, compile_ast_to_rule, expand_repeat
 
 
@@ -94,6 +94,14 @@ def _json_encode_string(s: String) -> List[UInt8]:
             out.append(92); out.append(114)
         elif c == 9:
             out.append(92); out.append(116)
+        elif c == 8:
+            out.append(92); out.append(98)
+        elif c == 12:
+            out.append(92); out.append(102)
+        elif c < 32:
+            out.append(92); out.append(117); out.append(48); out.append(48)
+            var lo = c & 15
+            out.append(48 + (c >> 4)); out.append(lo + 48 if lo < 10 else lo + 87)
         else:
             out.append(c)
     out.append(34)
@@ -367,6 +375,7 @@ def compile_array(mut automaton: Automaton, doc: JSONDoc, schema_idx: Int, name:
     var mn_idx = doc.get_field(schema_idx, "minItems")
     if mn_idx >= 0:
         mn = Int(doc.get(mn_idx).n)
+        mx = max(mx, mn)
     var mx_idx = doc.get_field(schema_idx, "maxItems")
     if mx_idx >= 0:
         mx = Int(doc.get(mx_idx).n)

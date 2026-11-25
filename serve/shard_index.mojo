@@ -6,7 +6,6 @@ headers are the index. The ggml type id is the per-tensor tag that picks
 the row dot.
 """
 from std.ffi import external_call
-from std.os import listdir
 from gguf_reader import GGUFModel
 
 comptime PROT_READ = 1

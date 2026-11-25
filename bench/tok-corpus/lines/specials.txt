@@ -1,0 +1,21 @@
+<|im_start|>system
+You are a helpful assistant.<|im_end|>
+<|im_start|>user
+hi<|im_end|><|im_start|>assistant
+<think>
+Let me think.
+</think>
+<|endoftext|>text after<|endoftext|><|endoftext|>
+<tool_call>{"name": "f", "arguments": {"x": 1}}</tool_call> <tool_response>ok</tool_response>
+<|begin_of_text|><|start_header_id|>user<|end_header_id|>
+
+Hello<|eot_id|><|start_header_id|>assistant<|end_header_id|>
+<s>[INST] hello [/INST] hi</s><s> <unk> <pad>
+<bos><start_of_turn>user
+hi<end_of_turn>
+<start_of_turn>model
+<|system|> <|user|> <|assistant|> <|end|> <|fim_prefix|>a<|fim_suffix|>b<|fim_middle|>
+<|vision_start|><|image_pad|><|vision_end|> <|box_start|>(1,2)<|box_end|> <|object_ref_start|>cat<|object_ref_end|>
+almost special: <|im_start <|im_end| <|im_end |> < |im_end|> <<|im_end|>> <|IM_END|> <|endoftext |>
+angle noise: <a href="x">b</a> <br/> <!-- c --> <<<>>> <| |> <|> |> <|x|> </s <s
+[CLS] [SEP] [MASK] [PAD] [UNK] <mask> <extra_id_0> <0x41> <0xE2><0x96><0x81>

@@ -19,15 +19,15 @@ for n in $LENS; do
   p=bench/prefill-prompts/p$(printf '%04d' "$n").tokens
   for i in 1 2 3; do
     gpu-wait list > "$L/q-base-$n-$i.txt" 2>&1
-    gpu-wait run --priority 20 --vram 12 -- $E BARO_PROMPT="$p" "$BASE" > "$L/base-$n-$i.log" 2>&1
+    gpu-wait run --priority 20 --vram 12 --timeout 1800 -- $E BARO_PROMPT="$p" "$BASE" > "$L/base-$n-$i.log" 2>&1
     echo "base $n run$i exit $? $(rcpt "$L/base-$n-$i.log")" >> "$S"
   done
   gpu-wait list > "$L/q-prof-$n.txt" 2>&1
-  gpu-wait run --priority 20 --vram 12 -- $E BARO_PROFILE=1 BARO_PROMPT="$p" "$PROF" > "$L/prof-$n.log" 2>&1
+  gpu-wait run --priority 20 --vram 12 --timeout 1800 -- $E BARO_PROFILE=1 BARO_PROMPT="$p" "$PROF" > "$L/prof-$n.log" 2>&1
   echo "prof $n exit $? $(rcpt "$L/prof-$n.log") | $(grep -h 'prefill split' "$L/prof-$n.log")" >> "$S"
 done
 gpu-wait list > "$L/q-llama.txt" 2>&1
 pl=$(echo $LENS | tr ' ' ',')
-gpu-wait run --priority 20 --vram 14 -- ~/llama.cpp/build/bin/llama-bench -m "$GGUF" -p "$pl" -n 0 -r 3 -ngl 99 -fa on -b 2048 -ub 512 -ctk q8_0 -ctv q8_0 -o md > "$L/llama-bench.md" 2> "$L/llama-bench.err"
+gpu-wait run --priority 20 --vram 14 --timeout 1800 -- ~/llama.cpp/build/bin/llama-bench -m "$GGUF" -p "$pl" -n 0 -r 3 -ngl 99 -fa on -b 2048 -ub 512 -ctk q8_0 -ctv q8_0 -o md > "$L/llama-bench.md" 2> "$L/llama-bench.err"
 echo "llama-bench exit $?" >> "$S"; cat "$L/llama-bench.md" >> "$S"
 echo "STAGE0 DONE $(date -Is)" >> "$S"

@@ -19,7 +19,7 @@ retract wrong claims from this same repository (section 3).
 
 ## 2. The rules, in short
 
-The full rule set lives in `bench/PROTOCOL-RULES.md`, P1 through P14, cited
+The full rule set lives in `bench/PROTOCOL-RULES.md`, P1 through P34, cited
 by every protocol file in `bench/`. This section names what they are for;
 read the file itself for the exact text and the incident each rule is
 named after.
@@ -53,9 +53,9 @@ receipt completeness, row-scaling checks at m>1, harness-before-kernel
 profiling, proving a code change was actually reached, element-wise
 tensor comparison, hypothesis-versus-oracle discipline, rebuilding a
 lane's own claim from its committed tree, and setting a gate's pass bar
-from a number a known-good path has actually hit. Read
-`bench/PROTOCOL-RULES.md` for all fourteen; this document does not restate
-them.
+from a number a known-good path has actually hit. P15 to P34 were added
+later. Read `bench/PROTOCOL-RULES.md` for all of them; this document does not
+restate them.
 
 ## 3. Two negative results
 
@@ -110,9 +110,13 @@ synthetic vocabulary does not cover the real vocabulary's shape, and a
 component's status as "the reference" is not evidence it is correct;
 diffing against an independent oracle (here, a third, from-scratch numpy
 implementation) is what actually settled which side was wrong. The
-affected sampling shape (`temperature > 0`, `top_p < 1`, `min_p <= 0`) is
-refused by the server with an explicit error today, rather than served
-from a gate that cannot yet confirm it.
+affected sampling shape (`temperature > 0`, `top_p < 1`, `min_p <= 0`) was
+refused by the server with an explicit error until the host reference was
+fixed and the gate passed at the real vocabulary. The refusal is lifted
+for the truncated shapes and for the untruncated shape (a second defect, the
+24-bit Gumbel uniform, was fixed with a 53-bit one: `bench/chat-protocol.md`,
+"C3 tail round result"); the story above stays as the record of why the gate
+now runs at the real vocabulary.
 
 ## 4. The instruments
 
@@ -191,6 +195,11 @@ equivalent gap was not tested here. Fixing `tools/gguf-closure.sh` is out
 of scope for this lane (no new tooling); this is reported as a finding for
 whoever picks up B1 or the closure script next.
 
+**Status since:** fixed. A bake now carries `baro.run.prompt.tokens` and
+`baro.run.ref.tokens`; `tools/gguf-closure.sh` extracts them, so the MoE branch
+no longer reads `.work/moe-w3/one.tokens` when the file carries a prompt. With
+neither the file's prompt nor `BARO_PROMPT` it exits 1 and names both.
+
 ## 5. What a third party gets and what they do not
 
 **Identity gates are teacher-forced agreement, never greedy 64-token
@@ -252,7 +261,7 @@ lives in a sidecar JSONL beside the model by default; `--in-file` puts it in
 the file's own `baro.hw.receipts` key, which means rewriting the whole
 container (21 GB for the MoE bake), so it is opt-in.
 
-What this does not do yet: a pack has no `tokenizer.json` unless one was built
-beside it, so a served model whose pack lacks one accepts token ids on
-`/v1/completions` and refuses the text and chat endpoints. Converting the
-gguf's own tokenizer into that file is not built.
+Text endpoints need `tokenizer.json` and `tokenizer-meta.json` in the pack.
+`tools/baro` builds them from the gguf with `tools/gguf-tokenizer-json.mojo`
+when the pack has none (when that tool fails, a shipped `hf/tokenizer.json`
+beside the model is copied in).

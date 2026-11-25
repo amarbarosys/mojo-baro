@@ -1,28 +1,3 @@
-"""Double-buffered register-tiled GEMM: overlap the next tile's global load
-with the current tile's compute.
-
-Builds on `amar_matmul_ldst` (transposed A tile, 64-bit LDS reads) and changes only
-the pipeline.  `amar_matmul_regtile` runs strictly serially per k-tile:
-
-    global load -> barrier -> compute -> barrier -> global load -> ...
-
-so every thread stalls on global-memory latency once per BK steps with nothing
-to hide it.  The swept result that small tiles beat large ones -- occupancy
-buying more than reuse -- is what a latency-bound kernel looks like, which is
-the case double buffering exists for.
-
-With two LDS buffers the loop becomes:
-
-    barrier -> issue next tile's global loads into registers
-            -> compute from buf[cur]
-            -> store those registers into buf[1 - cur]
-
-The global loads are issued before the compute that hides them, and the store
-into buf[1 - cur] cannot race: buf[1 - cur] was last *read* in the previous
-iteration, and the barrier at the top of this iteration already separates the
-two.  That also halves the barrier count -- one per k-tile instead of two.
-"""
-
 from max.gpu.memory import AddressSpace
 from max.gpu.sync import barrier
 from max.gpu import block_idx, thread_idx
@@ -58,8 +33,6 @@ def amar_matmul_dbuf[
     var block_row = block_idx.y * BM
     var block_col = block_idx.x * BN
 
-    # Two buffers each; the leading BK dimension is doubled rather than adding a
-    # rank so the SIMD views below stay 2-D.
     var sa = stack_allocation[dtype, address_space=AddressSpace.SHARED](
         row_major[2 * BK, BM + LDS_PAD]()
     )
@@ -74,7 +47,6 @@ def amar_matmul_dbuf[
     var a_stage = SIMD[dtype, A_PER_THREAD](0)
     var b_stage = SIMD[dtype, B_PER_THREAD](0)
 
-    # --- prologue: stage tile 0 and commit it to buffer 0 -------------------
     comptime for i in range(A_PER_THREAD):
         var e = tid + i * NTHREADS
         var gr = block_row + e // BK
@@ -101,8 +73,6 @@ def amar_matmul_dbuf[
     while k_tile < K:
         barrier()
 
-        # Issue the next tile's global reads first so their latency is covered
-        # by the compute below, not by a stall in front of it.
         var next_k = k_tile + BK
         var have_next = next_k < K
         if have_next:

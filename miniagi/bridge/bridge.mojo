@@ -99,7 +99,7 @@ def idx_offsets(path: String, per_hid: Int, per_att: Int) raises -> Tuple[List[I
     var ar = List[Int]()
     var oh = 0
     var oa = 0
-    var text = String("")
+    var text: String
     try:
         text = read_text(path)
     except:

@@ -6,6 +6,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 mkdir -p .work/quality
 keys=("$@"); [ ${#keys[@]} -gt 0 ] || mapfile -t keys < <(jq -r 'keys[] | select(startswith("_") | not)' bench/quality-models.json)
+[ ${#keys[@]} -gt 0 ] || { echo "FAIL setup: no model keys (bench/quality-models.json unreadable or empty)"; exit 1; }
 failed=()
 for k in "${keys[@]}"; do
   echo "=== $k $(date -Is) ===" | tee -a .work/quality/sweep.log

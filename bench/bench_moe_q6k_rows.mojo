@@ -9,7 +9,7 @@ from std.math import ceildiv
 from std.sys import has_accelerator
 from std.time import perf_counter_ns
 from max.gpu.host import DeviceContext, DeviceBuffer
-from layout import TileTensor, row_major
+from layout import row_major
 from moe import amar_moe_down_q6k, N_EXP, TOPK, E_FFN, MOE_H, MOE_WAVES, MOE_THREADS
 from moe_rows import moe_pairs_group, moe_down_q6k_grouped, moe_down_combine
 from test_moe_rows import Lcg, fill_bytes, set_f16, view, differ

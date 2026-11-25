@@ -11,7 +11,7 @@ from std.time import perf_counter_ns
 from max.gpu.host import DeviceContext, HostBuffer
 from layout import TileTensor, row_major
 
-from matmul_wmma_pipe import amar_matmul_wmma_pipe, BLK_M, BLK_N, BLK_K, NTHREADS, WARPS_M, WARPS_N, WTILE_M, WTILE_N, PAD_A, PAD_B, TRANS_B, ALIGNED, C_DTYPE, PGR, LB, ABL, PRIO, TB, HOIST, SGB
+from matmul_wmma_pipe import amar_matmul_wmma_pipe, BLK_M, BLK_N, BLK_K, WARPS_M, WARPS_N, WTILE_M, WTILE_N, C_DTYPE, PGR, LB, ABL, PRIO, TB, HOIST, SGB
 
 comptime M = 512
 comptime N = 512

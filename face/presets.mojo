@@ -103,9 +103,10 @@ def is_bare(v: String) -> Bool:
         pass
     try:
         _ = Float64(v)
-        return v != "nan" and v != "inf" and v != "-inf" and v != "+inf"
     except:
         return False
+    var i = 1 if v.startswith("-") or v.startswith("+") else 0
+    return i < v.byte_length() and 48 <= Int(v.as_bytes()[i]) <= 57  # TOML floats start with a digit: not ".5", "inf", "nan"
 
 
 def q(s: String) -> String:

@@ -26,11 +26,11 @@ for n in $LENS; do
   p=bench/prefill-prompts/p$(printf '%04d' "$n").tokens
   for i in 1 2 3; do
     gpu-wait list > "$L/q-$n-$i.txt" 2>&1
-    gpu-wait run --priority 20 --vram 12 -- $E BARO_PROMPT="$p" "$ENG" > "$L/run-$n-$i.log" 2>&1
+    gpu-wait run --priority 20 --vram 12 --timeout 1800 -- $E BARO_PROMPT="$p" "$ENG" > "$L/run-$n-$i.log" 2>&1
     echo "$TAG $n run$i exit $? $(rcpt "$L/run-$n-$i.log") $(parity "$L/run-$n-$i.log" "$B/base-$n-1.log")" >> "$S"
   done
   gpu-wait list > "$L/q-prof-$n.txt" 2>&1
-  gpu-wait run --priority 20 --vram 12 -- $E BARO_PROFILE=1 BARO_PROMPT="$p" "$ENG" > "$L/prof-$n.log" 2>&1
+  gpu-wait run --priority 20 --vram 12 --timeout 1800 -- $E BARO_PROFILE=1 BARO_PROMPT="$p" "$ENG" > "$L/prof-$n.log" 2>&1
   echo "$TAG prof $n exit $? $(grep -h 'prefill split' "$L/prof-$n.log")" >> "$S"
 done
 echo "RUN DONE $TAG $(date -Is)" >> "$S"

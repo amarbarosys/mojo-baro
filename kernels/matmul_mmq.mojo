@@ -4,7 +4,6 @@ from max.gpu.sync import barrier
 from max.gpu import block_idx, global_idx, thread_idx, WARP_SIZE
 from std.math import ceildiv, fma
 from std.memory import bitcast
-from std.sys.intrinsics import llvm_intrinsic
 from layout import TileTensor, TensorLayout, row_major, stack_allocation
 from arch import mma, acc_row, GFX12_ROWS
 

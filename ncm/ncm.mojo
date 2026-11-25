@@ -1,5 +1,5 @@
 # ncm.mojo MODEL.gguf [N B DATADIR]: NCM sudoku (HazyResearch next-concept model) generated in Mojo on gfx1100, greedy, f32.
-# MODEL.gguf from tools/ncm_pack.py (arch ncm, Linear weights stored [in, out]). With DATADIR (puzzles/solutions.i32 from
+# MODEL.gguf from ncm/tools/ncm_pack.py (arch ncm, Linear weights stored [in, out]). With DATADIR (puzzles/solutions.i32 from
 # ncm_pack) it runs N boards and writes DATADIR/codes.i32, tokens.i32; without, it checks itself: the 64 puzzles and the
 # oracle's tokens stored in the gguf (ncm.run.*) must match, exit 1 otherwise.
 # Op list: ~/Projects/research/ncm/docs/mojo-port-spec.md. The prefix never sees target rows, so its K/V per layer are

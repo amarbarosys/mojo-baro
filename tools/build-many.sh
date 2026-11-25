@@ -50,7 +50,10 @@ one() {  # $1 index
   local i=$1 cmd key
   cmd=$(cat "$dir/$i.cmd")
   local o; o=$(grep -oE '(^| )-o +[^ ]+' <<< "$cmd" | awk '{print $2}' | tail -1); o=$(bash -c "echo $o")
-  key=$( { printf '%s\n' "$tree" "$(sed -E 's#(^| )-o +[^ ]+##' <<< "$cmd")"; closure "$cmd" | tr '\n' '\0' | xargs -0 sha256sum --; } | sha256sum | cut -c1-32)
+  local kc; kc=$(sed -E 's#(^| )-o +[^ ]+##' <<< "$cmd")
+  # BUILD_KEY_ROOTLESS=1 (compile-only checks): the checkout path (an -rpath) leaves the key, so a lane hits main's builds
+  [ "${BUILD_KEY_ROOTLESS:-0}" = 1 ] && kc=${kc//"$PWD"/@ROOT}
+  key=$( { printf '%s\n' "$tree" "$kc"; closure "$cmd" | tr '\n' '\0' | xargs -0 sha256sum --; } | sha256sum | cut -c1-32)
   echo "$key" > "$dir/$i.key"
   if [ "${BUILD_CACHE:-1}" = 1 ] && [ -f "$cache/bin/$key" ]; then
     [ -z "$o" ] || { mkdir -p "$(dirname "$o")"; cp --reflink=auto --remove-destination "$cache/bin/$key" "$o"; }

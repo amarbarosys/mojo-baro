@@ -46,7 +46,7 @@ measured the row says so.
 
 ## 2. Every setting
 
-222 entries of `docs/settings.toml`. Kind: env (engine, read at run time), build (`-D` flag, rebuild), server-env (baro-serve),
+223 entries of `docs/settings.toml`. Kind: env (engine, read at run time), build (`-D` flag, rebuild), server-env (baro-serve),
 shell (`tools/baro`), request (a request field), external (read by MAX). Internal = status bench-only (benches, tests, probes).
 In GUI: the face lists every setting of group sampling, engine, model and front, Basic or behind the Advanced toggle (`face/settings.mojo:157-159`).
 
@@ -261,7 +261,8 @@ In GUI: the face lists every setting of group sampling, engine, model and front,
 | `BARO_DF_DOT` | env | `true` | yes | experimental | none recorded | Engine tab, Advanced toggle | - |
 | `BARO_DF_PROF` | env | `false` | yes | experimental | none recorded | Engine tab, Advanced toggle | - |
 | `BARO_DF_SHIFT` | env | `0` | yes | experimental | none recorded | Engine tab, Advanced toggle | - |
-| `BARO_FEWROW` | build | `false` | yes | experimental | none recorded | Engine tab, Advanced toggle | - |
+| `BARO_FEWROW` | build | `0` | yes | experimental | none recorded | Engine tab, Advanced toggle | - |
+| `BARO_FW_PLANES` | build | `3` | yes | experimental | none recorded | Engine tab, Advanced toggle | - |
 | `BARO_LOG_PROMPTS` | env | `0` | yes | experimental | none recorded | Engine tab, Advanced toggle | - |
 | `BARO_CUDART_LIB` | env | `libcudart.so` | yes | experimental | none recorded | Engine tab, Advanced toggle | - |
 | `BARO_SP_MEGA` | env | `false` | yes | experimental | none recorded | Engine tab, Advanced toggle | - |

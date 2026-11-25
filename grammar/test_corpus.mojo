@@ -5,7 +5,7 @@ from grammar.automaton import Automaton, Bitset
 from grammar.json_value import parse_json_file
 from grammar.json_schema import compile_root_schema
 from grammar.vocab import Vocab, load_vocab
-from grammar.trie import TokenTrie, build_trie
+from grammar.trie import build_trie
 from grammar.matcher import Matcher
 
 comptime PACK_DIR = ".work/engine-pack-q4"

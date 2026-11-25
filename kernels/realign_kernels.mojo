@@ -1,4 +1,4 @@
-from layout import TileTensor, TensorLayout, row_major
+from layout import TileTensor, TensorLayout
 from max.gpu import block_idx, global_idx
 
 comptime f32 = DType.float32

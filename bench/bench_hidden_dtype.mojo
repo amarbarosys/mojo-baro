@@ -2,15 +2,14 @@
 # Tests whether rounding the 8 HIDDEN vectors to bf16 before ingest leaves
 # the receiver's 64 generated tokens identical on 20/20 prompts.
 
-from std.math import ceildiv
 from std.time import perf_counter_ns
 from std.sys import has_accelerator
 
-from max.gpu.host import DeviceContext, DeviceBuffer, HostBuffer
-from layout import TileTensor, row_major
+from max.gpu.host import DeviceContext, DeviceBuffer
+from layout import TileTensor
 from registry import *
 from window import *
-from harness import load_pack, alloc_bufs, Pack
+from harness import load_pack, alloc_bufs
 from realign import final_norm_hidden
 from serve_proto import default_sample_params
 

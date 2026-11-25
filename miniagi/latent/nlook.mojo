@@ -173,7 +173,6 @@ struct Look(Movable):
     def bwd[exact: Bool](self, ctx: DeviceContext, p: F, g: F, dx: F, nf: F, dnf: F, h: Int) raises:
         var b = self.b
         var m = self.m
-        var q = self.fp(self.q).unsafe_offset(h * b * EB)
         var v = self.fp(self.v).unsafe_offset(h * b * EB)
         var a = self.fp(self.alpha).unsafe_offset(h * b * m)
         var da = self.fp(self.da)

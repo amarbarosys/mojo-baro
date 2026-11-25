@@ -2,7 +2,7 @@
 # Implements mint_latent and ingest_latent for byte-exact SSM checkpoints and KV pages.
 
 from std.os import getenv, setenv
-from std.memory import Pointer, unsafe_memset, unsafe_memcpy
+from std.memory import Pointer, unsafe_memcpy
 from std.memory.alloc import unsafe_alloc
 from max.gpu.host import DeviceContext, DeviceBuffer, HostBuffer
 

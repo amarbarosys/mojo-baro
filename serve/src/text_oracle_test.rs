@@ -110,7 +110,9 @@ fn text_row(t: &Text, pack: &str, kind: &str, id: &str, text: &str, full_detok: 
 }
 
 fn chat_extra(t: &Text, msgs: &[ChatMessage], tools: Option<&Value>, kwargs: Option<&Value>) -> Value {
-    json!({"role_boundaries": t.role_boundaries(msgs, tools, kwargs)})
+    let fast = t.role_boundaries(msgs, tools, kwargs);
+    assert_eq!(fast, t.role_boundaries_impl(msgs, tools, kwargs, false), "role_boundaries: the one-encode path differs from one encode per prefix");
+    json!({"role_boundaries": fast})
 }
 
 /// Float boundary values as a client would send them. `ten22` is the integer 10**22 in the request text; serde_json

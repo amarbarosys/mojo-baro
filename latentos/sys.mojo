@@ -183,9 +183,7 @@ def sys_fork() -> Int32:
 def sys_socket(domain: Int32, type: Int32, protocol: Int32 = 0) -> Int32:
     return external_call["socket", Int32](domain, type, protocol)
 
-def sys_bind_unix(fd: Int32, path: String) -> Int32:
-    var sun_arr = Array[UInt8, 110](fill=0)
-    var sun = sun_arr.unsafe_ptr().unsafe_origin_cast[MutUntrackedOrigin]()
+def _fill_sockaddr_un(sun: BytePtr, path: String):
     sun.unsafe_offset(0).unsafe_bitcast[UInt16]()[] = UInt16(AF_UNIX)
     var n = path.byte_length()
     var src = path.unsafe_ptr()
@@ -195,6 +193,11 @@ def sys_bind_unix(fd: Int32, path: String) -> Int32:
     for i in range(max_len):
         sun[unsafe_offset=2 + i] = src[unsafe_offset=i]
     sun[unsafe_offset=2 + max_len] = 0
+
+def sys_bind_unix(fd: Int32, path: String) -> Int32:
+    var sun_arr = Array[UInt8, 110](fill=0)
+    var sun = sun_arr.unsafe_ptr().unsafe_origin_cast[MutUntrackedOrigin]()
+    _fill_sockaddr_un(sun, path)
     return external_call["bind", Int32](fd, sun, 110)
 
 def sys_listen(fd: Int32, backlog: Int32 = 16) -> Int32:
@@ -206,15 +209,7 @@ def sys_accept(fd: Int32) -> Int32:
 def sys_connect_unix(fd: Int32, path: String) -> Int32:
     var sun_arr = Array[UInt8, 110](fill=0)
     var sun = sun_arr.unsafe_ptr().unsafe_origin_cast[MutUntrackedOrigin]()
-    sun.unsafe_offset(0).unsafe_bitcast[UInt16]()[] = UInt16(AF_UNIX)
-    var n = path.byte_length()
-    var src = path.unsafe_ptr()
-    var max_len = 107
-    if n < max_len:
-        max_len = n
-    for i in range(max_len):
-        sun[unsafe_offset=2 + i] = src[unsafe_offset=i]
-    sun[unsafe_offset=2 + max_len] = 0
+    _fill_sockaddr_un(sun, path)
     return external_call["connect", Int32](fd, sun, 110)
 
 def sys_mkdir(path: String, mode: Int = 0o755) -> Int32:

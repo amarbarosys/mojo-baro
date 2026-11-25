@@ -1,5 +1,5 @@
 from std.collections import Dict
-from grammar.json_value import parse_json_file, JSONDoc, JKindObject
+from grammar.json_value import parse_json_file, JKindObject
 
 
 struct Vocab(Copyable, Movable):
@@ -68,7 +68,7 @@ def load_vocab(pack_dir: String) raises -> Vocab:
 
     var model_idx = tok_doc.get_field(tok_doc.root, "model")
     var vocab_idx = tok_doc.get_field(model_idx, "vocab")
-    ref vocab_val = tok_doc.get(vocab_idx)
+    ref vocab_val = tok_doc.pool[vocab_idx]
     if vocab_val.kind != JKindObject:
         raise Error("vocab: model.vocab is not an object")
 
@@ -84,8 +84,7 @@ def load_vocab(pack_dir: String) raises -> Vocab:
 
     for i in range(n):
         ref key = vocab_val.obj_keys[i]
-        var id_val = tok_doc.get(vocab_val.obj_vals[i])
-        var tid = Int(id_val.n)
+        var tid = Int(tok_doc.pool[vocab_val.obj_vals[i]].n)
         if tid >= len(out.token_bytes):
             while len(out.token_bytes) <= tid:
                 out.token_bytes.append([])

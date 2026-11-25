@@ -1,27 +1,3 @@
-"""fp16 WMMA GEMM with LDS staging, gfx1100 (wave32).
-
-The direct-from-global version re-reads A and B per warp with a strided access
-per lane: no reuse, poor coalescing, and throughput that swings non-monotonically
-with size (14.4 / 7.1 / 16.4 TFLOPS at 1024/2048/4096). Here each block stages
-one A and one B tile into LDS cooperatively, then every warp builds its
-fragments from LDS.
-
-Fragment shape and lane mapping are as documented in amar_matmul_wmma.mojo:
-RDNA3 wave32 wants a/b 16 wide, c/d 8 wide.
-
-Two things were tried here and are NOT worth retrying:
-
-  Vectorizing the LDS fragment reads. A fragments are already contiguous and the
-  compiler handles them; forcing 8-wide reads changed nothing (9208 vs 9285 at
-  512^3, 28763 vs 28758 at 2048^3). B fragments are strided, and staging B
-  transposed to make them contiguous cost ~3% everywhere -- the strided LDS
-  store is dearer than the wide read is worth. Same result the fp32 `ldst`
-  variant produced.
-
-  BLK_K = 64, so one LDS stage feeds four matrix-core steps. Worse everywhere
-  (2048^3: 28758 -> 8602 scale). 16 KB of LDS per block destroys occupancy.
-"""
-
 from max.gpu.memory import AddressSpace
 from max.gpu.sync import barrier
 from max.gpu import block_idx, thread_idx
@@ -40,10 +16,6 @@ comptime WTILE_N = 4
 
 comptime BLK_M = WARPS_M * WTILE_M * WMMA_M
 comptime BLK_N = WARPS_N * WTILE_N * WMMA_N
-# BLK_K=64 was tried and is worse everywhere (2048^3: 21901 -> 8602). It puts
-# 16 KB of LDS in a block and craters occupancy; at 16 the footprint is 4 KB.
-# Occupancy beats reuse on this card -- the same result the fp32 sweep and the
-# aiter tuning both produced.
 comptime BLK_K = WMMA_K
 comptime NTHREADS = WARPS_M * WARPS_N * 32
 comptime VEC = 8
@@ -128,8 +100,6 @@ def amar_matmul_wmma_lds[
                         )
         barrier()
 
-        # One LDS stage now feeds BLK_K/WMMA_K matrix-core steps, so the two
-        # barriers are amortised instead of paid every 16 elements of K.
         comptime for ks in range(BLK_K // WMMA_K):
             comptime for tm in range(WTILE_M):
                 var a = SIMD[DType.float16, 16](0)

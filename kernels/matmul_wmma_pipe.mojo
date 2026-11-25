@@ -3,11 +3,10 @@ from max.gpu import MAX_THREADS_PER_BLOCK_METADATA
 from max.gpu.memory import AddressSpace
 from max.gpu.sync import barrier, schedule_group_barrier, AMDScheduleBarrierMask
 from max.gpu import block_idx, thread_idx
-from std.math import ceildiv, erf
+from std.math import erf
 from layout import TileTensor, TensorLayout, row_major, stack_allocation
 from arch import mma, acc_row
 from std.sys import get_defined_int
-from std.sys.intrinsics import llvm_intrinsic
 from std.utils import StaticTuple
 
 comptime WMMA_M = 16
@@ -18,17 +17,17 @@ comptime WARPS_M = 4
 comptime WARPS_N = 2
 comptime WTILE_M = 2
 comptime WTILE_N = 4
-comptime BLK_K = get_defined_int["WMMA_BLK_K", 32]()  # -D overrides for a caller sweep; defaults unchanged
-comptime PAD_A = get_defined_int["WMMA_PAD_A", 0]()   # (newera bge_gpu: wavewait showed LDS queue 18 %, barrier 24 %)
+comptime BLK_K = get_defined_int["WMMA_BLK_K", 32]()
+comptime PAD_A = get_defined_int["WMMA_PAD_A", 0]()
 comptime PAD_B = get_defined_int["WMMA_PAD_B", 0]()
 comptime TRANS_B = 2
 comptime ALIGNED = 1
-comptime C_F16 = get_defined_int["WMMA_C_F16", 1]()  # -D WMMA_C_F16=0: f32 C (newera tools/bge_gpu.mojo)
+comptime C_F16 = get_defined_int["WMMA_C_F16", 1]()
 comptime PGR = 2
 comptime LB = 0
 comptime ABL = 0
 comptime PRIO = 0
-comptime TB = get_defined_int["WMMA_TB", 0]()  # -D WMMA_TB=1: B is [N, K] as stored (torch Linear weights)
+comptime TB = get_defined_int["WMMA_TB", 0]()
 comptime HOIST = 0
 comptime SGB = 0
 comptime LB_MAX = NTHREADS if LB == 1 else 1024
@@ -169,7 +168,6 @@ def wmma_pipe_body[
     var sta1 = SIMD[DType.float16, A_PER * VEC](0)
     var stb1 = SIMD[DType.float16, B_PER * VEC](0)
 
-    # prologue: tile 0 -> registers -> buffer 0
     comptime for s in range(A_PER):
         var v = tid + s * NTHREADS
         var r = v // KCH

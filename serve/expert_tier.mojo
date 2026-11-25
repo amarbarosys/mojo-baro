@@ -40,7 +40,7 @@ what stage 3's prefetch exists to remove.
 """
 from std.collections import Dict, List
 from std.atomic import Ordering, fence
-from std.ffi import c_ssize_t, external_call, OwnedDLHandle
+from std.ffi import c_ssize_t, external_call
 from gpu_rt import rt_lib, rt_name, rt_flags
 from std.memory import UnsafePointer, alloc, bitcast
 from std.os import getenv

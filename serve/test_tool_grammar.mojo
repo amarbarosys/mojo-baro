@@ -7,7 +7,7 @@ Build: ./.venv/bin/mojo build serve/test_tool_grammar.mojo -I serve -I . -o .wor
 Run:   .work/test_tool_grammar [PACK_DIR]   (default .work/ailab/pack-kq)
 """
 from std.sys import argv
-from std.testing import assert_true, assert_equal
+from std.testing import assert_true
 from grammar.automaton import Bitset
 from grammar.vocab import Vocab
 from grammar.matcher import Matcher

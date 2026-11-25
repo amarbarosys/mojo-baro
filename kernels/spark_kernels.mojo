@@ -1,13 +1,13 @@
-from max.gpu import block_dim, block_idx, global_idx, lane_id, thread_idx, WARP_SIZE
+from max.gpu import block_idx, global_idx, lane_id, thread_idx, WARP_SIZE
 from max.gpu.primitives import warp
 from max.gpu.sync import barrier
-from std.math import cos, sin, tanh
+from std.math import cos, sin
 from bexp import exp, log
 from std.memory import bitcast
 from max.gpu.memory import AddressSpace
 from layout import TileTensor, TensorLayout, row_major, stack_allocation
-from attn import KVT, HD, NQH, NKVH, attn_head_span, kv_off, kv_tab_off
-from matmul_skinny import dtype, ROW_WAVES
+from attn import KVT, HD, NQH, NKVH, attn_head_span, kv_tab_off
+from matmul_skinny import ROW_WAVES
 from gemv_kq import gemv_epi
 
 comptime f32 = DType.float32

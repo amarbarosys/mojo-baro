@@ -12,7 +12,7 @@ with speculation and the megakernel off (serve/engine.mojo); the masked
 kernel covers temperature > 0 and masked greedy at temperature <= 0.
 """
 from std.memory import ArcPointer
-from grammar.automaton import Automaton, Bitset
+from grammar.automaton import Automaton
 from grammar.json_value import parse_json_bytes
 from grammar.json_schema import compile_root_schema
 from grammar.regex import compile_regex_to_rule

@@ -12,7 +12,7 @@ from std.math import ceildiv
 from std.sys import has_accelerator
 from std.time import perf_counter_ns
 
-from max.gpu.host import DeviceContext, DeviceBuffer, HostBuffer
+from max.gpu.host import DeviceContext, DeviceBuffer
 from layout import TileTensor, TensorLayout, row_major
 
 from matmul_skinny import amar_matmul_skinny_q8row, SM, SPLITK, ROW_WAVES, ROW_THREADS

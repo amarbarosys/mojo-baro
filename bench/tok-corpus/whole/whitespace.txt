@@ -1,0 +1,26 @@
+one space, two  spaces, three   spaces, eight        spaces.
+	tab		two tabs	 	mixed 	 end   
+
+
+
+four newlines above; CRLF next
+line
+
+trailing spaces   
+   leading spaces
+ 
+  
+   
+	
+ nbsp: x  y thin: x zwsp:a​b zwj:a‍b bom:﻿x em-space: x ideographic:　x
+line sep: x para sep: x nel:x vt:x ff:x
+en dash – and –– twice, horizontal bar ―
+                                                                indent 64
+    def f():
+        return 1
+
+
+    # end with spaces and newlines   
+
+
+   

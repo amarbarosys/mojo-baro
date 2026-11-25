@@ -58,7 +58,7 @@ tasks="${BARO_E8_TASKS:-bench/data/e8_tasks.json}"
 for v in BARO_E8_ANS_MAX BARO_E8_RECV_MAX BARO_E8_TMAX BARO_E8_NOTHINK BARO_PACK BARO_E8_GGUF BARO_E8_TASKS BARO_E8_SHARE_A BARO_E8_FORCE_IDENTITY_MISMATCH; do
   [ -n "${!v-}" ] && e8_env+=("$v=${!v}")
 done
-gpu-wait run --priority 30 --vram 14 -- \
+gpu-wait run --priority 30 --vram 14 --timeout 3600 -- \
   env "${e8_env[@]}" .work/bench_latent_handoff "${bin_args[@]}" &
 job_pid=$!
 

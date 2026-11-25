@@ -7,7 +7,7 @@ from std.memory import unsafe_memcpy
 from std.sys import has_accelerator
 from std.time import perf_counter_ns
 
-from max.gpu.host import DeviceContext, DeviceBuffer, HostBuffer
+from max.gpu.host import DeviceContext
 
 import latentos.ipc as ipc
 import latentos.sys as sys

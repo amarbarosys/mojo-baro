@@ -107,7 +107,7 @@ def layout(arm: String, stage: Int, gen: Bool = False, feed: Int = LAT, short: B
     var k = List[Int]()
     var S = P0 + 1 if arm == "nocot" else P0 + 1 + NTH + (0 if short else 2) - (1 if nobot and short else 0)
     var q0 = base(S) if arm != "nocot" else P0
-    for r in range(S):
+    for _ in range(S):
         k.append(TOK)
     if arm == "pause":
         for j in range(NTH):
@@ -955,7 +955,6 @@ def write_self[exact: Bool](ctx: DeviceContext, m: Model[exact], p: F, g: F, mut
     var cbpb = eval_fixed(ctx, m, p, g, bf, cpath, S, b, c)
     var keys = List[String]()
     var vals = List[String]()
-    var here = String(argv()[0])
     for f in ["miniagi/latent/run.mojo", "miniagi/latent/lmodel.mojo", "miniagi/latent/lops.mojo", "miniagi/latent/ckpt.mojo",
               "miniagi/latent/stagecheck.mojo", "miniagi/latent/nlook.mojo", "miniagi/latent/bpe8k.mojo", "miniagi/train/ops.mojo"]:
         if exists(f):

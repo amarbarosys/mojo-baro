@@ -7,7 +7,6 @@
 //! `ok NTOK:HEX ...` (per text its token count and 384 little-endian f32, L2-normalised) or `err MESSAGE`.
 //! The child starts on the first request (at boot under `--embed-only`) and is restarted after it dies.
 
-use super::*;
 use std::process::Stdio;
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};

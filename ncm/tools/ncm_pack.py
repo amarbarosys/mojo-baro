@@ -3,7 +3,7 @@
 Reads the torch zip directly (raw storages + a pickle index restricted to tensors), so neither torch nor arbitrary
 pickle code runs. Linear weights are stored transposed ([in, out]), the layout ncm.mojo's GEMM reads; every tensor
 starts on a 64-float boundary. manifest.tsv: name, offset (floats), shape as stored. Meta lines: levels, phi (quant_resi index
-per level, PhiNonShared ticks rule). The GGUF carries ncm.levels / ncm.phi and, given ORACLE_DIR (tools/ncm_dump.py),
+per level, PhiNonShared ticks rule). The GGUF carries ncm.levels / ncm.phi and, given ORACLE_DIR (~/Projects/research/ncm/tools/ncm_dump.py),
 i32 tensors ncm.run.puzzles [64, 91] + ncm.run.ref.tokens [64, 89] (the oracle's tokens): the file checks itself. DATA_DIR (puzzles.pickle, solutions.pickle, plain lists): -> puzzles.i32 [N, 91],
 solutions.i32 [N, 89]."""
 import collections, pickle, struct, sys, zipfile

@@ -234,25 +234,6 @@ struct TransferSession(Movable):
         self.manifest = manifest.copy()
         self.wire_id = new_wire_id
 
-    def _same_chunk(self, a: crypto.EncryptedChunk, b: crypto.EncryptedChunk) -> Bool:
-        if a.index != b.index or a.offset != b.offset or a.plaintext_len != b.plaintext_len:
-            return False
-        if len(a.ciphertext) != len(b.ciphertext) or len(a.metadata) != len(b.metadata):
-            return False
-        for i in range(len(a.ciphertext)):
-            if a.ciphertext[i] != b.ciphertext[i]:
-                return False
-        for i in range(len(a.metadata)):
-            if a.metadata[i] != b.metadata[i]:
-                return False
-        for i in range(crypto.CRYPTO_NONCE_BYTES):
-            if a.nonce[i] != b.nonce[i]:
-                return False
-        for i in range(crypto.CRYPTO_TAG_BYTES):
-            if a.tag[i] != b.tag[i]:
-                return False
-        return True
-
     def accept_chunk(mut self, var chunk: crypto.EncryptedChunk, now_s: Int64) raises -> Bool:
         # No manifest yet: say so (the relay already does), instead of the "identity" error validate() would give.
         if self.wire_id == "":
@@ -278,7 +259,7 @@ struct TransferSession(Movable):
             raise Error("TRANSFER:chunk_index")
         if offset < self.next_offset:
             for i in range(len(self.chunks)):
-                if self.chunks[i].index == chunk.index and self._same_chunk(self.chunks[i], chunk):
+                if self.chunks[i].index == chunk.index and same_encrypted_chunk(self.chunks[i], chunk):
                     return True
             raise Error("TRANSFER:replay_or_gap")
         if offset != self.next_offset:

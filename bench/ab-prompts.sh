@@ -50,4 +50,5 @@ a=[float(r[2]) for r in rows]; b=[float(r[3]) for r in rows]
 fails=[r[0] for r in rows if r[4]!="PASS"]
 sp=lambda x:(max(x)-min(x))/st.median(x)*100
 print(f"{sys.argv[2]} median {st.median(a):.2f} tok/s_gen spread {sp(a):.1f}%  |  {sys.argv[3]} median {st.median(b):.2f} spread {sp(b):.1f}%  |  ratio {st.median(b)/st.median(a):.3f}  |  identity fails: {fails or 'none'}")
+if fails: print(f"FAIL ab-prompts: identity differs on {' '.join(fails)}"); sys.exit(1)
 PY

@@ -134,7 +134,6 @@ class SplitMix64:
 def norm(s):
     s=unicodedata.normalize('NFKD',s).encode('ascii','ignore').decode().lower()
     s=re.sub(r'\b(the|a|an)\b',' ',s); return re.sub(r'[^a-z0-9]+',' ',s).strip()
-def aliases_for(v): return [norm(v)]
 def write_tables():
     DATA.mkdir(parents=True,exist_ok=True)
     with (DATA/'landmarks.tsv').open('w') as f:

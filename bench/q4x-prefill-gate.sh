@@ -41,4 +41,4 @@ for p in $PROMPTS; do
   if [ $ok = 1 ]; then echo "PASS $b T=$T bytes=$((T * 2560 * 4)) identical; next id equal; ms/token step $ms_s prefill $ms_p" | tee -a "$OUT/receipt.txt"
   else fail=$((fail + 1)); names="$names $b"; echo "FAIL $b T=$T (see $OUT/$b.*.log)" | tee -a "$OUT/receipt.txt"; fi
 done
-if [ $fail = 0 ]; then echo "PASS $n/$n" | tee -a "$OUT/receipt.txt"; else echo "FAIL $fail/$n$names" | tee -a "$OUT/receipt.txt"; exit 1; fi
+if [ $fail = 0 ] && [ $n -gt 0 ]; then echo "PASS $n/$n" | tee -a "$OUT/receipt.txt"; else echo "FAIL $fail/$n$names" | tee -a "$OUT/receipt.txt"; exit 1; fi

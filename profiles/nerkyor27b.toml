@@ -1,15 +1,17 @@
 [profile]
 name = "nerkyor27b"
 model = "qwen35"
-description = "nerkyor Qwen3.8-27B Coder q4 pack (lane nerkyor-vs-forge): plain megakernel decode, MTP k=2 on the launch window; the defaults are the fastest paths that pass identity (docs/BASELINE.md nerkyor section)."
+description = "nerkyor Qwen3.8-27B Coder q4 pack: DFlash2 speculative decode (8-row verify window on amar_fewrow_iu4r); the defaults are the fastest paths that pass identity (docs/BASELINE.md nerkyor section)."
 source = "file"
 port = 8342
-speed = "2026-11-16: MTP k=2 70.5 tok/s_gen median (20 prompts, bench/kdefault-gate.sh), plain mega 42.1 (3 prompts, bench/gap-ab.sh)"
-receipt = "docs/lanes/2026-11-16-kdefault-report.md"
+speed = "2026-11-25: DFlash2 88.42 tok/s_gen vs MTP k=2 86.28 median (20 prompts, same binary and job, bench/dflash2-d3.sh, E4)"
+receipt = "docs/lanes/2026-11-25-verify8-r2-report.md"
 
 [env]
-BARO_MEGA = "1"
-BARO_SPEC = "1"
+BARO_MEGA = "0"
+BARO_SPEC = "dflash2"
+# draft pack: engine-pack --arch dflash of Qwen3.8-27B-nerkyor-DFlash2-Q8_0.gguf (pack_sha256 4b39f396...)
+BARO_DFLASH_PACK = ".work/dflash2/draft-pack"
 BARO_TMAX = "16384"
 MODULAR_DEVICE_CONTEXT_MEMORY_MANAGER_SIZE_PERCENT = "2"
 
@@ -25,3 +27,4 @@ BARO_SEQ_CAP = "1"
 BARO_SLOTS = "9"
 BARO_DOT_UNROLL = "2"
 BARO_TURBO = "1"
+BARO_FEWROW = "3"

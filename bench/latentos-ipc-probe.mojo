@@ -33,7 +33,7 @@ from std.ffi import external_call
 from std.memory.alloc import unsafe_alloc
 from std.sys import has_accelerator
 
-from max.gpu.host import DeviceContext, DeviceBuffer, HostBuffer
+from max.gpu.host import DeviceContext, DeviceBuffer
 
 import latentos.sys as sys
 import latentos.ipc as ipc

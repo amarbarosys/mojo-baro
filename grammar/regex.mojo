@@ -1,5 +1,5 @@
 from std.collections import Dict
-from grammar.automaton import Automaton, Rule
+from grammar.automaton import Automaton
 
 
 comptime RKByteSet: Int = 0

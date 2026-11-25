@@ -8,6 +8,7 @@ set -uo pipefail
 cd "$(dirname "$0")/.."
 model=$1; out=$2; port=${3:-8098}; eng=.work/spark/spark-engine
 mkdir -p "$out"
+[ -x "$eng" ] || { echo "FAIL setup: engine $eng not executable"; exit 1; }
 echo "engine_sha=$(sha256sum $eng | cut -c1-16) model=$model" | tee "$out/arm.txt"
 echo "power_cap_uW=$(cat /sys/class/drm/card1/device/hwmon/hwmon*/power1_cap) vddgfx=$(grep -A1 OD_VDDGFX_OFFSET /sys/class/drm/card1/device/pp_od_clk_voltage | tail -1)" | tee -a "$out/arm.txt"
 for tf in bench/mtp-prompts/p*.txt; do
@@ -45,5 +46,9 @@ print(open(f"{out}/results.txt").read())
 a = [r[2] for r in rows]; b = [r[3] for r in rows]
 sp = lambda x: (max(x) - min(x)) / st.median(x) * 100
 print(f"A median {st.median(a):.2f} spread {sp(a):.1f}% | B median {st.median(b):.2f} spread {sp(b):.1f}% | ratio {st.median(a)/st.median(b):.3f} | tokenizer fails {[r[0] for r in rows if r[4]=='FAIL']} | gen same-as-B {sum(r[5]=='same' for r in rows)}/20")
+sys.exit(1 if any(r[4] == "FAIL" for r in rows) else 0)
 PY
+rc=$?
 kill $pid; wait $pid 2>/dev/null
+[ "$rc" -eq 0 ] || echo "FAIL spark-ab: summary or tokenizer identity failed (rc $rc), see $out/results.txt" >&2
+exit $rc

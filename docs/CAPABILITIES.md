@@ -364,10 +364,10 @@ native K-quant weights, f32 activations"; protocol `bench/sparkq4k-protocol.md`.
     an unimplemented case, not a policy off-switch.
 - **Ternary (Q2_B3, TQ1_0, TQ2_0): PRESENT BUT UNUSED.**
   `kernels/matmul_ternary.mojo` implements all three formats.
-  `serve/registry.mojo` defines wrapper functions `gemm_q2b3`, `gemm_tq1`,
-  `gemm_tq2` for them. Neither `serve/engine.mojo` nor `serve/spark.mojo`
-  calls any of the three wrappers; a search for those names in both files
-  returns nothing. `docs/ternary-quant-notes.md` states this directly:
+  No engine launches them: the unwired `serve/registry.mojo` wrappers
+  (`gemm_q2b3`, `gemm_tq1`, `gemm_tq2`) were removed on 2026-11-25, and neither
+  `serve/engine.mojo` nor `serve/spark.mojo` calls the kernels.
+  `docs/ternary-quant-notes.md` states this directly:
   "Correctness only; no throughput has been measured for any of these
   kernels and none may be claimed without the `bench/coldcache-protocol.md`
   preregistration flow." The kernels are registered and parity-tested

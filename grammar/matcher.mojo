@@ -1,6 +1,6 @@
 from std.memory import ArcPointer
 from grammar.automaton import Automaton, Bitset, MatcherState, Frame, resolve_epsilon, step_byte, step_byte_tracked
-from grammar.trie import TokenTrie, TrieNode
+from grammar.trie import TokenTrie
 from grammar.vocab import Vocab
 
 

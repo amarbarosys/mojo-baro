@@ -12,8 +12,10 @@ export MODULAR_DEVICE_CONTEXT_MEMORY_MANAGER_SIZE_PERCENT=10
 orig=$(mktemp -p .work); cp "$src" "$orig"; trap 'cp "$orig" "$src"; rm -f "$orig"' EXIT
 for s in $sizes; do
   sed -i -E "s/^comptime (M|N|K) = [0-9]+$/comptime \1 = $s/" "$src"
+  rm -f .work/fp16_${tag}_$s
   ./.venv/bin/mojo build "$src" -o .work/fp16_${tag}_$s -I kernels \
-    -Xlinker -L"$S" -Xlinker -lamarbaro_shim -Xlinker -rpath -Xlinker "$S" 2>&1 | grep -E "error" -A3 || true
+    -Xlinker -L"$S" -Xlinker -lamarbaro_shim -Xlinker -rpath -Xlinker "$S" > .work/fp16-$tag-$s.build.log 2>&1 \
+    || { grep -E "error" -A3 .work/fp16-$tag-$s.build.log | head -12; echo "FAIL build: $src at size $s, see .work/fp16-$tag-$s.build.log" >&2; exit 1; }
   smp=.work/fp16-$tag-$s.samples; : > "$smp"
   for ((i=1; i<=repeats; i++)); do ./.work/fp16_${tag}_$s >> "$smp"; done
   row=$(bench/fp16-median.py "$smp" "$spread_max")   # non-zero exit here aborts the sweep (set -e)

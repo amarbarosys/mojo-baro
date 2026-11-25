@@ -65,7 +65,7 @@ from std.builtin.sort import sort
 from std.os import getenv, setenv
 from std.os.path import exists
 from std.math import sqrt, exp, cos, sin
-from std.ffi import external_call, OwnedDLHandle
+from std.ffi import external_call
 from gpu_rt import rt_lib, rt_name, rt_flags
 from std.memory import bitcast, alloc
 from max.algorithm import parallelize

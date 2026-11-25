@@ -1,4 +1,4 @@
-from max.gpu import block_idx, thread_idx, lane_id, WARP_SIZE
+from max.gpu import block_idx, thread_idx, WARP_SIZE
 from max.gpu.memory import AddressSpace
 from max.gpu.sync import barrier
 from std.math import ceildiv

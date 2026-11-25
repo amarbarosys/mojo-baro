@@ -352,7 +352,7 @@ async fn stream_file_chunks(path: std::path::PathBuf, tx: mpsc::Sender<Result<By
 /// for the HTTP-facing checkpoint id, not this binary LAT1 header field.
 pub fn exact_prefix_hash(tokens: &[u32], pos: usize) -> u64 {
     let mut bytes = Vec::with_capacity(pos * 4);
-    for &t in &tokens[..pos] {
+    for &t in &tokens[..pos.min(tokens.len())] {
         bytes.extend_from_slice(&t.to_le_bytes());
     }
     let digest = sha256(&bytes);
@@ -930,6 +930,13 @@ mod tests {
         assert_eq!(a, b, "the hash must not depend on tokens[pos]");
         let c = exact_prefix_hash(&[10, 20, 30], 3);
         assert_ne!(a, c, "but it must depend on everything before pos");
+    }
+
+    #[test]
+    fn pos_past_the_tokens_hashes_all_tokens_like_the_router_copy() {
+        // A hand-edited or truncated checkpoint sidecar can carry pos > tokens.len();
+        // `GET /v1/state` must not panic on it (bin/router.rs clamps the same way).
+        assert_eq!(exact_prefix_hash(&[1, 2, 3], 9), exact_prefix_hash(&[1, 2, 3], 3));
     }
 
     #[test]

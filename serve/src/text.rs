@@ -3,6 +3,7 @@
 //! `tokenizer-meta.json` (bos/eos ids, chat template). Absent tokenizer =>
 //! the server still runs, token-id endpoints only.
 
+use std::collections::HashMap;
 use std::path::Path;
 
 use minijinja::Environment;
@@ -199,7 +200,10 @@ impl Text {
 
     pub fn encode(&self, text: &str, add_special: bool) -> Result<Vec<u32>, String> {
         let enc = self.tok.encode(text, add_special).map_err(|e| e.to_string())?;
-        let mut ids = enc.get_ids().to_vec();
+        Ok(self.with_bos(enc.get_ids().to_vec(), add_special))
+    }
+
+    fn with_bos(&self, mut ids: Vec<u32>, add_special: bool) -> Vec<u32> {
         if add_special && self.meta.add_bos == Some(true) {
             if let Some(bos) = self.meta.bos_token_id {
                 if ids.first() != Some(&bos) {
@@ -207,7 +211,30 @@ impl Text {
                 }
             }
         }
-        Ok(ids)
+        ids
+    }
+
+    /// `encode(text, true)` plus, for every byte position at an edge of a special token (and the end of the text),
+    /// how many ids come before it. The tokenizer cuts the text at its non-normalized added tokens before anything
+    /// else, so the text on one side of such an edge never changes the ids on the other: `encode(&text[..p])` has
+    /// exactly `cuts[p]` ids. None when a post-processor adds ids of its own (their positions are not in the text).
+    fn encode_with_cuts(&self, text: &str) -> Option<(Vec<u32>, HashMap<usize, u32>)> {
+        let enc = self.tok.encode(text, true).ok()?;
+        if enc.get_special_tokens_mask().iter().any(|&m| m != 0) {
+            return None;
+        }
+        let ids = self.with_bos(enc.get_ids().to_vec(), true);
+        let shift = ids.len() - enc.get_ids().len();
+        let added = self.tok.get_added_tokens_decoder();
+        let mut cuts = HashMap::new();
+        for (j, (id, &(start, end))) in enc.get_ids().iter().zip(enc.get_offsets()).enumerate() {
+            if start < end && added.get(id).is_some_and(|t| !t.normalized) {
+                cuts.insert(start, (j + shift) as u32);
+                cuts.insert(end, (j + 1 + shift) as u32);
+            }
+        }
+        cuts.insert(text.len(), ids.len() as u32);
+        Some((ids, cuts))
     }
 
     pub fn decode(&self, ids: &[u32]) -> Result<String, String> {
@@ -319,20 +346,50 @@ impl Text {
     /// then share a checkpoint right before the text that differs, instead of
     /// the last 1024-grid point below it (regescore Blender A/B: 4096 and 5120
     /// restored of a ~5100 / ~5500-token shared prefix).
+    ///
+    /// Cost: the full conversation is encoded once; a prefix whose render is a byte prefix of the full render and
+    /// ends at a special-token edge takes its length from that one encoding (`encode_with_cuts`). Any other prefix
+    /// is encoded on its own, as every prefix was before (one encode per message: 40 messages of a 16K-token
+    /// chat cost 20 full-length encodes).
     pub fn role_boundaries(&self, messages: &[ChatMessage], tools: Option<&Value>, kwargs: Option<&Value>) -> Vec<u32> {
-        let render_ids = |msgs: &[ChatMessage], gen: bool| -> Option<Vec<u32>> {
+        self.role_boundaries_impl(messages, tools, kwargs, true)
+    }
+
+    pub(crate) fn role_boundaries_impl(&self, messages: &[ChatMessage], tools: Option<&Value>, kwargs: Option<&Value>, fast: bool) -> Vec<u32> {
+        let render_text = |msgs: &[ChatMessage], gen: bool| -> Option<String> {
             let render = std::panic::AssertUnwindSafe(|| self.render(msgs, gen, tools, kwargs));
             let Ok(Ok(rendered)) = std::panic::catch_unwind(render) else { return None };
-            self.encode(&rendered, true).ok()
+            Some(rendered)
         };
+        let render_ids = |msgs: &[ChatMessage], gen: bool| -> Option<Vec<u32>> { self.encode(&render_text(msgs, gen)?, true).ok() };
         let ids_of = |msgs: &[ChatMessage]| render_ids(msgs, false);
         let mut out = Vec::with_capacity(messages.len() + 1);
+        let full_text = render_text(messages, false);
         let mut full = None;
+        let mut cuts = None;
+        if let Some(s) = full_text.as_deref() {
+            match if fast { self.encode_with_cuts(s) } else { None } {
+                Some((ids, c)) => {
+                    full = Some(ids);
+                    cuts = Some(c);
+                }
+                None => full = self.encode(s, true).ok(),
+            }
+        }
         for k in 1..=messages.len() {
-            let Some(ids) = ids_of(&messages[..k]) else { continue };
-            out.push(ids.len() as u32);
             if k == messages.len() {
-                full = Some(ids);
+                if let Some(ids) = &full {
+                    out.push(ids.len() as u32);
+                }
+                continue;
+            }
+            let Some(r) = render_text(&messages[..k], false) else { continue };
+            let known = match (&cuts, full_text.as_deref()) {
+                (Some(c), Some(s)) if s.starts_with(r.as_str()) => c.get(&r.len()).copied(),
+                _ => None,
+            };
+            if let Some(n) = known.or_else(|| self.encode(&r, true).ok().map(|ids| ids.len() as u32)) {
+                out.push(n);
             }
         }
         if let Some(full) = full {
@@ -430,6 +487,43 @@ impl Default for Detok {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `cargo test --release role_boundaries_long_chat -- --ignored --nocapture`: a 16K-token chat cut into 40 and
+    /// 200 messages, one encode per prefix against the one-encode path. Needs BARO_WIRE_PACK or .work/ailab/pack-kq.
+    #[test]
+    #[ignore]
+    fn role_boundaries_long_chat() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+        let pack = std::env::var("BARO_WIRE_PACK").map(std::path::PathBuf::from).unwrap_or(root.join(".work/ailab/pack-kq"));
+        let t = Text::load(&pack.join("tokenizer.json"), None).unwrap();
+        let doc = std::fs::read_to_string(root.join("bench/tok-corpus/whole/long-16k.txt")).unwrap();
+        for n in [40usize, 200] {
+            let mut msgs = Vec::new();
+            let mut at = 0;
+            for k in 0..n {
+                let mut end = if k == n - 1 { doc.len() } else { (k + 1) * doc.len() / n };
+                while !doc.is_char_boundary(end) {
+                    end += 1;
+                }
+                msgs.push(ChatMessage { role: if k % 2 == 0 { "user" } else { "assistant" }.into(), content: doc[at..end].into(), tool_calls: None });
+                at = end;
+            }
+            let ms = |fast: bool| {
+                let mut best = f64::MAX;
+                let mut out = Vec::new();
+                for _ in 0..3 {
+                    let t0 = std::time::Instant::now();
+                    out = t.role_boundaries_impl(&msgs, None, None, fast);
+                    best = best.min(t0.elapsed().as_secs_f64() * 1e3);
+                }
+                (best, out)
+            };
+            let (slow_ms, slow) = ms(false);
+            let (fast_ms, fast) = ms(true);
+            assert_eq!(fast, slow);
+            println!("role_boundaries messages {n} ids {} hints {}: per-prefix encode {slow_ms:.1} ms, one encode {fast_ms:.1} ms", slow.last().copied().unwrap_or(0), slow.len());
+        }
+    }
 
     #[test]
     fn chatml_fallback_shape() {

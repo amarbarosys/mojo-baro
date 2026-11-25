@@ -10,5 +10,5 @@ fails on a link whose target is missing or not executable.
 | lane-prep, lane-merge | worktree lanes |
 | isa-loops, isa-diff | ISA receipts for kernels (megakernel fingerprint, spills) |
 | pack-fit | VRAM budget of a pack + KV against MAX's pool |
-| model-import, hf-verify, llm-scan, publish-purge | model import / bake verification, publish copies |
+| model-import, publish-purge | model import / bake verification, publish copies |
 | gguf-kv, gguf-sweep, gguf-experts, ggml-harvest | GGUF metadata, tensor sweeps, expert stats, llama.cpp kernel census |

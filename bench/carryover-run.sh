@@ -31,12 +31,13 @@ run_one() {
   local g; g=$($GW gpu 2>/dev/null | python3 -c "import sys,json; d=json.loads(sys.stdin.read().split('\n')[0]); print('temp_c=%s power_w=%s busy=%s hold=%s' % (d['temp_c'], d['power_w'], d['busy_percent'], d['hold']['active']))" 2>/dev/null)
   local cap; cap=$(cat "$HW/power1_cap" 2>/dev/null || echo "?")
   local log="$R/$tag.log"
-  $GW run --vram 20 -- env BARO_SPEC=1 BARO_SPEC_K=2 BARO_PROMPT=$P "$bin" > "$log" 2>&1
+  $GW run --vram 20 --timeout 1800 -- env BARO_SPEC=1 BARO_SPEC_K=2 BARO_PROMPT=$P "$bin" > "$log" 2>&1
   local rc=$?
   echo "$tag exit=$rc bin_sha=$(sha256sum "$bin" | cut -c1-12) pre[$g cap_uw=$cap] tok_s_gen=$(grep -oE 'tok/s_gen: [0-9.]+' "$log" | cut -d' ' -f2) decode_s=$(grep -oE 'decode_s: [0-9.]+' "$log" | cut -d' ' -f2) gen_sha=$(grep '^GENERATED' "$log" | sha256sum | cut -c1-12) fail=$(grep -oE 'mega fail word: [0-9]+' "$log" | awk '{print $4}' | sort -u | tr '\n' ,) readback=[$(grep -oE '^BARO_SPEC: [A-Za-z]+|^spec k: [0-9]+|^BARO_MEGA: [A-Za-z]+|^pack q4 trunk: [A-Za-z]+|^STAMPS [0-9]+' "$log" | tr '\n' ';')]"
 }
 
 phase=${1:-all}
+case $phase in R|S|smoke|all) ;; *) echo "FAIL args: phase '$phase' is not R|S|smoke|all"; exit 2 ;; esac
 if [ "$phase" = R ] || [ "$phase" = all ]; then
   for i in 1 2 3; do for arm in C D2; do run_one R-$arm-$i .work/jsplit-review/engine-$arm; done; done
   echo R-DONE

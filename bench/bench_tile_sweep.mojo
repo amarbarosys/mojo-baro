@@ -11,8 +11,8 @@ from std.math import ceildiv
 from std.sys import has_accelerator, get_defined_int, get_defined_string
 from std.time import perf_counter_ns
 
-from max.gpu.host import DeviceContext, DeviceBuffer, HostBuffer
-from layout import TileTensor, TensorLayout, row_major
+from max.gpu.host import DeviceContext, DeviceBuffer
+from layout import TileTensor, row_major
 
 from matmul_prefill import amar_matmul_prefill_q4, PF_THREADS
 from matmul_prefill_lds import amar_matmul_prefill_lds, LDS_THREADS

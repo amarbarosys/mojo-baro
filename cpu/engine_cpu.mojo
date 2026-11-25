@@ -188,7 +188,7 @@ struct Engine(Movable):
         self.job[6 + 3 * sg] = dst
 
     def mv_multi(mut self, a: Int, k: Int, add: Bool, m: Int):
-        """m GEMVs set with seg() on the same input a (k columns) as one pool run: one barrier instead of m."""
+        """The m GEMVs set with seg() on the same input a (k columns) as one pool run: one barrier instead of m."""
         self.job[0] = a
         self.job[1] = k
         self.job[2] = Int(add)

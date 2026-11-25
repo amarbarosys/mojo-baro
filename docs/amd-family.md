@@ -37,7 +37,7 @@ Find your gfx target with `rocminfo | grep -m1 gfx`.
    creates a repo-local `.venv` with the pinned Mojo/MAX toolchain.
 
    ```sh
-   git clone https://github.com/amarbaro/mojo-baro && cd mojo-baro
+   git clone https://github.com/amarbarosys/mojo-baro && cd mojo-baro
    uv sync
    ```
 

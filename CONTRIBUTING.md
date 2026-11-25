@@ -18,7 +18,7 @@ Needs an AMD GPU, ROCm, and about fifteen minutes. **No model weights are
 required**: the fp16 GEMM benchmark is self-contained.
 
 ```sh
-git clone https://github.com/amarbaro/mojo-baro && cd mojo-baro
+git clone https://github.com/amarbarosys/mojo-baro && cd mojo-baro
 uv sync                    # repo-local .venv, pinned Mojo/MAX; nothing machine-wide
 ./bench/report.sh --check  # preflight: GPU, ROCm, hipBLASLt, toolchain
 ./bench/report.sh          # the real run
@@ -74,9 +74,8 @@ decides it, so you know when you are done.
 |---|---|---|
 | Other AMD cards | every number is from one RX 7900 XTX | a hardware report (above) |
 | Long-context MoE prefill | chunk attention uses the exact decode kernel: 32k takes 133 s, the faster WMMA kernel reorders sums and fails identity (97.92% agreement against a 99% bar) | `bench/moe-prefill-identity.sh` 23/23 and a byte test against `amar_attn_decode` |
-| MoE persistent kernel, round R6.3 | kernel landed, the preregistered A/B has no numbers | `bench/moe-persist-protocol.md`, R6.3 procedure |
+| MoE persistent kernel, tier mode | R6.3 was killed untested; the resident A/B later read 0.996 (identity 20/20), so the kernel stays opt-in and a tier-mode one needs its own preregistration | `bench/moe-persist-protocol.md`, "R6.3 killed" and "R6 re-measured" |
 | Quality roster | Ornith, Qwythos-v2 and the Spark perplexity rows were never run | `tools/baro eval-all` |
-| Spark JSON schema | implemented, no live gate | a gate in the shape of `bench/moe-prefill-identity.sh` |
 | Models | a GGUF that fails `tools/baro` import | the import receipt the tool prints |
 
 ## What a change has to bring
@@ -111,7 +110,7 @@ this, and a PR that leaves a field empty gets asked for it before anyone reads t
    not evidence that it took effect.
 6. **What you did not check.** Write `UNVERIFIED: <what>` rather than leaving it out.
 
-Rules a reviewer will hold you to: `bench/PROTOCOL-RULES.md` P1 to P20. The short version: read
+Rules a reviewer will hold you to: `bench/PROTOCOL-RULES.md` P1 to P34. The short version: read
 parameters back, rotate buffers past the 96 MB cache, the reference arm is an arm too, a gate the
 candidate can write is not a gate, failures are loud.
 
@@ -134,7 +133,7 @@ unreachable from the engine, a bench or a test.
 
 `tools/ci-checks.sh` runs every invariant that does not need a GPU (the Mojo
 compiler is needed only to build the census) -- the kernel census, whether `docs/KERNELS.md` is current, Python and
-shell syntax, the issue templates, that `PROTOCOL-RULES.md` still carries P1-P6 (the file runs to P20),
+shell syntax, the issue templates, that `PROTOCOL-RULES.md` still carries every rule P1-P34,
 that every repo path the docs cite exists, and that the receipts in `results/`
 are internally consistent. GitHub Actions runs it on every push and pull
 request. It is not a substitute for `./run-tests.sh`: no hosted runner has an

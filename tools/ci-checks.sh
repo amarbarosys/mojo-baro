@@ -6,10 +6,13 @@
 set -u
 cd "$(dirname "$0")/.."
 # Raise this when a rule is added to bench/PROTOCOL-RULES.md, so dropping any
-# existing rule fails the check. It read 6 while the file had grown to 20.
-PROTOCOL_RULES_N=20
+# existing rule fails the check. It read 6, then 20, while the file had grown to 34.
+PROTOCOL_RULES_N=34
 fails=0
-step() { printf '\n== %s\n' "$1"; }
+mkdir -p .work; : > .work/ci-times.tsv; t_cur=""; t_0=$(date +%s.%N)
+t_tick() { local t; t=$(date +%s.%N); [ -n "$t_cur" ] && awk -v n="$t_cur" -v a="$t_0" -v b="$t" 'BEGIN{printf "%.1f\t%s\n", b-a, n}' >> .work/ci-times.tsv; t_0=$t; }
+trap 't_tick; t_cur=""' EXIT
+step() { t_tick; t_cur=$1; printf '\n== %s\n' "$1"; }
 ok()   { echo "  OK  $1"; }
 bad()  { echo "  FAIL $1"; fails=$((fails + 1)); }
 skip() { echo "  SKIP $1"; }
@@ -256,7 +259,7 @@ for f in bench/*.mojo bench/e11b/e11b_harness.mojo; do
   echo "$MOJO build ${accel[*]} ${emit[*]} $f -o .work/ci-bench-bin-$(basename "$f" .mojo) -I . -I kernels -I serve -I bench ${link[*]}"
 done > .work/ci-bench-cmds.txt
 if [ "$hasmax" = 0 ]; then skip "bench builds: no MAX on this host"; benchbad=1; else
-tools/build-many.sh ci-bench < .work/ci-bench-cmds.txt > .work/ci-bench-build.log 2>&1 || { bad "bench builds: $(tail -1 .work/ci-bench-build.log)"; grep '  FAIL' .work/ci-bench-build.log | head -5; benchbad=1; }
+BUILD_KEY_ROOTLESS=1 tools/build-many.sh ci-bench < .work/ci-bench-cmds.txt > .work/ci-bench-build.log 2>&1 || { bad "bench builds: $(tail -1 .work/ci-bench-build.log)"; grep '  FAIL' .work/ci-bench-build.log | head -5; benchbad=1; }
 fi
 [ "$benchbad" = 0 ] && ok "$benchn bench sources build"
 [ -n "$benchskip" ] && echo "  skip ('# ci-checks: needs' marker, extra link flags):$benchskip"

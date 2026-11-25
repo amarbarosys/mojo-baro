@@ -35,6 +35,6 @@ void=[r[0] for r in rows if r[3].startswith("VOID")]
 ok=[r for r in rows if not r[3].startswith("VOID")]
 pct=[float(r[3]) for r in ok]
 print(f"prompts {len(ok)}/{len(rows)}  min {min(pct) if pct else 'nan'}%  mean {f'{sum(pct)/len(pct):.1f}%' if pct else 'nan'}  void: {void or 'none'}")
-if void or len(ok) != len(rows) or (pct and min(pct) < 100.0):
+if void or not ok or len(ok) != len(rows) or min(pct) < 100.0:
     sys.exit(1)
 PY

@@ -14,8 +14,11 @@ set -uo pipefail
 cd "$(dirname "$0")/.."
 out=$1; prompt=${2:-bench/mtp-prompts/p14-history.tokens}; reps=${3:-3}
 mkdir -p "$out"
-./.venv/bin/mojo build serve/engine.mojo -I kernels -I . -o .work/engine-mrow > "$out/build.log" 2>&1
-echo "build exit: $?" | tee "$out/arm.txt"
+rm -f .work/engine-mrow
+./.venv/bin/mojo build serve/engine.mojo -I kernels -I . -o .work/engine-mrow > "$out/build.log" 2>&1; brc=$?
+echo "build exit: $brc" | tee "$out/arm.txt"
+[ "$brc" -eq 0 ] || { echo "FAIL build: see $out/build.log (no stale .work/engine-mrow is measured)"; exit 1; }
+nfail=0
 sha256sum .work/engine-mrow | tee -a "$out/arm.txt"
 echo "prompt=$prompt reps=$reps pack=.work/engine-pack-q4 git=$(git rev-parse --short HEAD)" | tee -a "$out/arm.txt"
 echo "power_cap_uW=$(cat /sys/class/drm/card1/device/hwmon/hwmon*/power1_cap)" | tee -a "$out/arm.txt"
@@ -25,8 +28,8 @@ for mode in 2 4 1; do
     for i in $(seq 1 "$reps"); do
       if [ "$k" = 0 ]; then envm="BARO_SPEC=0"; else envm="BARO_SPEC=1 BARO_SPEC_K=$k"; fi
       env BARO_PACK=.work/engine-pack-q4 BARO_PROMPT="$prompt" BARO_PROFILE=$mode BARO_MEGA=0 $envm \
-        .work/engine-mrow > "$out/p$mode-m$m-r$i.log" 2>&1
-      echo "p$mode m$m r$i exit $?"
+        .work/engine-mrow > "$out/p$mode-m$m-r$i.log" 2>&1; rc=$?
+      echo "p$mode m$m r$i exit $rc"; [ "$rc" -eq 0 ] || nfail=$((nfail + 1))
     done
   done
 done
@@ -39,4 +42,5 @@ if command -v rocprofv3 >/dev/null; then
     echo "trace m$m exit $?"
   done
 fi
+[ "$nfail" -eq 0 ] || { echo "FAIL runs: $nfail profile run(s) exited non-zero, see $out/p*.log"; exit 1; }
 echo "done $out"

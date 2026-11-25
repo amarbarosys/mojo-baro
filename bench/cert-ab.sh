@@ -29,7 +29,7 @@ done
 nb=0; tokens=0
 for f in "$out"/da/B1.*.log "$out"/da/B2.*.log; do
   grep -q '^cert on seed 1 ' "$f" || fail readback "no 'cert on seed 1' line in $f"
-  c=$(grep -c '^cert tok' "$f"); ok=$(grep -c '^cert tok .* pass 7/7 ' "$f")
+  c=$(grep -c '^cert tok' "$f" || true); ok=$(grep -c '^cert tok .* pass 7/7 ' "$f" || true)
   [ "$c" -gt 0 ] && [ "$c" -eq "$ok" ] || fail cert "$f: $ok of $c cert lines pass 7/7"
   nb=$((nb + 1)); tokens=$((tokens + c))
 done

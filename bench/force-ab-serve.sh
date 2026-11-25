@@ -79,4 +79,8 @@ print(f"prompts {len(ok)}/{len(rows)}  min {min(pct) if pct else 'nan'}%  mean {
 if void:
     print(f"FAIL: {len(void)} void arm(s) -- this is not a pass")
     sys.exit(1)
+# the identity bar of bench/force-ab.sh: every prompt at 100%, and a set of zero prompts is no set
+if not ok or min(pct) < 100.0:
+    print(f"FAIL: {'no prompts' if not ok else 'forced agreement under 100.0% on ' + ' '.join(r[0] for r in ok if float(r[3]) < 100.0)}")
+    sys.exit(1)
 PY

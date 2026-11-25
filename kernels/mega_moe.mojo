@@ -15,12 +15,12 @@ from dattn import dattn_split_body, dattn_combine_body, dattn_nsplit, dkv_q, dkv
 from elementwise import EW_THREADS
 from matmul_skinny import ROW_WAVES, ROW_THREADS, ROW_VEC, SPLITK, SM
 from ssm import CONV, KDIM, NH_K, NH_V, SSTATE, SSM_EPS
-from attn import HD, NQH, NKVH, KVT, KVQ8, TCAP, kv_off, kv_tab_off, NROT, attn_head_span
+from attn import HD, NQH, NKVH, KVT, KVQ8, TCAP, kv_tab_off, NROT, attn_head_span
 from model import H, FFN, QF, KV
 from mega import grid_barrier, stamp, rope_cs, MEGA_G, RMS_EPS, ATT_SCALE, DATT_NLD
 from moe import (
     q4k_sm_w,
-    q8_0_row_dot, q4k_dot_blocks, q6k_row_dot, router_top8_sig_body,
+    q4k_dot_blocks, q6k_row_dot, router_top8_sig_body,
     q4k_q8_row_dot, moe_down_q4k_dot_row, q8_quant_group,
     N_EXP, TOPK, E_FFN, SH_FFN, Q4K, Q4K_BYTES, Q6K, Q6K_BYTES,
 )

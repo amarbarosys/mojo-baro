@@ -8,7 +8,7 @@ from std.sys import has_accelerator
 from std.time import perf_counter_ns
 from max.gpu import WARP_SIZE
 from max.gpu.host import DeviceContext, DeviceBuffer, HostBuffer
-from layout import TileTensor, TensorLayout, row_major
+from layout import TileTensor, row_major
 from elementwise import amar_quantize_q8_rows
 from matmul_skinny import amar_matmul_skinny_q4rowb, amar_matmul_skinny_q4dot, ROW_WAVES, ROW_THREADS
 from tio import median

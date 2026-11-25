@@ -1,0 +1,22 @@
+The quick brown fox jumps over the lazy dog. Don't, won't, I'LL, we've, it's, 'tis.
+Într-o țară îndepărtată, șoimul și țânțarul vorbeau despre brânză, mămăligă și fâneață.
+ROMÂNĂ CU MAJUSCULE: ȘTIINȚĂ, ÎNȚELEPCIUNE, ÂNGER; cedilă veche: ţară, şcoală, Ţăran, Şef.
+Ce faci? Bine, mulțumesc! „Ghilimele românești” și «ghilimele franceze» – cu linie de pauză.
+naïve café résumé coöperate Zoë façade jalapeño Ångström smörgåsbord Straße ĳ œuvre
+decomposed: é à ö ñ ș ț vs composed: é à ö ñ ș ț
+中文分词测试：今天天气很好，我们去公园散步吧。人工智能正在改变世界！
+繁體中文：這是一個測試句子，包含標點符號、數字１２３和全形字母ＡＢＣ。
+日本語のテキストです。カタカナとひらがな、漢字が混ざっています。ﾊﾝｶｸｶﾅ も。
+한국어 문장입니다. 띄어쓰기와 조사 처리를 확인합니다. ㄱㄴㄷ ㅏㅑㅓ
+العربية: مرحبا بالعالم! هذا نص تجريبي يحتوي على أرقام ١٢٣٤٥ وعلامات ترقيم، وتشكيل: مُحَمَّد.
+עברית: שלום עולם, זהו טקסט לבדיקה עם ניקוד: שָׁלוֹם.
+हिन्दी: नमस्ते दुनिया, यह एक परीक्षण वाक्य है। क्ष त्र ज्ञ श्र
+Русский: Съешь же ещё этих мягких французских булок, да выпей чаю. Ёжик.
+Ελληνικά: Ξεσκεπάζω την ψυχοφθόρα βδελυγμία. ς σ Σ
+ไทย: สวัสดีชาวโลก นี่คือข้อความทดสอบ ไม่มีช่องว่างระหว่างคำ
+Tiếng Việt: Tôi yêu tiếng nước tôi từ khi mới ra đời. ắ ằ ẳ ẵ ặ
+Türkçe: İstanbul'da ılık bir ığdır günü; i I ı İ ğ Ğ ş Ş.
+mixed: Hello世界こんにちは안녕مرحباПриветγειά – all without spaces: abc中文def日本語ghi
+math & symbols: ∑ᵢ xᵢ² ≤ ∫₀^∞ e^{−x²} dx = √π/2 ≠ ∞; ℝ ⊂ ℂ; α β γ δ; ©®™ § ¶ † ‡ • … ‰ ′ ″
+currency: $1,234.56 €99,99 £5 ¥1000 ₹500 ₿0.001 ¢ ₩ ₽ ₺ lei 12,50
+fullwidth ＡＢＣ１２３ and halfwidth ｱｲｳ, ligatures ﬁ ﬂ ﬀ, superscripts x² y³, fractions ½ ¼ ¾, roman Ⅳ Ⅻ

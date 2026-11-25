@@ -1,0 +1,12 @@
+simple: 🙂 😀 😂 🤔 👍 ❤️ 🔥 ✨ 🚀 🎉
+skin tones: 👍🏻 👍🏼 👍🏽 👍🏾 👍🏿 🤝🏽 🧑🏿‍🚀
+ZWJ families: 👨‍👩‍👧‍👦 👩‍👩‍👦 👨‍👨‍👧‍👧 🧑‍🤝‍🧑 👩‍❤️‍💋‍👨
+ZWJ professions: 👩‍💻 👨‍🚒 🧑‍🔬 👩🏽‍⚕️ 🏃‍♀️ 🏳️‍🌈 🏴‍☠️ 🐻‍❄️
+flags: 🇷🇴 🇯🇵 🇺🇸 🇩🇪 🇫🇷 🇬🇧 🏴󠁧󠁢󠁳󠁣󠁴󠁿 🏁
+keycaps: 1️⃣ 2️⃣ #️⃣ *️⃣ 0️⃣ and variation selectors: ☺ ☺︎ ☺️ ♥ ♥︎ ♥️
+no spaces:🙂🙂🙂👍🏽👨‍👩‍👧‍👦🇷🇴🔥text🚀moretext✨
+in text: I ❤️ tokenizers 🙂, they are 🔥🔥🔥 (not really 🙃)…
+symbols: ← ↑ → ↓ ↔ ⇒ ⇔ ✓ ✗ ★ ☆ ♠ ♣ ♥ ♦ ♪ ♫ ☀ ☁ ☂ ⚠ ⚡ ⛔ ✅ ❌ ❓ ❗
+box and braille: ┌─┬─┐ │ │ │ └─┴─┘ ░▒▓█ ⠁⠂⠃⠄ ▁▂▃▄▅▆▇
+lower one eighth block ▁ alone, ▁▁ doubled, a▁b inside, ▁leading
+rare planes: 𝒜𝓑𝔠𝕕 𝟘𝟙𝟚 𐍈 𓀀 🀄 🂡 🜁 🝖 🯰

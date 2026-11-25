@@ -1,0 +1,27 @@
+# Known, explained deviations for bench/tok-gate.sh. Tab separated: KEY ARM MAX REASON.
+# KEY = tokenizer fingerprint (16 hex, column 2 of the receipt), or a pre name, or (arm `unsupported`) a tokenizer.ggml.model.
+# ARM = llama | hf | round | pieces | unsupported. MAX = cases that may differ (unsupported: 1).
+# A line is a debt with a reason, never a tolerance: delete it and the gate enforces again.
+bert	unsupported	1	WordPiece GGUF: only llama.cpp's test vocab on disk; the bge embed path has its own embed/wordpiece.mojo on vocab.txt
+t5	unsupported	1	Unigram GGUF: only llama.cpp's test vocab (nomic-bert-moe) on disk, no model served
+90e9358a441aa6df	llama	2	llama.cpp promotes the NORMAL token `</s>` (id 128247) to CONTROL by a name list (llama-vocab.cpp "control-looking token"); ours keeps the type in the file. Cases l-specials-012, w-specials
+968192fb9ef8d5ca	llama	2	same `</s>` promotion (ggml-vocab-qwen2)
+5f34c3887229f3ae	llama	2	same `</s>` promotion (qwen2.5-0.5b)
+7395b68fbdfc1bc1	llama	2	same `</s>` promotion (Qwen3 1.7B / 8B Q4_K_M)
+d8e7217b75bfb6ce	llama	2	same `</s>` promotion (Qwen3-8B Q4_0)
+98b878ebbfcf9b17	llama	2	same `</s>` promotion (qwen2moe)
+d37207c996731498	llama	2	same `</s>` promotion (qwen3moe)
+217fbec9bda8ebd5	llama	2	same `</s>` promotion (mimo-vl)
+892bb199d65423a1	llama	2	llama.cpp sets rstrip on phi-3 special tokens by model name; ours has no per-token strip attributes. Cases l-specials-016, w-specials
+888a4a1ee3a528ee	llama	13	deepseek-coder: ours is the HF split chain, llama.cpp approximates it (serve/pretok-known-diffs.txt, 22215/22215 vs HF at 9e45d26)
+9410c48b2936636b	hf	3	the only matching tokenizer.json on disk (MAX llama3 testdata) has no `ignore_merges: true`; llama.cpp agrees with ours 75/75. Cases with ` Việt`
+62a0ba2e11b8edb8	round	4	gemma4 writes a space as U+2581, so a literal U+2581 in the text decodes as a space (4 cases contain it)
+c2ed23af61b73ed7	round	4	SPM: literal U+2581 decodes as a space (llama-spm)
+892bb199d65423a1	round	4	SPM: literal U+2581 decodes as a space (phi-3)
+f10c5bcc5a71ece9	round	4	SPM: literal U+2581 decodes as a space (baichuan)
+7395b68fbdfc1bc1	hf	1	Qwen3 tokenizer.json normalizes to NFC (GGUF key tokenizer.ggml.normalizer.nfc); ours and llama.cpp do not normalize. Case w-long-16k (U+2126, U+212A in a regex class). OPEN: NFC not implemented
+d8e7217b75bfb6ce	hf	1	same NFC gap (Qwen3-8B Q4_0)
+d37207c996731498	hf	1	same NFC gap (qwen3moe)
+8a8f6f8443858882	hf	47	tiny_llama test GGUF has no tokenizer.ggml.pre: ours and llama.cpp both fall back to `default` (75/75 equal), the json beside it is llama-bpe
+5431710f5b3d594a	llama	3	aquila: llama.cpp promotes the NORMAL token `<|endoftext|>` to CONTROL by its name list; ours keeps the type in the file
+421ccd7426ad2d0b	round	1	falcon has no token for some bytes; llama.cpp and ours drop them (ids equal 75/75), so w-whitespace cannot round trip

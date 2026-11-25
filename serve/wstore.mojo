@@ -9,7 +9,7 @@ MMAP binds are counted apart, since the page cache decides those.
 """
 from std.ffi import external_call, c_ssize_t
 from std.memory import Layout, Allocation, alloc, dealloc
-from shard_index import ShardIndex, TensorRef
+from shard_index import ShardIndex
 
 comptime ALIGN = 4096
 comptime O_DIRECT = 0o40000

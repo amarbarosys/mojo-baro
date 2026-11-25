@@ -1,23 +1,10 @@
-"""Double buffering and 128-bit global staging combined.
-
-`amar_matmul_dbuf` and `amar_matmul_vec4` each land ~+16% over `amar_matmul_regtile` and they
-attack different things -- one hides global-load latency behind compute, the
-other cuts the number of load instructions issued.  Neither subsumes the other,
-so this variant runs both: float4 staging registers filled by disjoint thread
-ranges, held across the compute of the current tile, then committed to the
-other LDS buffer.
-
-Transposed A (from `amar_matmul_ldst`) is kept throughout, so the inner loop reads
-both operands 64 bits at a time.
-"""
-
 from max.gpu.memory import AddressSpace
 from max.gpu.sync import barrier
 from max.gpu import block_idx, thread_idx
 from layout import TileTensor, TensorLayout, row_major, stack_allocation
 
 from matmul import dtype
-from matmul_ldst import BM, BN, BK, TM, TN, NTHREADS, LDS_PAD
+from matmul_ldst import BM, BN, BK, TM, TN, LDS_PAD
 from matmul_vec4 import VEC, A_LOADERS, B_LOADERS
 
 
@@ -59,7 +46,6 @@ def amar_matmul_pipe[
     var Bv = B.vectorize[1, VEC]()
     comptime assert Av.flat_rank == 2 and Bv.flat_rank == 2
 
-    # Which slice of a tile this thread stages, fixed for the whole kernel.
     var ar = tid * VEC // BK
     var ac = tid * VEC % BK
     var be = (tid - A_LOADERS) * VEC
@@ -69,7 +55,6 @@ def amar_matmul_pipe[
     var acc = SIMD[dtype, TM * TN](0)
     var stage = SIMD[dtype, VEC](0)
 
-    # --- prologue: stage tile 0 and commit it to buffer 0 -------------------
     if tid < A_LOADERS:
         if block_row + ar < M and ac + VEC <= K:
             stage = rebind[SIMD[dtype, VEC]](Av[block_row + ar, ac // VEC])

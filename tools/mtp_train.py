@@ -44,20 +44,6 @@ sys.path.insert(0, "tools")
 from mtp_head import MTPHead, build_causal_mask, load_trunk, read_v2_dump  # noqa: E402
 
 
-def flatten_document(doc):
-    """From read_dump's per-document {tokens, h[n-1,H]}: row h[i] pairs
-    with INPUT token tokens[i+1] and LABEL tokens[i+2], valid i in
-    0..n-3 (bench/draft_dump.mojo's own docstring)."""
-    n = len(doc["tokens"])
-    n_pairs = max(0, n - 2)
-    if n_pairs <= 0:
-        return None
-    h = doc["h"][:n_pairs]
-    input_ids = torch.tensor(doc["tokens"][1:1 + n_pairs], dtype=torch.long)
-    labels = torch.tensor(doc["tokens"][2:2 + n_pairs], dtype=torch.long)
-    return h, input_ids, labels
-
-
 def flatten_v2_document(doc):
     """Make aligned CPU tensors from validated P5a records."""
     records = doc["records"]

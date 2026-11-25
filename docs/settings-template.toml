@@ -1609,9 +1609,17 @@ group = "speculation"
 
 [settings.BARO_FEWROW]
 kind = "build"
-type = "bool"
+type = "int"
 default = "0"
-doc = "Build flag -D BARO_FEWROW=1: Q4 window GEMMs with m > 4 run amar_fewrow_wmma D=4 (8-row window 1.53x on the 27B k=7 window; WMMA order, not bit-exact: forced agreement 0.99844 vs 1.00000 on the shipped route). Serve replays prompts with up to MROWS rows, so it also reaches no-spec runs. Default 0."
+doc = "Build flag -D BARO_FEWROW: route of Q4 window GEMMs with m > 4. 0 q4rowb (exact), 1 amar_fewrow_wmma (bf16 WMMA), 2 amar_fewrow_iu4, 3 amar_fewrow_iu4r (4-bit integer WMMA; E4 2026-11-25 on the nerkyor 27B pack: forced agreement 0.99687 vs 1.00000 control, DFlash2 88.42 tok/s_gen; set in profiles/nerkyor27b.toml). Serve replays prompts with up to MROWS rows, so it also reaches no-spec runs. Default 0."
+models = ["qwen35"]
+group = "speculation"
+
+[settings.BARO_FW_PLANES]
+kind = "build"
+type = "int"
+default = "3"
+doc = "Build flag -D BARO_FW_PLANES: signed nibble planes per 32-block for the activations of BARO_FEWROW=2/3 (3 planes = 3.7e-4 of max on the 27B FFN shapes, 4 = 1.9e-5). Default 3."
 models = ["qwen35"]
 group = "speculation"
 

@@ -112,47 +112,35 @@ def sort_desc_stable(mut order: List[Int], values: List[Float32]):
         width *= 2
 
 
-# ---- amar_sample_row reference --------------------------------------------
+def _argmax_valid(logits: List[Float32]) -> Int:
+    var best_i = -1
+    var best_v = -FMAX
+    for i in range(len(logits)):
+        var v = logits[i]
+        if is_valid(v) and v > best_v:
+            best_v = v
+            best_i = i
+    return best_i
 
-def sample_row_ref(
-    logits: List[Float32], temperature: Float32, top_k: Int, top_p: Float32, min_p: Float32,
-    seed: UInt64, counter: UInt64, row: Int,
-) -> Tuple[Int, Float32]:
-    var n = len(logits)
-    if temperature <= 0:
-        var best_i = -1
-        var best_v = -FMAX
-        for i in range(n):
-            var v = logits[i]
-            if is_valid(v) and v > best_v:
-                best_v = v
-                best_i = i
-        return (best_i, Float32(1) if best_i >= 0 else Float32(0))
 
-    var lmax = -FMAX
-    var nvalid = 0
-    for i in range(n):
-        if is_valid(logits[i]):
-            nvalid += 1
-            if logits[i] > lmax:
-                lmax = logits[i]
-    if nvalid == 0:
-        return (-1, Float32(0))
-
-    var k_on = top_k > 0 and top_k < nvalid
-    var p_on = top_p < Float32(1.0)
-
-    var order = List[Int]()
-    for i in range(n):
+def _retained(logits: List[Float32], top_k: Int, top_p: Float32, min_p: Float32, mut order: List[Int]) -> Int:
+    # Fills `order` with the valid indices, value desc (ties by ascending index),
+    # and returns how many of them the top-k, top-p and min-p cuts keep; 0 valid
+    # tokens leaves `order` empty. order[0] is the row max.
+    for i in range(len(logits)):
         if is_valid(logits[i]):
             order.append(i)
     sort_desc_stable(order, logits)
+    var nvalid = len(order)
+    if nvalid == 0:
+        return 0
+    var lmax = logits[order[0]]
 
     var mk = nvalid
-    if k_on:
+    if top_k > 0 and top_k < nvalid:
         mk = top_k
 
-    if p_on:
+    if top_p < Float32(1.0):
         var zc: Float64 = 0
         for j in range(mk):
             zc += Float64(exp(logits[order[j]] - lmax))
@@ -185,6 +173,24 @@ def sample_row_ref(
                 break
             m += 1
         mk = max(m, 1)
+    return mk
+
+
+# ---- amar_sample_row reference --------------------------------------------
+
+def sample_row_ref(
+    logits: List[Float32], temperature: Float32, top_k: Int, top_p: Float32, min_p: Float32,
+    seed: UInt64, counter: UInt64, row: Int,
+) -> Tuple[Int, Float32]:
+    if temperature <= 0:
+        var best_i = _argmax_valid(logits)
+        return (best_i, Float32(1) if best_i >= 0 else Float32(0))
+
+    var order = List[Int]()
+    var mk = _retained(logits, top_k, top_p, min_p, order)
+    if len(order) == 0:
+        return (-1, Float32(0))
+    var lmax = logits[order[0]]
 
     var bs = -FMAX
     var bi = -1
@@ -213,73 +219,16 @@ def sample_probs_ref(
         probs[i] = 0
 
     if temperature <= 0:
-        var best_i = -1
-        var best_v = -FMAX
-        for i in range(n):
-            var v = logits[i]
-            if is_valid(v) and v > best_v:
-                best_v = v
-                best_i = i
+        var best_i = _argmax_valid(logits)
         if best_i >= 0:
             probs[best_i] = 1
         return probs^
 
-    var lmax = -FMAX
-    var nvalid = 0
-    for i in range(n):
-        if is_valid(logits[i]):
-            nvalid += 1
-            if logits[i] > lmax:
-                lmax = logits[i]
-    if nvalid == 0:
-        return probs^
-
-    var k_on = top_k > 0 and top_k < nvalid
-    var p_on = top_p < Float32(1.0)
-
     var order = List[Int]()
-    for i in range(n):
-        if is_valid(logits[i]):
-            order.append(i)
-    sort_desc_stable(order, logits)
-
-    var mk = nvalid
-    if k_on:
-        mk = top_k
-
-    if p_on:
-        var zc: Float64 = 0
-        for j in range(mk):
-            zc += Float64(exp(logits[order[j]] - lmax))
-        # C3 fix round (bench/chat-protocol.md, exchange/2026-09-15-m5-sampler-diagnosis.md):
-        # the device's pmass_target ceils a FIXED-POINT mass (2^-40 units,
-        # where ceil is exact); this host port had ceil'd a float64 mass
-        # whose unit is exp(lmax) = 1, rounding the target up to most or all
-        # of the top-k set on a peaked row. No ceil here: w is the raw mass
-        # target, clamped to [the top-1 token's own mass (1.0 in these
-        # units), the full retained mass].
-        var w = Float64(top_p) * zc
-        if w < 1:
-            w = 1
-        if w > zc:
-            w = zc
-        var cum: Float64 = 0
-        var m = mk
-        for j in range(mk):
-            cum += Float64(exp(logits[order[j]] - lmax))
-            if cum >= w:
-                m = j + 1
-                break
-        mk = m
-
-    if min_p > 0:
-        var mpe = min(min_p, Float32(1))
-        var m = 0
-        while m < mk:
-            if not (exp(logits[order[m]] - lmax) >= mpe):
-                break
-            m += 1
-        mk = max(m, 1)
+    var mk = _retained(logits, top_k, top_p, min_p, order)
+    if len(order) == 0:
+        return probs^
+    var lmax = logits[order[0]]
 
     var zt: Float64 = 0
     for j in range(mk):

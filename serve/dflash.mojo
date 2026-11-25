@@ -166,8 +166,6 @@ comptime put_d = amar_df_put[DKV]
 comptime gather_d = amar_df_gather[DH, DFEAT // DH, SM]
 comptime lat_d = amar_df_lattice[TOPK, RANK]
 comptime topk_d = amar_df_topk[TOPK, 256]
-comptime conv_b = amar_df_conv[DH, DGS, bf16, False]
-comptime conv_acc = amar_df_conv[DH, DGS, f32, True]
 
 
 struct DFlash(Movable):

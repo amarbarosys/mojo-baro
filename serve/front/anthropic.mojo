@@ -1,5 +1,5 @@
 """Anthropic Messages wire adapters for the Mojo front."""
-from api import TextLike, Call, ApiError, bad, parse_chat
+from api import TextLike, Call, ApiError, bad, parse_chat, _pos
 from json import Json, parse, STR, ARR, OBJ
 
 
@@ -193,14 +193,6 @@ def _append_thinking_block(mut out: Json, text: String):
     block.set("thinking", Json.of(text))
     block.set("signature", Json.of(""))
     out.push(block)
-
-
-def _pos(r: Int) -> Int:
-    return r
-
-
-def _pos(r: Optional[Int]) -> Int:
-    return r.or_else(-1)
 
 
 def _content_blocks(text: String) -> Json:

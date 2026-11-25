@@ -41,7 +41,7 @@ if [ "$mode" = identity ]; then
     g_off=$(grep -m1 '^GENERATED' "$OUT/id-off-$b.log" || true); g_on=$(grep -m1 '^GENERATED' "$OUT/id-on-$b.log" || true)
     [ -n "$g_off" ] || fail run "$b: no GENERATED line"
     [ "$g_off" = "$g_on" ] || fail identity "$b: GENERATED differs, $OUT/id-*-$b.log"
-    all=$(grep -c '^cert tok' "$OUT/id-on-$b.log"); ok=$(grep -c '^cert tok .* pass 7/7 ' "$OUT/id-on-$b.log")
+    all=$(grep -c '^cert tok' "$OUT/id-on-$b.log" || true); ok=$(grep -c '^cert tok .* pass 7/7 ' "$OUT/id-on-$b.log" || true)
     [ "$all" -gt 0 ] && [ "$all" -eq "$ok" ] || fail cert "$b: $ok of $all cert lines pass 7/7"
     mr=$(grep '^cert tok' "$OUT/id-on-$b.log" | awk '{if ($NF > m) m = $NF} END{print m}')
     echo "$b: $(wc -w <<<"${g_off#GENERATED:}") ids identical, $ok/$all cert lines pass 7/7, max rho $mr" | tee -a "$rcpt"
@@ -52,7 +52,7 @@ else
   echo "engine $OUT/engine-mut sha256 $(sha256sum "$OUT/engine-mut" | cut -c1-16) mutant +0.05 row 5 of every q4 GEMV output" >>"$rcpt"
   p=bench/mtp-prompts/p01-water.tokens
   run "$OUT/engine-mut" 1 "$PWD/$p" "$OUT/mut.log"
-  all=$(grep -c '^cert tok' "$OUT/mut.log"); bad=$(grep -c '^cert tok .* pass 0/7 ' "$OUT/mut.log")
+  all=$(grep -c '^cert tok' "$OUT/mut.log" || true); bad=$(grep -c '^cert tok .* pass 0/7 ' "$OUT/mut.log" || true)
   [ "$all" -gt 0 ] || fail cert "no cert lines from the mutant engine"
   [ "$bad" -eq "$all" ] || fail mutant "only $bad of $all cert lines failed 7 of 7 matrices"
   mr=$(grep '^cert tok' "$OUT/mut.log" | awk '{if (m == "" || $NF < m) m = $NF} END{print m}')

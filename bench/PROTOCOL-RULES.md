@@ -282,6 +282,14 @@ ends with `FAIL k/N: <names>` and a non-zero exit. A skip is never exit 0. No `|
 output a later step reads. A script is never edited while a job is executing it (bash reads it as it runs).
 Every job has a wall budget; exceeding it kills the job and says so.
 
+Shell traps that made gates quiet (2026-11-25 renovate round, all with a stub repro; `bench/tests/gate-exit-selftest.sh` runs
+nine stub cases for five of the gates): a verdict printed by a Python or awk heredoc must also set its exit status (`sys.exit`, `exit !ok`), and the script's
+last command must not be a `wait` on a server it killed (143); `n=$(grep -c ...)` ends the script silently at a count of 0 under
+`set -e`, so the `fail` line below it never runs (`|| true`, then test the number); a loop ending in `[ -f "$f" ] && cmd` returns 1;
+`mojo build ... || true` makes the previous binary the arm (remove the binary first, stop on a failed build); a step filter or glob
+that matches nothing is `FAIL 0/0`, never `PASS 0/0`; a gate that carries a bar in its protocol applies the same bar in every
+script of that name (`force-ab-serve.sh` had none).
+
 Why: `bench/quality-sweep.sh` printed `FAILED ... continuing to next model` and exited 0, so the background
 notification read as success while RegesCore's task arm had failed. Granite's row went void because
 `quality-run.sh` was edited mid-sweep. A `torch.compile` arm held the GPU 32 minutes with no step done.

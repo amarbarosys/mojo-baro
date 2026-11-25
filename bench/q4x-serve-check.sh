@@ -161,7 +161,7 @@ resident() { # name env...
   local name=$1; shift
   local log=$OUT/$name.log
   env Q4X_STDIN=1 "$@" /usr/bin/time -f 'wall %e s rss %M KB' "$NEW" "$GGUF" < "$OUT/requests.txt" > "$log" 2>&1 || fail "$name" "resident run failed: $(grep -m1 -E 'Error|error' "$log" | cut -c1-160)"
-  local n; n=$(grep -c '^out ' "$log"); [ "$n" = 21 ] || fail "$name" "$n of 21 requests answered"
+  local n; n=$(grep -c '^out ' "$log" || true); [ "$n" = 21 ] || fail "$name" "$n of 21 requests answered"
   echo "$name $* | $(grep -m1 '^q4x: expert cache' "$log" | sed 's/^q4x: //') | warm: $(grep -m1 '^q4x: warmed' "$log" | cut -c5-80 || echo none) | $(grep '^wall ' "$log") | vram_free_gb_after $(vram)" | tee -a "$R"
   awk -v arm=$name '/^gen ms\/token/ { g = $3 } /^out / { t = $2 } /^expert misses/ { printf "req %s %s gen_ms %.3f misses_per_token %.2f\n", arm, t, g, $3 / ($5 / 480) }' "$log" | tee -a "$R"
 }

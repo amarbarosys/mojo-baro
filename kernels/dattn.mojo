@@ -5,7 +5,6 @@ from max.gpu import block_idx, thread_idx, lane_id, WARP_SIZE
 from max.gpu.primitives import warp
 from std.math import fma
 from bexp import exp
-from std.sys import llvm_intrinsic
 from max.gpu.memory import AddressSpace
 from max.gpu.sync import barrier
 from layout import TileTensor, TensorLayout, row_major, stack_allocation

@@ -15,14 +15,12 @@
 from std.memory import bitcast
 from std.os import getenv
 from std.sys import argv, has_accelerator
-from std.time import perf_counter_ns
 
 from max.gpu.host import DeviceContext, HostBuffer
 
 from registry import H, f32
 from window import WindowBufs, WindowState
-from grammar.automaton import Bitset
-from harness import load_pack, alloc_bufs, Pack
+from harness import load_pack, alloc_bufs
 from bench_latent_handoff import (
     collect_latent_raw,
     run_to_prompt_end,
@@ -31,7 +29,7 @@ from bench_latent_handoff import (
     ids_to_json,
 )
 from tokenizer import Tokenizer
-from grammar.json_value import parse_json_file, parse_json_bytes, JSONDoc
+from grammar.json_value import parse_json_file, parse_json_bytes
 
 comptime K8 = 8
 comptime K32 = 32

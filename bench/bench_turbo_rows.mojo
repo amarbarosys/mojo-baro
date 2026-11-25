@@ -22,7 +22,7 @@ from matmul import dtype
 from turbo_rows import amar_turbo_rows, amar_turbo_rows_q8, amar_turbo_rows_dot2
 from elementwise import amar_quantize_q8_rows
 from max.gpu import WARP_SIZE
-from fewrow import amar_fewrow_wmma, amar_fewrow_iu8, amar_q8_cols, FW_THREADS
+from fewrow import amar_fewrow_wmma, amar_fewrow_iu8, amar_q8_cols, amar_fewrow_nib, amar_fw_prep, amar_fewrow_iu4, amar_fw_prep4, amar_fewrow_iu4s, amar_fw_prep4s, fw4_rec, amar_fewrow_iu4x, amar_fewrow_iu4d, amar_fewrow_iu4r, amar_fw_prep4r, FW_THREADS
 
 comptime NT = 8
 comptime H_D = get_defined_int["BARO_H", 5120]()
@@ -189,6 +189,94 @@ def launch[
             A, Aq, As, Int32(MR), grid_dim=(16, K // 32), block_dim=WARP_SIZE)
         ctx.enqueue_function[amar_fewrow_iu8[N, K, UNROLL, type_of(aq_l), type_of(as_l), type_of(QL), type_of(SL), type_of(Sh.p_layout)]](
             Aq, As, Q, S, P, Int32(MR), grid_dim=N // 16, block_dim=FW_THREADS)
+    elif ABL >= 35 and ABL <= 39:
+        # K7 amar_fewrow_iu4r (two planes per WMMA): 35/37 = P 3/4 with amar_fw_prep4r timed, 36/38 = prepared A, 39 = P 3 all loads hot (timing only)
+        comptime PR = 4 if ABL == 37 or ABL == 38 else 3
+        comptime NSR = (PR + 2) // 2
+        comptime aq_l = row_major[(K // 32) * NSR, 256]()
+        comptime as_l = row_major[K // 32, 8]()
+        var base_p = p_d.unsafe_ptr().unsafe_offset(MMAX * N)
+        var Aqr = TileTensor(DeviceBuffer[u8](ctx, base_p.unsafe_bitcast[UInt8](), 16 * (K // 32) * NSR * 16, owning=False), aq_l)
+        var Asr = TileTensor(DeviceBuffer[f32](ctx, base_p.unsafe_offset(8 * K), K // 4, owning=False), as_l)
+        comptime if ABL == 35 or ABL == 37:
+            ctx.enqueue_function[amar_fw_prep4r[PR, type_of(Sh.a_layout), type_of(aq_l), type_of(as_l)]](
+                A, Aqr, Asr, Int32(MR), grid_dim=(8, K // 32), block_dim=WARP_SIZE)
+        ctx.enqueue_function[amar_fewrow_iu4r[N, K, UNROLL, PR, type_of(aq_l), type_of(as_l), type_of(QL), type_of(SL), type_of(Sh.p_layout), 2 if ABL == 39 else 0]](
+            Aqr, Asr, Q, S, P, Int32(MR), grid_dim=N // 16, block_dim=FW_THREADS)
+    elif ABL == 33 or ABL == 34:
+        # timing-only ablations of amar_fewrow_iu4 P 3 on a prepared A: 33 = activation loads stay on blocks 0..D-1, 34 = weights too
+        comptime aq_l = row_major[8, (K // 32) * 3 * 16]()
+        comptime as_l = row_major[K // 32, 16]()
+        var base_p = p_d.unsafe_ptr().unsafe_offset(MMAX * N)
+        var Aq4 = TileTensor(DeviceBuffer[u8](ctx, base_p.unsafe_bitcast[UInt8](), 8 * (K // 32) * 3 * 16, owning=False), aq_l)
+        var As4 = TileTensor(DeviceBuffer[f32](ctx, base_p.unsafe_offset(4 * K), K // 2, owning=False), as_l)
+        ctx.enqueue_function[amar_fewrow_iu4[N, K, UNROLL, 3, type_of(aq_l), type_of(as_l), type_of(QL), type_of(SL), type_of(Sh.p_layout), ABL - 32]](
+            Aq4, As4, Q, S, P, Int32(MR), grid_dim=N // 16, block_dim=FW_THREADS)
+    elif ABL >= 100:
+        # K5 split unroll: ABL = [1 prep timed | 2 prepared A][DA][P], UNROLL = DQ (weight blocks in flight)
+        comptime PD = ABL % 10
+        comptime aq_l = row_major[8, (K // 32) * PD * 16]()
+        comptime as_l = row_major[K // 32, 16]()
+        var base_p = p_d.unsafe_ptr().unsafe_offset(MMAX * N)
+        var Aq4 = TileTensor(DeviceBuffer[u8](ctx, base_p.unsafe_bitcast[UInt8](), 8 * (K // 32) * PD * 16, owning=False), aq_l)
+        var As4 = TileTensor(DeviceBuffer[f32](ctx, base_p.unsafe_offset(4 * K), K // 2, owning=False), as_l)
+        comptime if ABL < 200:
+            ctx.enqueue_function[amar_fw_prep4[PD, type_of(Sh.a_layout), type_of(aq_l), type_of(as_l)]](
+                A, Aq4, As4, Int32(MR), grid_dim=(8, K // 32), block_dim=WARP_SIZE)
+        ctx.enqueue_function[amar_fewrow_iu4d[N, K, UNROLL, (ABL // 10) % 10, PD, type_of(aq_l), type_of(as_l), type_of(Sh.q_layout), type_of(Sh.s_layout), type_of(Sh.p_layout)]](
+            Aq4, As4, Q, S, P, Int32(MR), grid_dim=N // 32, block_dim=FW_THREADS)
+    elif ABL >= 52 and ABL <= 58:
+        # crossed-halves 4-bit WMMA, K split over 8 waves: 52/53/54 = P 2/3/4 with amar_fw_prep4 timed, 56/57/58 = prepared A
+        comptime PX = ABL - 50 if ABL <= 54 else ABL - 54
+        comptime aq_l = row_major[8, (K // 32) * PX * 16]()
+        comptime as_l = row_major[K // 32, 16]()
+        var base_p = p_d.unsafe_ptr().unsafe_offset(MMAX * N)
+        var Aq4 = TileTensor(DeviceBuffer[u8](ctx, base_p.unsafe_bitcast[UInt8](), 8 * (K // 32) * PX * 16, owning=False), aq_l)
+        var As4 = TileTensor(DeviceBuffer[f32](ctx, base_p.unsafe_offset(4 * K), K // 2, owning=False), as_l)
+        comptime if ABL <= 54:
+            ctx.enqueue_function[amar_fw_prep4[PX, type_of(Sh.a_layout), type_of(aq_l), type_of(as_l)]](
+                A, Aq4, As4, Int32(MR), grid_dim=(8, K // 32), block_dim=WARP_SIZE)
+        ctx.enqueue_function[amar_fewrow_iu4x[N, K, UNROLL, PX, type_of(aq_l), type_of(as_l), type_of(Sh.q_layout), type_of(Sh.s_layout), type_of(Sh.p_layout)]](
+            Aq4, As4, Q, S, P, Int32(MR), grid_dim=N // 32, block_dim=FW_THREADS)
+    elif ABL >= 60:
+        # staged 4-bit WMMA: 6P = prep timed, 7P = prepared A, 8P = prepared A + B halves replicated by selects (6P, 7P, 9P use the crossed halves), 9P = prepared A, KCB 32
+        comptime PS = ABL % 10
+        comptime REC = fw4_rec[PS]()
+        comptime ab_l = row_major[K // 32, REC]()
+        comptime af_l = row_major[K // 32, REC // 4]()
+        var base_p = p_d.unsafe_ptr().unsafe_offset(MMAX * N)
+        var Ab = TileTensor(DeviceBuffer[u8](ctx, base_p.unsafe_bitcast[UInt8](), (K // 32) * REC, owning=False), ab_l)
+        var Af = TileTensor(DeviceBuffer[f32](ctx, base_p, (K // 32) * REC // 4, owning=False), af_l)
+        comptime if ABL < 70:
+            ctx.enqueue_function[amar_fw_prep4s[PS, type_of(Sh.a_layout), type_of(ab_l), type_of(af_l)]](
+                A, Ab, Af, Int32(MR), grid_dim=(8, K // 32), block_dim=WARP_SIZE)
+        ctx.enqueue_function[amar_fewrow_iu4s[N, K, UNROLL, PS, 32 if ABL >= 90 else 64, 1 if ABL >= 80 and ABL < 90 else 2, type_of(ab_l), type_of(Sh.q_layout), type_of(Sh.s_layout), type_of(Sh.p_layout)]](
+            Ab, Q, S, P, Int32(MR), grid_dim=N // 256, block_dim=FW_THREADS)
+    elif ABL >= 43 and ABL <= 48:
+        # 4-bit integer WMMA: activations as P nibble planes (43/44/45 = P 2/3/4 with amar_fw_prep4 timed; 46/47/48 = the same on a prepared A)
+        comptime PL4 = ABL - 41 if ABL <= 45 else ABL - 44
+        comptime aq_l = row_major[8, (K // 32) * PL4 * 16]()
+        comptime as_l = row_major[K // 32, 16]()
+        var base_p = p_d.unsafe_ptr().unsafe_offset(MMAX * N)
+        var Aq4 = TileTensor(DeviceBuffer[u8](ctx, base_p.unsafe_bitcast[UInt8](), 8 * (K // 32) * PL4 * 16, owning=False), aq_l)
+        var As4 = TileTensor(DeviceBuffer[f32](ctx, base_p.unsafe_offset(4 * K), K // 2, owning=False), as_l)
+        comptime if ABL <= 45:
+            ctx.enqueue_function[amar_fw_prep4[PL4, type_of(Sh.a_layout), type_of(aq_l), type_of(as_l)]](
+                A, Aq4, As4, Int32(MR), grid_dim=(8, K // 32), block_dim=WARP_SIZE)
+        ctx.enqueue_function[amar_fewrow_iu4[N, K, UNROLL, PL4, type_of(aq_l), type_of(as_l), type_of(QL), type_of(SL), type_of(Sh.p_layout)]](
+            Aq4, As4, Q, S, P, Int32(MR), grid_dim=N // 16, block_dim=FW_THREADS)
+    elif ABL == 41 or ABL == 42:
+        # bit-built nibbles: amar_fw_prep (pair-order A + block sums; 41 times it, 42 runs the main kernel on a prepared A)
+        comptime ap_l = row_major[16, K]()
+        comptime as_l = row_major[K // 32, 8]()
+        var base_p = p_d.unsafe_ptr().unsafe_offset(MMAX * N)
+        var Apt = TileTensor(DeviceBuffer[bf16](ctx, base_p.unsafe_bitcast[BFloat16](), 16 * K, owning=False), ap_l)
+        var Ast = TileTensor(DeviceBuffer[f32](ctx, base_p.unsafe_offset(MMAX * K), K // 4, owning=False), as_l)
+        comptime if ABL == 41:
+            ctx.enqueue_function[amar_fw_prep[type_of(Sh.a_layout), type_of(ap_l), type_of(as_l)]](
+                A, Apt, Ast, Int32(MR), grid_dim=(16, K // 32), block_dim=WARP_SIZE)
+        ctx.enqueue_function[amar_fewrow_nib[N, K, UNROLL, type_of(ap_l), type_of(as_l), type_of(QL), type_of(SL), type_of(Sh.p_layout)]](
+            Apt, Ast, Q, S, P, Int32(MR), grid_dim=N // 16, block_dim=FW_THREADS)
     elif ABL >= 20 and ABL <= 32:
         comptime NW = 4 if ABL == 23 or ABL == 26 else (2 if ABL == 24 or ABL == 27 else (1 if ABL == 25 or ABL == 28 else 8))
         comptime MODE = 4 if ABL == 32 else (3 if ABL == 29 else (2 if TRANS else (1 if ABL == 21 else 0)))
@@ -261,7 +349,7 @@ def host_check[N: Int, K: Int, U: Int = 2, ABL: Int = 0, MR: Int = 3](ctx: Devic
         rows += 1
         r0 += 97
     print("host check MR", MR, "ABL", ABL, "vs fp64:", rows, "rows, max rel", worst, " max|err|/max|ref|", emax / amax)
-    if (ABL == 40 and emax / amax > 2e-2) or (ABL != 40 and worst > 2e-3):
+    if ((ABL == 40 or ABL >= 35) and emax / amax > 2e-2) or (ABL != 40 and ABL < 35 and worst > 2e-3):
         raise Error("FAIL host check: max rel " + String(worst))
 
 
@@ -301,11 +389,204 @@ def shape_round[N: Int, K: Int](ctx: DeviceContext, pack: String, tensor: String
         a_h[i] = (Float32(seed % 2001) / 1000.0 - 1.0).cast[bf16]()
     var w_d = ctx.enqueue_create_buffer[u8](NT * Sh.TB)
     var a_d = ctx.enqueue_create_buffer[bf16](MMAX * K)
-    var p_d = ctx.enqueue_create_buffer[f32](MMAX * N + MMAX * K)  # tail: round A int8 scratch
+    var p_d = ctx.enqueue_create_buffer[f32](MMAX * N + MMAX * K + K)  # tail: round A int8 scratch
     ctx.enqueue_copy(dst_buf=w_d, src_buf=w_h)
     ctx.enqueue_copy(dst_buf=a_d, src_buf=a_h)
     ctx.synchronize()
     print("shape", tensor, N, "x", K, " bytes per call", Sh.TB, " tensors", NT, " rounds", ROUNDS)
+    comptime if get_defined_int["VERIFY8", 0]() == 10:
+        # verify8-r2 K8: amar_fewrow_iu4r unroll depth sweep (tail-guarded), m = 8
+        host_check[N, K, 8, 35, 8](ctx, w_h, a_h, a_d, w_d, p_d)
+        host_check[N, K, 6, 35, 5](ctx, w_h, a_h, a_d, w_d, p_d)
+        host_check[N, K, 8, 37, 8](ctx, w_h, a_h, a_d, w_d, p_d)
+        var warm8 = perf_counter_ns()
+        while perf_counter_ns() - warm8 < 1_000_000_000:
+            for t in range(NT):
+                launch[N, K, 2, 3, 10](ctx, a_d, w_d, t, p_d)
+            ctx.synchronize()
+        for repeat in range(3):
+            print("repeat", repeat)
+            var base = arm[N, K, 2, 1, 10](ctx, tensor + " TURBO", a_d, w_d, p_d, 0)
+            # a prepared-A arm follows the prep of its own layout
+            _ = arm[N, K, 4, 8, 44](ctx, tensor + " IU4", a_d, w_d, p_d, base)
+            _ = arm[N, K, 4, 8, 47](ctx, tensor + " IU4", a_d, w_d, p_d, base)
+            _ = arm[N, K, 8, 8, 35](ctx, tensor + " IU4R", a_d, w_d, p_d, base)
+            comptime for d in [4, 5, 6, 8, 10, 12]:
+                _ = arm[N, K, d, 8, 36](ctx, tensor + " IU4R", a_d, w_d, p_d, base)
+            _ = arm[N, K, 6, 8, 37](ctx, tensor + " IU4R", a_d, w_d, p_d, base)
+            comptime for d in [4, 6, 8]:
+                _ = arm[N, K, d, 8, 38](ctx, tensor + " IU4R", a_d, w_d, p_d, base)
+        return
+    comptime if get_defined_int["VERIFY8", 0]() == 9:
+        # verify8-r2 K7: amar_fewrow_iu4r against K2 (amar_fewrow_iu4), m = 8
+        host_check[N, K, 4, 37, 8](ctx, w_h, a_h, a_d, w_d, p_d)
+        host_check[N, K, 4, 35, 8](ctx, w_h, a_h, a_d, w_d, p_d)
+        host_check[N, K, 4, 35, 5](ctx, w_h, a_h, a_d, w_d, p_d)
+        var warm7 = perf_counter_ns()
+        while perf_counter_ns() - warm7 < 1_000_000_000:
+            for t in range(NT):
+                launch[N, K, 2, 3, 10](ctx, a_d, w_d, t, p_d)
+            ctx.synchronize()
+        for repeat in range(3):
+            print("repeat", repeat)
+            var base = arm[N, K, 2, 1, 10](ctx, tensor + " TURBO", a_d, w_d, p_d, 0)
+            # a prepared-A arm follows the prep of its own layout
+            _ = arm[N, K, 4, 8, 44](ctx, tensor + " IU4", a_d, w_d, p_d, base)
+            _ = arm[N, K, 4, 8, 47](ctx, tensor + " IU4", a_d, w_d, p_d, base)
+            _ = arm[N, K, 4, 8, 34](ctx, tensor + " IU4-HOT", a_d, w_d, p_d, base)
+            _ = arm[N, K, 4, 8, 37](ctx, tensor + " IU4R", a_d, w_d, p_d, base)
+            _ = arm[N, K, 4, 8, 38](ctx, tensor + " IU4R", a_d, w_d, p_d, base)
+            _ = arm[N, K, 4, 8, 35](ctx, tensor + " IU4R", a_d, w_d, p_d, base)
+            _ = arm[N, K, 4, 8, 36](ctx, tensor + " IU4R", a_d, w_d, p_d, base)
+            _ = arm[N, K, 4, 8, 39](ctx, tensor + " IU4R-HOT", a_d, w_d, p_d, base)
+            _ = arm[N, K, 2, 8, 36](ctx, tensor + " IU4R", a_d, w_d, p_d, base)
+        return
+    comptime if get_defined_int["VERIFY8", 0]() == 8:
+        # verify8-r2 K6: where K2's time goes (timing-only ablations; outputs of 33 and 34 are wrong by construction)
+        var warm6 = perf_counter_ns()
+        while perf_counter_ns() - warm6 < 1_000_000_000:
+            for t in range(NT):
+                launch[N, K, 2, 3, 10](ctx, a_d, w_d, t, p_d)
+            ctx.synchronize()
+        for repeat in range(3):
+            print("repeat", repeat)
+            var base = arm[N, K, 2, 1, 10](ctx, tensor + " TURBO", a_d, w_d, p_d, 0)
+            _ = arm[N, K, 4, 8, 44](ctx, tensor + " IU4", a_d, w_d, p_d, base)
+            _ = arm[N, K, 4, 8, 47](ctx, tensor + " IU4", a_d, w_d, p_d, base)
+            _ = arm[N, K, 4, 8, 33](ctx, tensor + " ABL-A", a_d, w_d, p_d, base)
+            _ = arm[N, K, 4, 8, 34](ctx, tensor + " ABL-AQ", a_d, w_d, p_d, base)
+        return
+    comptime if get_defined_int["VERIFY8", 0]() == 7:
+        # verify8-r2 K5: amar_fewrow_iu4d (K4 with DQ weight blocks in flight, DA activation blocks), m = 8, P = 3 and 2.
+        host_check[N, K, 8, 122, 8](ctx, w_h, a_h, a_d, w_d, p_d)
+        host_check[N, K, 8, 123, 8](ctx, w_h, a_h, a_d, w_d, p_d)
+        host_check[N, K, 16, 113, 5](ctx, w_h, a_h, a_d, w_d, p_d)
+        var warm5 = perf_counter_ns()
+        while perf_counter_ns() - warm5 < 1_000_000_000:
+            for t in range(NT):
+                launch[N, K, 2, 3, 10](ctx, a_d, w_d, t, p_d)
+            ctx.synchronize()
+        for repeat in range(3):
+            print("repeat", repeat)
+            var base = arm[N, K, 2, 1, 10](ctx, tensor + " TURBO", a_d, w_d, p_d, 0)
+            _ = arm[N, K, 4, 8, 20](ctx, tensor + " WMMA", a_d, w_d, p_d, base)
+            # prepared-A arms (2xx) follow a prep of the same P
+            _ = arm[N, K, 4, 8, 44](ctx, tensor + " IU4", a_d, w_d, p_d, base)
+            _ = arm[N, K, 4, 8, 47](ctx, tensor + " IU4", a_d, w_d, p_d, base)
+            _ = arm[N, K, 8, 8, 123](ctx, tensor + " IU4D", a_d, w_d, p_d, base)
+            comptime for dq in [4, 8, 12, 16]:
+                _ = arm[N, K, dq, 8, 223](ctx, tensor + " IU4D", a_d, w_d, p_d, base)
+                _ = arm[N, K, dq, 8, 213](ctx, tensor + " IU4D", a_d, w_d, p_d, base)
+            _ = arm[N, K, 8, 8, 243](ctx, tensor + " IU4D", a_d, w_d, p_d, base)
+            _ = arm[N, K, 8, 8, 122](ctx, tensor + " IU4D", a_d, w_d, p_d, base)
+            _ = arm[N, K, 8, 8, 222](ctx, tensor + " IU4D", a_d, w_d, p_d, base)
+            _ = arm[N, K, 16, 8, 222](ctx, tensor + " IU4D", a_d, w_d, p_d, base)
+        return
+    comptime if get_defined_int["VERIFY8", 0]() == 6:
+        # verify8-r2 K4: amar_fewrow_iu4x (crossed halves, K split over 8 waves, planes from global memory), m = 8.
+        comptime for a in [52, 54, 53]:
+            host_check[N, K, 4, a, 8](ctx, w_h, a_h, a_d, w_d, p_d)
+        host_check[N, K, 4, 53, 5](ctx, w_h, a_h, a_d, w_d, p_d)
+        host_check[N, K, 2, 53, 8](ctx, w_h, a_h, a_d, w_d, p_d)
+        var warm4 = perf_counter_ns()
+        while perf_counter_ns() - warm4 < 1_000_000_000:
+            for t in range(NT):
+                launch[N, K, 2, 3, 10](ctx, a_d, w_d, t, p_d)
+            ctx.synchronize()
+        for repeat in range(3):
+            print("repeat", repeat)
+            var base = arm[N, K, 2, 1, 10](ctx, tensor + " TURBO", a_d, w_d, p_d, 0)
+            _ = arm[N, K, 4, 8, 20](ctx, tensor + " WMMA", a_d, w_d, p_d, base)
+            # a prepared-A arm must follow a prep of the same P: the scratch holds one layout
+            _ = arm[N, K, 4, 8, 44](ctx, tensor + " IU4", a_d, w_d, p_d, base)
+            _ = arm[N, K, 4, 8, 47](ctx, tensor + " IU4", a_d, w_d, p_d, base)
+            comptime for a in [52, 56, 54, 58, 53, 57]:
+                _ = arm[N, K, 4, 8, a](ctx, tensor + " IU4X", a_d, w_d, p_d, base)
+            _ = arm[N, K, 2, 8, 57](ctx, tensor + " IU4X", a_d, w_d, p_d, base)
+            _ = arm[N, K, 1, 8, 57](ctx, tensor + " IU4X", a_d, w_d, p_d, base)
+        return
+    comptime if get_defined_int["VERIFY8", 0]() == 5:
+        # verify8-r2 K3: amar_fewrow_iu4s (LDS-staged planes, distinct weights per half-wave), m = 8.
+        comptime for a in [62, 64, 63]:
+            host_check[N, K, 2, a, 8](ctx, w_h, a_h, a_d, w_d, p_d)
+        host_check[N, K, 2, 63, 5](ctx, w_h, a_h, a_d, w_d, p_d)
+        host_check[N, K, 1, 63, 8](ctx, w_h, a_h, a_d, w_d, p_d)
+        var warm3 = perf_counter_ns()
+        while perf_counter_ns() - warm3 < 1_000_000_000:
+            for t in range(NT):
+                launch[N, K, 2, 3, 10](ctx, a_d, w_d, t, p_d)
+            ctx.synchronize()
+        for repeat in range(3):
+            print("repeat", repeat)
+            var base = arm[N, K, 2, 1, 10](ctx, tensor + " TURBO", a_d, w_d, p_d, 0)
+            _ = arm[N, K, 4, 8, 20](ctx, tensor + " WMMA", a_d, w_d, p_d, base)
+            _ = arm[N, K, 4, 8, 47](ctx, tensor + " IU4", a_d, w_d, p_d, base)
+            # a prepared-A arm (7P, 8P, 9P) must follow a prep of the same P: the scratch holds one layout
+            comptime for a in [62, 72, 64, 74, 63, 73, 83, 93]:
+                _ = arm[N, K, 2, 8, a](ctx, tensor + " IU4S", a_d, w_d, p_d, base)
+            _ = arm[N, K, 1, 8, 73](ctx, tensor + " IU4S", a_d, w_d, p_d, base)
+            _ = arm[N, K, 4, 8, 73](ctx, tensor + " IU4S", a_d, w_d, p_d, base)
+        return
+    comptime if get_defined_int["VERIFY8", 0]() == 4:
+        # verify8-r2 K2: amar_fewrow_iu4 (P nibble planes) against the WMMA routes, m = 8.
+        comptime for a in [40, 43, 44, 45]:
+            host_check[N, K, 4, a, 8](ctx, w_h, a_h, a_d, w_d, p_d)
+        host_check[N, K, 4, 44, 5](ctx, w_h, a_h, a_d, w_d, p_d)
+        var warm2 = perf_counter_ns()
+        while perf_counter_ns() - warm2 < 1_000_000_000:
+            for t in range(NT):
+                launch[N, K, 2, 3, 10](ctx, a_d, w_d, t, p_d)
+            ctx.synchronize()
+        for repeat in range(3):
+            print("repeat", repeat)
+            var base = arm[N, K, 2, 1, 10](ctx, tensor + " TURBO", a_d, w_d, p_d, 0)
+            _ = arm[N, K, 4, 8, 20](ctx, tensor + " WMMA", a_d, w_d, p_d, base)
+            _ = arm[N, K, 4, 8, 40](ctx, tensor + " IU8", a_d, w_d, p_d, base)
+            comptime for a in [43, 44, 45, 46, 47, 48]:
+                _ = arm[N, K, 4, 8, a](ctx, tensor + " IU4", a_d, w_d, p_d, base)
+            _ = arm[N, K, 2, 8, 47](ctx, tensor + " IU4", a_d, w_d, p_d, base)
+        return
+    comptime if get_defined_int["VERIFY8", 0]() == 3:
+        # verify8-r2 K1: amar_fewrow_nib against the WMMA routes, m = 8.
+        host_check[N, K, 4, 41, 8](ctx, w_h, a_h, a_d, w_d, p_d)
+        host_check[N, K, 4, 41, 5](ctx, w_h, a_h, a_d, w_d, p_d)
+        host_check[N, K, 2, 41, 8](ctx, w_h, a_h, a_d, w_d, p_d)
+        var warm1 = perf_counter_ns()
+        while perf_counter_ns() - warm1 < 1_000_000_000:
+            for t in range(NT):
+                launch[N, K, 2, 3, 10](ctx, a_d, w_d, t, p_d)
+            ctx.synchronize()
+        for repeat in range(3):
+            print("repeat", repeat)
+            var base = arm[N, K, 2, 1, 10](ctx, tensor + " TURBO", a_d, w_d, p_d, 0)
+            _ = arm[N, K, 4, 8, 20](ctx, tensor + " WMMA", a_d, w_d, p_d, base)
+            _ = arm[N, K, 4, 8, 40](ctx, tensor + " IU8", a_d, w_d, p_d, base)
+            _ = arm[N, K, 4, 8, 41](ctx, tensor + " NIB", a_d, w_d, p_d, base)
+            _ = arm[N, K, 4, 8, 42](ctx, tensor + " NIBNOPREP", a_d, w_d, p_d, base)
+            _ = arm[N, K, 2, 8, 41](ctx, tensor + " NIB", a_d, w_d, p_d, base)
+            _ = arm[N, K, 1, 8, 41](ctx, tensor + " NIB", a_d, w_d, p_d, base)
+        return
+    comptime if get_defined_int["VERIFY8", 0]() == 2:
+        # verify8-r2: the LDS-staged row kernels (exact and dot2) at m up to 8 against the WMMA routes.
+        host_check[N, K, 2, 50, 8](ctx, w_h, a_h, a_d, w_d, p_d)
+        host_check[N, K, 2, 10, 8](ctx, w_h, a_h, a_d, w_d, p_d)
+        host_check[N, K, 1, 50, 8](ctx, w_h, a_h, a_d, w_d, p_d)
+        var warm0 = perf_counter_ns()
+        while perf_counter_ns() - warm0 < 1_000_000_000:
+            for t in range(NT):
+                launch[N, K, 2, 3, 10](ctx, a_d, w_d, t, p_d)
+            ctx.synchronize()
+        for repeat in range(3):
+            print("repeat", repeat)
+            var base = arm[N, K, 2, 1, 10](ctx, tensor + " TURBO", a_d, w_d, p_d, 0)
+            _ = arm[N, K, 4, 8, 20](ctx, tensor + " WMMA", a_d, w_d, p_d, base)
+            _ = arm[N, K, 4, 8, 40](ctx, tensor + " IU8", a_d, w_d, p_d, base)
+            comptime for mr in [3, 4, 5, 6, 8]:
+                _ = arm[N, K, 2, mr, 50](ctx, tensor + " DOT2", a_d, w_d, p_d, base)
+            _ = arm[N, K, 1, 8, 50](ctx, tensor + " DOT2", a_d, w_d, p_d, base)
+            _ = arm[N, K, 2, 8, 10](ctx, tensor + " TURBO", a_d, w_d, p_d, base)
+            _ = arm[N, K, 2, 8, 0](ctx, tensor + " FULL", a_d, w_d, p_d, base)
+        return
     comptime if get_defined_int["VERIFY8", 0]() != 0:
         # One-change ablations: identical math with transposed storage, or centered nibbles.
         var wt_h = ctx.enqueue_create_host_buffer[u8](NT * Sh.TB)

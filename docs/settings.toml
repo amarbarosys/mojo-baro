@@ -3170,16 +3170,31 @@ help = """Injects every DFlash2 feature at position + k (gate reverse arm: accep
 key = "BARO_FEWROW"
 group = "engine"
 label = "BARO_FEWROW"
-type = "bool"
+type = "int"
 kind = "build"
-default = false
+default = 0
 restart = true
 level = "advanced"
 status = "experimental"
 models = ["qwen35"]
 sources = ["serve/engine.mojo", "serve/dflash.mojo", "serve/window.mojo"]
-summary = "Q4 window GEMMs with m > 4 on amar_fewrow_wmma D=4"
-help = """Build flag -D BARO_FEWROW=1: Q4 window GEMMs with m > 4 run amar_fewrow_wmma D=4 (8-row window 1.53x on the 27B k=7 window; WMMA order, not bit-exact: forced agreement 0.99844 vs 1.00000 on the shipped route). Serve replays prompts with up to MROWS rows, so it also reaches no-spec runs. Default 0."""
+summary = "route of Q4 window GEMMs with m > 4 (0 exact q4rowb, 3 = amar_fewrow_iu4r)"
+help = """Build flag -D BARO_FEWROW: 0 q4rowb (exact), 1 amar_fewrow_wmma (bf16 WMMA), 2 amar_fewrow_iu4, 3 amar_fewrow_iu4r (4-bit integer WMMA; E4 2026-11-25 on the nerkyor 27B pack: forced agreement 0.99687 vs 1.00000 control, DFlash2 88.42 tok/s_gen; profiles/nerkyor27b.toml builds with 3). Serve replays prompts with up to MROWS rows, so it also reaches no-spec runs. Default 0."""
+
+[[setting]]
+key = "BARO_FW_PLANES"
+group = "engine"
+label = "BARO_FW_PLANES"
+type = "int"
+kind = "build"
+default = 3
+restart = true
+level = "advanced"
+status = "experimental"
+models = ["qwen35"]
+sources = ["serve/window.mojo"]
+summary = "activation nibble planes for BARO_FEWROW=2/3"
+help = """Build flag -D BARO_FW_PLANES: signed nibble planes per 32-block for the activations of BARO_FEWROW=2/3 (3 planes = 3.7e-4 of max on the 27B FFN shapes, 4 = 1.9e-5). Default 3."""
 
 [[setting]]
 key = "BARO_LOG_PROMPTS"

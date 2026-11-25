@@ -59,6 +59,14 @@ def main() raises:
     check(to_text(back) == to_text(load_presets(path)), "text stable")
     check(delete_user_preset(path, "Mine") and len(load_presets(path)) == 1, "delete")
     check(not delete_user_preset(path, "Mine"), "delete twice says no")
+    for v in [".5", "+.5", "infinity", "NaN", "Inf"]:  # not TOML numbers: must be written quoted and read back as typed
+        var s3 = Dict[String, String]()
+        s3["K"] = String(v)
+        var k3 = List[String]()
+        k3.append("K")
+        save_user_preset(path, "Odd", "", s3, k3)
+        check(len(load_presets(path)) == 2 and load_presets(path)[1].vals["K"] == String(v), "non-TOML number text '" + String(v) + "' round trips")
+    check(delete_user_preset(path, "Odd"), "delete Odd")
     # apply plan
     var cur = Dict[String, String]()
     cur["BARO_TMAX"] = "16384"

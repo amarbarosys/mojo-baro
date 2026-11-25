@@ -20,9 +20,9 @@ Audience: a person or agent that runs mojo-baro. Development notes are out of sc
 
 ## Quick start
 
-Source: README.md:30-112.
+Source: README.md, section "Quick start".
 
-1. Hardware: AMD Radeon RX 7900 XTX (gfx1100, 24 GB) with ROCm 7.2 (README.md:36-37). Other RDNA3 cards build, tuning unmeasured (README.md:36).
+1. Hardware: AMD Radeon RX 7900 XTX (gfx1100, 24 GB) with ROCm 7.2 (README.md, "What you need"). Other RDNA3 cards build, tuning unmeasured (same table).
 2. Install and check:
    ```sh
    git clone https://github.com/amarbarosys/mojo-baro && cd mojo-baro
@@ -30,13 +30,13 @@ Source: README.md:30-112.
    (cd serve && cargo build --release)
    bench/preflight.sh
    ```
-   `uv sync` pins `max[all]==26.7.0` (Mojo 1.2.0) in a repo-local `.venv` (README.md:42-43, 45-52). `bench/preflight.sh` needs no GPU and no weights (README.md:54).
-3. Serve a model. The first run for a shape takes minutes; the engine and pack go to `~/.cache/baro/<shape-id>/` (README.md:59, 62-66).
+   `uv sync` pins `max[all]==26.7.0` (Mojo 1.2.0) in a repo-local `.venv` (README.md, "What you need" and "Install and check"). `bench/preflight.sh` needs no GPU and no weights (README.md, "Install and check").
+3. Serve a model. The first run for a shape takes minutes; the engine and pack go to `~/.cache/baro/<shape-id>/` (README.md, "Serve a model").
    ```sh
    tools/baro serve ~/Models/Qwen2.5-7B-Instruct-Q4_K_M.gguf --port 8080
    ```
-4. Talk to it. Use `max_tokens` of 16000 or more (`docs/operate-capabilities.toml` chat row; README.md:71-74). Streaming uses SSE (README.md:79-81). Ollama clients use the same port (README.md:84-85).
-5. The GUI: `tools/baro gui [--model M.gguf] [--port N] [--fps N]` (README.md:88-112). Needs `libSDL3.so.0` and `libfreetype.so.6` (README.md:110-111).
+4. Talk to it. Use `max_tokens` of 16000 or more (`docs/operate-capabilities.toml` chat row; README.md, "Talk to it"). Streaming uses SSE and Ollama clients use the same port (README.md, "Talk to it").
+5. The GUI: `tools/baro gui [--model M.gguf] [--port N] [--fps N]` (README.md, "Clients: terminal, window, browser"). Needs `libSDL3.so.0` and `libfreetype.so.6` (same section).
 
 ## Capabilities and settings
 
@@ -61,56 +61,58 @@ These are starting points. The presets in docs/settings.toml say themselves that
 
 Each line gives the reason and its source.
 
-- q4x MTP verify window: FAILS (docs/CAPABILITIES.md:28).
-- WMMA attention and the dense chunk scan in MoE prefill (`BARO_PF_ATT`, `BARO_PF_SSM`): non-exact, FAIL identity (docs/CAPABILITIES.md:104).
-- A requantised q4 pack of a Q4_K_M model: 92.97% agreement, FAILS. Use the K-quant pack (README.md:175).
-- `BARO_NGRAM` on MoE: works but slower (docs/CAPABILITIES.md:113).
-- `BARO_MEGA_WIN` and `BARO_DOT`: default off (docs/CAPABILITIES.md:428, 432).
+- q4x MTP verify window: FAILS (docs/CAPABILITIES.md, "q4x MTP verify window").
+- WMMA attention and the dense chunk scan in MoE prefill (`BARO_PF_ATT`, `BARO_PF_SSM`): non-exact, FAIL identity (docs/CAPABILITIES.md, "WMMA attention and the dense chunk scan in MoE prefill").
+- A requantised q4 pack of a Q4_K_M model: 92.97% agreement, FAILS. Use the K-quant pack (README.md, "Decode against llama.cpp", the requantized Ornith row).
+- `BARO_NGRAM` on MoE: works but slower (docs/CAPABILITIES.md, "MoE prompt-lookup (ngram) speculation").
+- `BARO_MEGA_WIN` and `BARO_DOT`: default off (docs/CAPABILITIES.md, the `BARO_MEGA_WIN` and `BARO_DOT` entries).
 - `presence_penalty` and `frequency_penalty`: inert (docs/operate-capabilities.toml, penalties row).
 - The Mojo front: experimental (docs/operate-capabilities.toml, mojo-front row).
 - `BARO_CERT` as a default: decode ratio 1.023, 0.23 ms per token (docs/operate-capabilities.toml, cert row).
-- `BARO_SHARED_EXP`: 3.6x the cost of a plain exp (docs/CAPABILITIES.md:17).
+- `BARO_SHARED_EXP`: 3.6x the cost of a plain exp (docs/CAPABILITIES.md, "Shared exp/log/rsqrt/sin/cos").
 - `tool_choice: auto` as a tool filter: it does not restrict names (docs/operate-capabilities.toml, tools row).
 - The CPU engine for speed: 6 to 7 tok/s (docs/operate-capabilities.toml, cpu row).
 
 ## Troubleshooting by symptom
 
-Rows from README.md:454-461.
+Rows from README.md, section "Troubleshooting", plus the two rows that name `tools/baro` behaviour.
 
 | symptom | cause | fix |
 |---|---|---|
-| a plain "hello" costs about 480 prompt tokens and the reply is a `brain_ask` tool call | `tools/baro serve` exports `BARO_NEURONS=1` (`tools/baro:299`), so a chat request without tools gets the retrieval loop (the bare `baro-serve` binary treats an unset variable as off) | send `"neurons": false` per request, or start with `BARO_NEURONS=0` (the `chat` tool of baro-mcp sends `neurons:false` unless told otherwise) |
+| a plain "hello" costs about 480 prompt tokens and the reply is a `brain_ask` tool call | `tools/baro serve` exports `BARO_NEURONS=${BARO_NEURONS:-1}` (grep `BARO_NEURONS` in `tools/baro`), so a chat request without tools gets the retrieval loop (the bare `baro-serve` binary treats an unset variable as off) | send `"neurons": false` per request, or start with `BARO_NEURONS=0` (the `chat` tool of baro-mcp sends `neurons:false` unless told otherwise) |
 | `baro: not a BARO file: no baro.kernel.commit` | the model is a plain GGUF | serve a BARO-stamped file (`*-BARO-<commit>.gguf`) |
 | `pack/profile mismatch: profile H 4096 ... implies H 5120` | the engine was compiled for another model shape | use `tools/baro serve`, or build with the shape flags from `tools/model-id.py MODEL.gguf --json` |
 | `no tokenizer.json loaded` (HTTP 503 on chat) | the pack has no `tokenizer.json` | pass `--tokenizer`, or rebuild the pack with `tools/baro serve` |
 | decode is 10x slower than the tables, no error | weights spilled from VRAM to GTT because something else holds VRAM | read `gtt_used` in `/sys/class/drm/card*/device/`; free VRAM or lower `BARO_TMAX` |
 | out of memory with VRAM free | MAX's small-allocation pool is 2% of free VRAM | set `MODULAR_DEVICE_CONTEXT_MEMORY_MANAGER_SIZE_PERCENT` higher |
-| `/health` 503 for a long time after start | the pack is still loading; the port opens first | wait for 200 (README.md:460) |
+| `/health` 503 for a long time after start | the pack is still loading; the port opens first | wait for 200 |
 | the engine prints `ready`, exits 0, served nothing | its stdin was empty | feed requests on stdin, or let a front start it |
+| wrong results while several GPU programs run | four or more active HIP processes on one card corrupt results, even finite ones | run at most two GPU jobs at a time |
+| text differs between two runs at temperature 0 | near-tie tokens flip between decode paths and with a warm prefix cache | compare with teacher-forced agreement, not text equality |
 
 HTTP codes:
 
 - **429**: past the KV pool in `--parallel` mode. Not a failure (docs/operate-capabilities.toml, parallel row).
 - **502**: `engine_invalid_tokens`, a non-zero fail word. Read `timings.fail` (docs/operate-capabilities.toml, fail-word row).
 - **501**: embeddings through the chat model on the spark engine or on a `BARO_SEQS > 1` engine. Use `--embed-only` (docs/operate-capabilities.toml, embeddings row).
-- **404**: `/api/pull` for a model other than the loaded pack (docs/CAPABILITIES.md:128), and `/v1/embeddings` with a model name that is neither bge-small nor the loaded chat model (README.md:353-354).
-- **503**: `/health` while loading or dead, and chat with no tokenizer (README.md:460; docs/operate-capabilities.toml, health row).
+- **404**: `/api/pull` for a model other than the loaded pack (docs/CAPABILITIES.md, "Ollama `POST /api/pull`"), and `/v1/embeddings` with a model name that is neither bge-small nor the loaded chat model (README.md, "Embeddings").
+- **503**: `/health` while loading or dead, and chat with no tokenizer (README.md, "Troubleshooting"; docs/operate-capabilities.toml, health row).
 
 ## How to verify a change
 
-Read-back endpoints and their field names are listed with file:line in serve/src/main.rs:484-529.
+Read-back endpoints and their field names are in `health()`, `props()` and `models()` of serve/src/main.rs.
 
 | setting | where to read it back |
 |---|---|
-| `BARO_TMAX` | `GET /health` `limits.tmax` (serve/src/main.rs:497-499) |
-| `BARO_PACK` | `GET /health` `pack` (serve/src/main.rs:502) |
-| `BARO_SEQS`, `BARO_POOL` | `GET /health` `limits.seqs`, `pool`, `capacity` (serve/src/main.rs:494-501) |
-| `BARO_SPEC_K`, `BARO_TIER` | `GET /health` `limits.spec_k`, `limits.tier` (serve/src/main.rs:497-499) |
+| `BARO_TMAX` | `GET /health` `limits.tmax` (`health()` in serve/src/main.rs) |
+| `BARO_PACK` | `GET /health` `pack` (`health()`) |
+| `BARO_SEQS`, `BARO_POOL` | `GET /health` `limits.seqs`, `pool`, `capacity` (`health()`) |
+| `BARO_SPEC_K`, `BARO_TIER` | `GET /health` `limits.spec_k`, `limits.tier` (`health()`) |
 | `BARO_SPEC`, `BARO_MEGA`, `BARO_PREFILL` | response `timings.path` (docs/operate-capabilities.toml, sampling and mega rows) |
 | `BARO_KVQ` | no read-back endpoint; use the response timings or the engine log |
 | `sampling.*` | the response `timings`; the seed check: same seed twice gives the same ids (docs/operate-capabilities.toml, sampling row) |
 
-`/props` in the README says it reports the KV type (README.md:310-315). The handler at serve/src/main.rs:506-519 returns `n_ctx`, `model` and the template capabilities only. Use `/health` or the engine log for KV type.
+`/props` in the README endpoint table says it reports window, speculation depth and KV type. The `props()` handler in serve/src/main.rs returns `n_ctx`, `model` and the template capabilities only. Use `/health` or the engine log for KV type.
 
 ## The MCP server
 

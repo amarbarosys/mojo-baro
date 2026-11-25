@@ -1,24 +1,3 @@
-"""Register-tiled GEMM staging global memory through 128-bit (float4) loads.
-
-Builds on `amar_matmul_ldst` (transposed A tile, 64-bit LDS reads) and changes only
-how the tiles are fetched from global memory.
-
-At BM32/BN32/BK8 with 256 threads each tile is exactly 256 floats, so
-`amar_matmul_regtile` has every thread issue one scalar 32-bit load per tile -- eight
-wavefront-wide load instructions per k-step.  Reading four contiguous floats per
-thread instead needs 64 threads per tile, so A and B are fetched by disjoint
-thread ranges (0..63 and 64..127) and the whole staging step costs four
-wavefront-wide instructions.
-
-The catch is that the transposed A destination cannot absorb a vector store: a
-float4 read spans four k values, which the transpose scatters BM + LDS_PAD
-floats apart, so it lands as four scalar LDS writes.  B keeps its vector store.
-That asymmetry is the price of the 64-bit LDS reads in the inner loop, and it is
-the thing this variant exists to price.
-
-Requires BK and BN to be multiples of 4, which holds for the swept config.
-"""
-
 from max.gpu.memory import AddressSpace
 from max.gpu.sync import barrier
 from max.gpu import block_idx, thread_idx
@@ -28,8 +7,8 @@ from matmul import dtype
 from matmul_ldst import BM, BN, BK, TM, TN, NTHREADS, LDS_PAD
 
 comptime VEC = 4
-comptime A_LOADERS = BM * BK // VEC  # 64
-comptime B_LOADERS = BK * BN // VEC  # 64
+comptime A_LOADERS = BM * BK // VEC
+comptime B_LOADERS = BK * BN // VEC
 
 
 def amar_matmul_vec4[
@@ -68,7 +47,6 @@ def amar_matmul_vec4[
     var sbw = sb.vectorize[1, VEC]()
     comptime assert sav.flat_rank == 2 and sbv.flat_rank == 2 and sbw.flat_rank == 2
 
-    # 128-bit views of the global operands; the last axis is in units of VEC.
     var Av = A.vectorize[1, VEC]()
     var Bv = B.vectorize[1, VEC]()
     comptime assert Av.flat_rank == 2 and Bv.flat_rank == 2
@@ -78,7 +56,6 @@ def amar_matmul_vec4[
     var k_tile = 0
     while k_tile < K:
         if tid < A_LOADERS:
-            # Each loader owns VEC consecutive k values of one row of A.
             var r = tid * VEC // BK
             var c = tid * VEC % BK
             var gr = block_row + r
@@ -86,7 +63,6 @@ def amar_matmul_vec4[
             var v = SIMD[dtype, VEC](0)
             if gr < M and gc + VEC <= K:
                 v = rebind[SIMD[dtype, VEC]](Av[gr, gc // VEC])
-            # Transposed destination: VEC scalar stores, BM + LDS_PAD apart.
             comptime for j in range(VEC):
                 sa[c + j, r] = rebind[sa.ElementType](v[j])
         elif tid < A_LOADERS + B_LOADERS:

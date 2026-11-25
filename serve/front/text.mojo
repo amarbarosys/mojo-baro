@@ -290,16 +290,49 @@ struct Text(Movable):
         var full = List[Int32]()
         var have_full = False
         var ids = List[Int32]()
+        # The whole conversation is encoded once. A prefix whose render is a byte prefix of the whole render and
+        # ends at a special-token edge takes its length from that encoding; any other prefix is encoded alone.
+        var whole = String()
+        var cuts = Dict[Int, Int]()
+        var shift = 0
+        try:
+            whole = self._render(msgs, False, tools, kwargs)
+            var pos = List[Int]()
+            var cnt = List[Int]()
+            var raw = self.tok[].encode_cuts(whole, False, True, pos, cnt)
+            if self.add_bos and self.bos_id >= 0:
+                shift = 1
+            full = List[Int32](capacity=len(raw) + 1)
+            if shift == 1 and (len(raw) == 0 or raw[0] != self.bos_id):
+                full.append(Int32(self.bos_id))
+            for id in raw:
+                full.append(Int32(id))
+            for j in range(len(pos)):
+                var c = cnt[j]
+                cuts[pos[j]] = c + (shift if c == 0 or raw[0] != self.bos_id else 0)
+            have_full = True
+        except:
+            have_full = False
         for k in range(1, len(items) + 1):
+            if k == len(items):
+                if have_full:
+                    out.append(len(full))
+                continue
             var part = Json.array()
             for i in range(k):
                 part.push(items[i])
+            if have_full:
+                try:
+                    var r = self._render(part, False, tools, kwargs)
+                    var n = cuts.get(r.byte_length(), -1)
+                    if n >= 0 and whole.startswith(r):
+                        out.append(n)
+                        continue
+                except:
+                    continue
             if not self._ids_of(part, False, tools, kwargs, ids):
                 continue
             out.append(len(ids))
-            if k == len(items):
-                full = ids.copy()
-                have_full = True
         if have_full and len(items) > 0:
             var open = Json.array()
             for i in range(len(items) - 1):

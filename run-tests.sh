@@ -5,6 +5,7 @@
 # pass-cache, markers under .work/test-pass/). RUN_ALL=1 reruns every test: before a merge, and for environmentally flaky probes.
 set -euo pipefail
 cd "$(dirname "$0")"
+tools/fixture-check.sh || { echo "FAIL run-tests: fixtures (above), before any build or GPU work"; exit 1; }
 S="$PWD/.work/shim-build"; export S
 cmake -S shim -B "$S" -DCMAKE_BUILD_TYPE=Release >/dev/null
 cmake --build "$S" -j"$(nproc)" >/dev/null

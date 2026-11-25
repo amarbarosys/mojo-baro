@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # Audit row C16: the stage selector's illegal combinations fail by name (miniagi/latent/stagecheck.mojo, the guard run.mojo
-# calls before training). CPU only: builds and runs test_stagecheck.mojo. (run.mojo itself does not build at the moment:
-# Model.sort_ids is called and defined nowhere, so the guard is tested as the module it lives in.)
+# calls before training). CPU only: builds and runs test_stagecheck.mojo, the guard tested as the module it lives in.
 set -euo pipefail
 here=$(cd "$(dirname "$0")/../.." && pwd)
 out=$here/.work/fix-front-test/test_stagecheck; mkdir -p "$(dirname "$out")"

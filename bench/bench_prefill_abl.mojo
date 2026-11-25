@@ -13,11 +13,10 @@ from std.math import ceildiv
 from std.sys import has_accelerator
 from std.time import perf_counter_ns
 
-from max.gpu.host import DeviceContext, DeviceBuffer, HostBuffer
-from layout import TileTensor, TensorLayout, row_major
+from max.gpu.host import DeviceContext, DeviceBuffer
+from layout import TileTensor, row_major
 
-from matmul_skinny import amar_matmul_skinny_q4rowb, amar_skinny_reduce, SM, ROW_WAVES, ROW_THREADS
-from matmul_prefill import amar_matmul_prefill_q4, PF_THREADS
+from matmul_skinny import SM
 from matmul_mmq import amar_quant_q8, amar_matmul_lds_q4, MMQ_THREADS, QT_THREADS, ABL
 from tio import load_into, pack_offset
 from bench_prefill import lcg, q_tensors, lds_cfg_name, timed

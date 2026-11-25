@@ -19,7 +19,7 @@ from dflash import DFlash
 
 from max.algorithm import parallelize
 from max.gpu.host import DeviceContext, DeviceBuffer
-from layout import TileTensor, TensorLayout, row_major
+from layout import TileTensor
 from registry import *
 
 
@@ -33,7 +33,7 @@ from latent import EngineLatentClient, mint_checkpoint_latent, ingest_checkpoint
 from latent_ipc import MSG_BYTES, ipc_payload_bytes, export_ckpt_ipc, ingest_ckpt_ipc, ipc_refusal, ckpt_region_sha, stage_new, hex_encode, tokens_from_hex
 from prefix import _hex_to_bytes
 from latentos.ipc import connect_unix_socket
-from state import amar_kv4_unpack, amar_kv6_decode, KV4_TAIL, KV5_TAIL, KV4_PACKED, KV4_ROWS, KV6_TAB, KV6_STREAMS
+from state import amar_kv4_unpack, amar_kv6_decode, KV4_TAIL, KV5_TAIL, KV4_PACKED, KV6_TAB, KV6_STREAMS
 from serve_proto import (
     read_line, cancel_pending, is_cancel_line, idle_cancel_note, json_key, json_int, json_float, json_str,
     SampleParams, default_sample_params, parse_request,
@@ -265,17 +265,6 @@ def _quantize_kv_int8[T: DType](hb: HostBuffer[T], kvn: Int, mut scales: List[Sc
             qdata[base + i] = qf.cast[i8]()
 
 
-def _dequantize_kv_int8[T: DType](mut hb: HostBuffer[T], data: List[UInt8], scale_off: Int, q_off: Int, kvn: Int):
-    var scales = data.unsafe_ptr().unsafe_offset(scale_off).unsafe_bitcast[Scalar[f32]]()
-    var qdata = data.unsafe_ptr().unsafe_offset(q_off).unsafe_bitcast[Scalar[i8]]()
-    var ngroups = kvn // KVHSTR
-    for g in range(ngroups):
-        var scale = scales[g]
-        var base = g * KVHSTR
-        for i in range(KVHSTR):
-            hb[base + i] = (qdata[base + i].cast[f32]() * scale).cast[T]()
-
-
 struct LoadStage(Movable):
     # One pinned host stage per engine, allocated once at startup (P1 stage B,
     # AMDHQ runs/latent-os/P1-stageA-split-2026-09-24.md: the List read of a
@@ -324,8 +313,8 @@ def _read_exact(mut f: FileHandle, ptr: Pointer[UInt8, MutUntrackedOrigin], n: I
 
 
 def _dequantize_kv_int8_par[T: DType](mut hb: HostBuffer[T], src: Pointer[UInt8, MutUntrackedOrigin], scale_off: Int, q_off: Int, kvn: Int):
-    # Same per-element arithmetic as _dequantize_kv_int8 (bit-exact), split over
-    # whole KVHSTR groups so no two workers touch one group.
+    # Per-group dequant (int8 * f32 scale), split over whole KVHSTR groups so no
+    # two workers touch one group.
     var scales = src.unsafe_offset(scale_off).unsafe_bitcast[Scalar[f32]]()
     var qdata = src.unsafe_offset(q_off).unsafe_bitcast[Scalar[i8]]()
     var dst = hb.unsafe_ptr()

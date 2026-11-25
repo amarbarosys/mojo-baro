@@ -44,7 +44,7 @@ from std.os import getenv
 from std.sys import argv, has_accelerator
 from std.time import perf_counter_ns
 
-from max.gpu.host import DeviceContext, DeviceBuffer
+from max.gpu.host import DeviceContext
 
 from registry import *
 from window import *
@@ -54,7 +54,7 @@ from latent import mint_kv_latent, ingest_kv_latent, mint_chain_slot, ingest_int
 from serve_proto import default_sample_params
 from tokenizer import Tokenizer
 
-from grammar.json_value import parse_json_file, JSONDoc
+from grammar.json_value import parse_json_file
 from bench_latent_handoff import reset_and_load, get_int_list, read_toks, contains, json_escape, get_str, trim_at_stop, extend_ids, ids_to_json
 
 

@@ -11,9 +11,6 @@ from matmul_skinny import (
     amar_matmul_skinny_q8row, amar_matmul_skinny_q4rowb, amar_skinny_reduce, amar_skinny_reduce_add,
     amar_skinny_reduce_swiglu_bf16, amar_matmul_skinny_q8dot, amar_matmul_skinny_m1_row2, SM, SPLITK, ROW_WAVES, ROW_THREADS,
 )
-from matmul_ternary import (
-    amar_matmul_skinny_q2b3row, amar_matmul_skinny_tq1row, amar_matmul_skinny_tq2row,
-)
 from ssm import (
     amar_ssm_reduce_gates, amar_ssm_conv, amar_ssm_qk_l2norm, amar_ssm_qk_l2norm_gates, amar_ssm_conv_l2g,
     amar_ssm_delta_step, amar_ssm_gated_out_bf16, amar_cast_bf16, amar_widen_bf16, CONV, CONV_GATE_BLOCKS, NH_V, SSTATE,
@@ -461,72 +458,6 @@ def gemm_q8[
         )
     else:
         ctx.enqueue_function[amar_matmul_skinny_q8row[4, SM, AL, QL, SL, PL]](
-            A, Wq, Ws, P, Int32(m), Int32(n), Int32(k),
-            grid_dim=ceildiv(n, ROW_WAVES), block_dim=ROW_THREADS,
-        )
-
-
-def gemm_q2b3[
-    AL: TensorLayout, QL: TensorLayout, SL: TensorLayout, PL: TensorLayout
-](
-    ctx: DeviceContext,
-    A: TileTensor[bf16, AL, MutAnyOrigin],
-    Wq: TileTensor[DType.uint8, QL, MutAnyOrigin],
-    Ws: TileTensor[DType.float16, SL, MutAnyOrigin],
-    P: TileTensor[f32, PL, MutAnyOrigin],
-    m: Int, n: Int, k: Int,
-) raises:
-    if m == 1:
-        ctx.enqueue_function[amar_matmul_skinny_q2b3row[1, AL, QL, SL, PL]](
-            A, Wq, Ws, P, Int32(m), Int32(n), Int32(k),
-            grid_dim=ceildiv(n, ROW_WAVES), block_dim=ROW_THREADS,
-        )
-    else:
-        ctx.enqueue_function[amar_matmul_skinny_q2b3row[SM, AL, QL, SL, PL]](
-            A, Wq, Ws, P, Int32(m), Int32(n), Int32(k),
-            grid_dim=ceildiv(n, ROW_WAVES), block_dim=ROW_THREADS,
-        )
-
-
-def gemm_tq1[
-    AL: TensorLayout, QL: TensorLayout, SL: TensorLayout, PL: TensorLayout
-](
-    ctx: DeviceContext,
-    A: TileTensor[bf16, AL, MutAnyOrigin],
-    Wq: TileTensor[DType.uint8, QL, MutAnyOrigin],
-    Ws: TileTensor[DType.float16, SL, MutAnyOrigin],
-    P: TileTensor[f32, PL, MutAnyOrigin],
-    m: Int, n: Int, k: Int,
-) raises:
-    if m == 1:
-        ctx.enqueue_function[amar_matmul_skinny_tq1row[1, AL, QL, SL, PL]](
-            A, Wq, Ws, P, Int32(m), Int32(n), Int32(k),
-            grid_dim=ceildiv(n, ROW_WAVES), block_dim=ROW_THREADS,
-        )
-    else:
-        ctx.enqueue_function[amar_matmul_skinny_tq1row[SM, AL, QL, SL, PL]](
-            A, Wq, Ws, P, Int32(m), Int32(n), Int32(k),
-            grid_dim=ceildiv(n, ROW_WAVES), block_dim=ROW_THREADS,
-        )
-
-
-def gemm_tq2[
-    AL: TensorLayout, QL: TensorLayout, SL: TensorLayout, PL: TensorLayout
-](
-    ctx: DeviceContext,
-    A: TileTensor[bf16, AL, MutAnyOrigin],
-    Wq: TileTensor[DType.uint8, QL, MutAnyOrigin],
-    Ws: TileTensor[DType.float16, SL, MutAnyOrigin],
-    P: TileTensor[f32, PL, MutAnyOrigin],
-    m: Int, n: Int, k: Int,
-) raises:
-    if m == 1:
-        ctx.enqueue_function[amar_matmul_skinny_tq2row[1, AL, QL, SL, PL]](
-            A, Wq, Ws, P, Int32(m), Int32(n), Int32(k),
-            grid_dim=ceildiv(n, ROW_WAVES), block_dim=ROW_THREADS,
-        )
-    else:
-        ctx.enqueue_function[amar_matmul_skinny_tq2row[SM, AL, QL, SL, PL]](
             A, Wq, Ws, P, Int32(m), Int32(n), Int32(k),
             grid_dim=ceildiv(n, ROW_WAVES), block_dim=ROW_THREADS,
         )

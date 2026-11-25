@@ -3,8 +3,7 @@ from max.gpu import block_idx, global_idx, thread_idx, WARP_SIZE
 from std.math import fma
 from bexp import exp
 from std.memory import bitcast
-from std.sys.intrinsics import llvm_intrinsic
-from layout import TileTensor, TensorLayout, row_major
+from layout import TileTensor, TensorLayout
 from arch import mma, acc_row
 
 comptime f32 = DType.float32

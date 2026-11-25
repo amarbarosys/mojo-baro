@@ -40,20 +40,20 @@ Eight presets, three groups. Each line gives the name, group and the values it s
 - **Low VRAM** (fit): `BARO_KVQ` int8, `BARO_TMAX` 16384. Check with `pack-fit` before applying.
 - **Long context** (fit): `BARO_KVQ` int8, `BARO_TMAX` 131072, `BARO_SPEC` on, `BARO_MEGA` on.
 
-Caution for both fit presets: `BARO_KVQ` is a build flag (`-D`). The GUI Apply path passes it to `tools/baro serve` as an environment variable, and `tools/baro` only turns a profile's `[build]` section into `-D` flags (tools/baro:153-181; a static read, not run). After applying, confirm the KV type another way, or use the profile route (`profiles/turbo27b-coder.toml`). `GET /health` `limits.tmax` does show the window.
+Caution for both fit presets: `BARO_KVQ` is a build flag (`-D`). The GUI Apply path passes it to `tools/baro serve` as an environment variable, and `tools/baro` only turns a profile's `[build]` section into `-D` flags (the profile block of `tools/baro`, from the comment "A profile (profiles/NAME.toml"; a static read, not run). After applying, confirm the KV type another way, or use the profile route (`profiles/turbo27b-coder.toml`). `GET /health` `limits.tmax` does show the window.
 
 ## Do not enable
 
 Each line gives the reason and where it is stated. The full list with sources is in SKILL.md under "What NOT to turn on".
 
-- q4x MTP verify window (FAILS, docs/CAPABILITIES.md:28).
-- `BARO_PF_ATT`, `BARO_PF_SSM` on MoE prefill (FAIL identity, docs/CAPABILITIES.md:104).
-- A requantised q4 pack of a Q4_K_M model (FAILS, 92.97% agreement, README.md:175).
-- `BARO_NGRAM` on MoE (slower, docs/CAPABILITIES.md:113).
-- `BARO_MEGA_WIN`, `BARO_DOT` (default off, docs/CAPABILITIES.md:428, 432).
+- q4x MTP verify window (FAILS, docs/CAPABILITIES.md, "q4x MTP verify window").
+- `BARO_PF_ATT`, `BARO_PF_SSM` on MoE prefill (FAIL identity, docs/CAPABILITIES.md, "WMMA attention and the dense chunk scan in MoE prefill").
+- A requantised q4 pack of a Q4_K_M model (FAILS, 92.97% agreement, README.md, "Decode against llama.cpp").
+- `BARO_NGRAM` on MoE (slower, docs/CAPABILITIES.md, "MoE prompt-lookup (ngram) speculation").
+- `BARO_MEGA_WIN`, `BARO_DOT` (default off, docs/CAPABILITIES.md, the `BARO_MEGA_WIN` and `BARO_DOT` entries).
 - `presence_penalty`, `frequency_penalty` (inert; docs/operate-capabilities.toml, penalties).
 - Mojo front (experimental; docs/operate-capabilities.toml, mojo-front).
 - `BARO_CERT` as a default (decode ratio 1.023; docs/operate-capabilities.toml, cert).
-- `BARO_SHARED_EXP` (3.6x exp cost; docs/CAPABILITIES.md:17).
+- `BARO_SHARED_EXP` (3.6x exp cost; docs/CAPABILITIES.md, "Shared exp/log/rsqrt/sin/cos").
 - `tool_choice: auto` as a tool filter (does not restrict names; docs/operate-capabilities.toml, tools).
 - CPU engine for speed (6 to 7 tok/s; docs/operate-capabilities.toml, cpu).

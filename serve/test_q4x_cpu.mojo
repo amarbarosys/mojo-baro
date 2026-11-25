@@ -4,7 +4,7 @@ CPU only, no pack needed.
 
 Build: ./.venv/bin/mojo build serve/test_q4x_cpu.mojo -I serve -o .work/test_q4x_cpu
 """
-from std.memory import alloc, bitcast
+from std.memory import alloc
 from std.math import exp
 from std.sys import exit
 from std.time import perf_counter_ns

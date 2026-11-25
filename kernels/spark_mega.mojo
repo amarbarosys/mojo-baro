@@ -13,8 +13,8 @@ from mega import grid_barrier
 from prefill_rows import head_rms_row
 from spark_kernels import gemv_q8_row, rope_plain_body, rope_kv_body, amar_argmax_part, amar_argmax_final
 from profile import (
-    H, FFN, VOCAB, N_LAYERS, NQH, NKVH, HD, NORM_EPS, NROT_FULL, BASE_FULL, SWA_PERIOD, SWA_FULL_PHASE,
-    ROPE_NEOX, QKV_BIAS, HAS_GATE, QK_NORM, ATTN_SCALE, ACTIVATION_GELU, TMAX, ROPE_FREQS,
+    H, FFN, VOCAB, N_LAYERS, NQH, NKVH, HD, NROT_FULL, SWA_PERIOD, SWA_FULL_PHASE,
+    ROPE_NEOX, QKV_BIAS, HAS_GATE, QK_NORM, ACTIVATION_GELU, TMAX, ROPE_FREQS,
 )
 
 comptime f32 = DType.float32

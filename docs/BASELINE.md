@@ -417,7 +417,7 @@ Exploratory, 3 prompts, GEN 256, TMAX 16384, resident (`bench/gap-ab.sh`, receip
 | plain, megakernel (BARO_MEGA=1) | 42.1 | yes (m=1) |
 | MTP k=2, launch window (BARO_SPEC=1, BARO_MEGA_WIN=0) | 73.3 exact turbo; 86.0 with dot2 window GEMVs (`.work/dot2gate`, 20 prompts, 1.222x over 70.4 same job) | yes, dot2 (`BARO_TURBO_DOT2` default 1 since 2026-11-16: 120-task eval 87/120 vs 79/120 exact, `docs/lanes/2026-11-16-kdefault-report.md`) |
 | MTP k=2, window megakernel (BARO_MEGA_WIN=1) | 32.4 on main; 59.3 on lane-verify8 (3d2191b: all window GEMV activations staged in LDS, ffn_down in 3 chunks) | no: still below the launch window; was latency-bound on global activation loads (`.work/v8/ww-megawin-g1`, matmul_skinny.mojo:466) |
-| DFlash2 (BARO_SPEC=dflash2, opt-in) | 73.6 (20 prompts, D3) | no |
+| DFlash2 (BARO_SPEC=dflash2), 8-row window on K7 `amar_fewrow_iu4r` (`-D BARO_FEWROW=3`, BARO_MEGA=0) | **88.42** vs MTP k=2 86.28 same binary and job (2026-11-25, E4, 20 prompts, `bench/dflash2-d3.sh`; forced agreement 0.99687 vs control 1.00000; `docs/lanes/2026-11-25-verify8-r2-report.md`). Was 73.6 on the bf16 WMMA window (D3) | yes, in `profiles/nerkyor27b.toml`; the global BARO_FEWROW default stays 0 |
 
 Launch path: GPU 82.6% busy, ~1,100 kernels/token, 3.4 us median gap (rocprofv3 kernel trace `.work/v8/kt`); host 99.2% in the HSA wait (corewait --pid). 8-row q4 GEMM: bf16 WMMA 424/399 GB/s, int8 WMMA 538/447 (not wired), turbo m=1 805/778.
 
@@ -895,7 +895,7 @@ chain, bit-exact by order), the staging copy rate, and `moe_pairs_group` (one bl
 
 ## MoE expert cache capacity diagnostic (2026-10-21)
 
-A direct tier-only probe measured 22.35% expert misses and 0.1196 GiB fetched per decode step at ~5.5k context with cap64. Cap128 cut the long-request miss rate to 5.34% warm and used 10,443,816,960 B of cache. A/B token IDs matched, but the observed B/A 0.3753 speed ratio is void: this boot's PCIe root link was at 2.5 GT/s. `./run-tests.sh` stopped at a profile/pack mismatch in two attempts. No performance claim is supported; see [`exchange/lane-moe-miss-report.md`](../exchange/lane-moe-miss-report.md).
+A direct tier-only probe measured 22.35% expert misses and 0.1196 GiB fetched per decode step at ~5.5k context with cap64. Cap128 cut the long-request miss rate to 5.34% warm and used 10,443,816,960 B of cache. A/B token IDs matched, but the observed B/A 0.3753 speed ratio is void: this boot's PCIe root link was at 2.5 GT/s. `./run-tests.sh` stopped at a profile/pack mismatch in two attempts. No performance claim is supported; the lane report `exchange/lane-moe-miss-report.md` is not in this tree.
 
 ## MTP draft expert prefetch
 

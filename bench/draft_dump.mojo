@@ -30,13 +30,12 @@ from std.sys import argv, has_accelerator
 from max.gpu.host import DeviceContext, HostBuffer, DeviceBuffer
 
 from registry import H, VOCAB, f32
-from window import WindowBufs, WindowState, WindowCfg, blk32_forward, step_window
+from window import WindowBufs, WindowState, blk32_forward, step_window
 from realign import final_norm_hidden, head_logits
 from bench_latent_handoff import run_to_prompt_end, reset_and_load, make_cfg, read_toks
-from harness import load_pack, alloc_bufs, Pack
-from grammar.automaton import Bitset
+from harness import load_pack, alloc_bufs
 from grammar.json_value import parse_json_file, parse_json_bytes
-from bench_latent_handoff import get_int_list, get_str
+from bench_latent_handoff import get_int_list
 from tokenizer import Tokenizer
 
 

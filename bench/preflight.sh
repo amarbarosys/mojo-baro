@@ -9,7 +9,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 accel=${BARO_TARGET_ACCELERATOR:-gfx1100}
 # exchange/ holds reports and conference notes that other lanes write while a job is queued; nothing there feeds a build or a gate.
-stamp() { git ls-files -co --exclude-standard | grep -v '^exchange/' | sort | while IFS= read -r f; do [ -f "$f" ] && printf '%s\n' "$f"; done | tr '\n' '\0' | xargs -0 sha256sum -- | sha256sum | cut -c1-32; }
+stamp() { git ls-files -co --exclude-standard | grep -v '^exchange/' | sort | while IFS= read -r f; do if [ -f "$f" ]; then printf '%s\n' "$f"; fi; done | tr '\n' '\0' | xargs -0 sha256sum -- | sha256sum | cut -c1-32; }
 if [ "${1:-}" = --check ]; then
   [ "$(cat .work/preflight.ok 2>/dev/null)" = "$(stamp)" ] && exit 0
   echo "FAIL preflight: no passing bench/preflight.sh for the current file contents; run it first" >&2
@@ -19,8 +19,12 @@ rm -f .work/preflight.ok; mkdir -p .work/preflight
 # stamp the tree BEFORE checking it: a stamp taken at the end certified edits made while the builds ran
 # (latent-flash P1 2026-10-12: --check passed for a tree whose full run then failed twice).
 st0=$(stamp) || { echo "FAIL preflight stamp: file hashing failed" >&2; exit 1; }
-step() { echo "== $1"; }
+: > .work/preflight/times.tsv; t_cur=""; t_0=$(date +%s.%N)
+t_tick() { local t; t=$(date +%s.%N); [ -n "$t_cur" ] && awk -v n="$t_cur" -v a="$t_0" -v b="$t" 'BEGIN{printf "%.1f\t%s\n", b-a, n}' >> .work/preflight/times.tsv; t_0=$t; }
+trap 't_tick; t_cur=""' EXIT
+step() { t_tick; t_cur=$1; echo "== $1"; }
 fail() { echo "FAIL preflight $1: see $2" >&2; exit 1; }
+step fixtures;   tools/fixture-check.sh > .work/preflight/fixtures.log 2>&1 || fail fixtures .work/preflight/fixtures.log
 step ci-checks;  tools/ci-checks.sh > .work/preflight/ci.log 2>&1 || fail ci-checks .work/preflight/ci.log
 step rdna4-probe
 tools/rdna4-probe/rdna4-probe.sh > .work/preflight/rdna4-probe.log 2>&1 || fail rdna4-probe .work/preflight/rdna4-probe.log

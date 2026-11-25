@@ -6,7 +6,7 @@ bad=0
 say() { echo "$*" | tee -a $G; case "$*" in *" exit "[1-9]*|*" FAIL "[1-9]*) bad=1;; esac; }
 say "== merge gate $(date -Is)"
 ./.venv/bin/mojo build serve/engine.mojo -I . -I kernels -o .work/engine > .work/merge-build.log 2>&1; say "engine build exit $? : $(grep -m1 'error' .work/merge-build.log | cut -c1-200)"
-./.venv/bin/mojo build kernels/test_prefill.mojo -I kernels -o .work/test_prefill > .work/merge-build-pf.log 2>&1; say "test_prefill build exit $? : $(grep -m1 'error' .work/merge-build-pf.log | cut -c1-200)"
+./.venv/bin/mojo build kernels/test_prefill.mojo -I kernels -I serve -o .work/test_prefill > .work/merge-build-pf.log 2>&1; say "test_prefill build exit $? : $(grep -m1 'error' .work/merge-build-pf.log | cut -c1-200)"
 ./run-tests.sh > .work/merge-run-tests.log 2>&1; say "run-tests.sh exit $? : $(grep -E 'GEMM OK|orphan|PASS|FAIL' .work/merge-run-tests.log | tr '\n' ';' | cut -c1-200)"
 tools/ci-checks.sh > .work/merge-ci.log 2>&1; say "ci-checks.sh exit $? : $(grep -E 'FAIL|passed|failed' .work/merge-ci.log | tr '\n' ';')"
 ./.work/test_prefill > .work/merge-test-prefill.log 2>&1; say "test_prefill exit $? : $(grep -E 'PASS|FAIL' .work/merge-test-prefill.log | tail -1)"

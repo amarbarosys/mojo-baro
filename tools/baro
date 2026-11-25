@@ -558,17 +558,16 @@ run)
   fi
   echo "engine: $work/engine  sha256 $(sha256sum "$work/engine" | cut -c1-16)"
 
-  if [ -z "$pack" ]; then
-    pack=$work/pack
-    if [ ! -s "$pack/index.txt" ]; then
-      flags=$(kvget baro.run.pack.flags)
-      packer=$(fetch_pack_tool "$work/pack-src")
-      echo "building pack from $model with $(basename "$packer") and flags '${flags:-none}' (CPU) ..."
-      # shellcheck disable=SC2086
-      "$here/tools/pack-run.sh" "$packer" "$model" "$pack" $flags > "$work/pack.log" 2>&1 \
-        || { tail -5 "$work/pack.log"; die "pack build FAILED, see $work/pack.log"; }
-    fi
+  [ -n "$pack" ] || pack=$work/pack
+  if [ ! -s "$pack/index.txt" ]; then
+    flags=$(kvget baro.run.pack.flags)
+    packer=$(fetch_pack_tool "$work/pack-src")
+    echo "building pack from $model with $(basename "$packer") and flags '${flags:-none}' (CPU) ..."
+    # shellcheck disable=SC2086
+    "$here/tools/pack-run.sh" "$packer" "$model" "$pack" $flags > "$work/pack.log" 2>&1 \
+      || { tail -5 "$work/pack.log"; die "pack build FAILED, see $work/pack.log"; }
   fi
+  [ -s "$pack/index.txt" ] || die "no pack at $pack (index.txt missing)"
   ensure_tokenizer "$pack"
   echo "pack: $pack ($(wc -l < "$pack/index.txt") tensors)"
 

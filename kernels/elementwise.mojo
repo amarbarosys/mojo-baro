@@ -1,4 +1,3 @@
-
 from max.gpu import block_dim, block_idx, global_idx, lane_id, thread_idx, WARP_SIZE
 from max.gpu.primitives import warp
 from bexp import cos, exp, log, rsqrt, sin
@@ -127,7 +126,6 @@ def amar_rmsnorm_cast_steer[
     S: TileTensor[f32, SLayout, MutAnyOrigin],
     soff: Int32,
 ):
-    """amar_rmsnorm_cast after X += S[soff : soff + n] (a steering vector, written back to X)."""
     comptime assert X.flat_rank == 2 and G.flat_rank == 1 and O.flat_rank == 2 and S.flat_rank == 1
 
     var N = Int(n)
@@ -678,6 +676,5 @@ def amar_graft_mean[
 
 
 def amar_scale_one(p: MutPointer[Scalar[f32], MutAnyOrigin], idx: Int32, k: Float32):
-    """p[idx] *= k: a neuron's gain applied to its FFN activation before the down projection."""
     if global_idx.x == 0:
         p[Int(idx)] = p[Int(idx)] * k

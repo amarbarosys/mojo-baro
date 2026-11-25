@@ -1,0 +1,54 @@
+#!/usr/bin/env python3
+"""Module docstring with 'quotes' and "double quotes"."""
+import os, sys
+from typing import Optional
+
+class Tokenizer(object):
+    def __init__(self, path: str, add_bos: bool = True) -> None:
+        self.path = path  # trailing comment
+        self._cache: dict[str, list[int]] = {}
+
+    def encode(self, text: str) -> list[int]:
+        if not text:
+            return []
+        ids = [self.vocab.get(w, -1) for w in text.split()]
+        return [i for i in ids if i >= 0 and i != 0xFFFF]
+
+if __name__ == "__main__":
+    print(f"{sys.argv[0]}: {len(sys.argv) - 1} args", file=sys.stderr)
+
+// C
+#include <stdint.h>
+static inline uint32_t rotl32(uint32_t x, int r) { return (x << r) | (x >> (32 - r)); }
+int main(int argc, char **argv) {
+	for (size_t i = 0; i < (size_t)argc; ++i) {
+		printf("%zu:\t%s\n", i, argv[i]);	/* tab indented */
+	}
+	return argc > 1 ? 0 : -1;
+}
+
+// Rust
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let v: Vec<u8> = (0..=255u8).filter(|b| b & 1 == 0).collect();
+    let s = r#"raw "string" with \n"#;
+    println!("{:?} {s} {}", &v[..4], v.len());
+    Ok(())
+}
+
+# Mojo
+def _bpe(self, piece: String, mut out: List[Int]) raises:
+    var syms = List[Int](capacity=len(piece.as_bytes()))
+    while len(syms) > 1:
+        var m = self.merge_of.get((syms[i] << 32) | syms[i + 1], -1)
+
+# shell
+set -euo pipefail
+for f in "$@"; do [[ -f "$f" ]] && wc -c < "$f" || echo "FAIL read: $f" >&2; done
+grep -rn --include='*.mojo' -E '^\s+var [a-z_]+ = [0-9]+$' serve/ | awk -F: '{print $1":"$2}' | sort -u
+
+{"json": {"key": [1, 2.5, -3e10, true, false, null], "nested": {"a": "b\\n\"c\"", "u": "é😀"}}}
+<div class="card" id="x1" data-n='3'><a href="https://example.com/a?b=c&d=e#frag">link</a></div>
+SELECT a.id, COUNT(*) AS n FROM t_a a LEFT JOIN t_b b ON a.id = b.a_id WHERE a.ts >= '2026-01-01' GROUP BY 1 HAVING n > 10;
+snake_case camelCase PascalCase SCREAMING_SNAKE kebab-case __dunder__ _private x86_64-unknown-linux-gnu
+a+=1; b-=2; c*=3; d/=4; e%=5; f**=6; g//=7; h>>=8; i<<=9; j&=10; k|=11; l^=12; m!=n; o===p; q<=>r; s->t; u=>v; w::x; y?.z ?? 0
+/* unicode in code */ const π = 3.14159; let naïve = "café"; var 变量 = '值'; // комментарий

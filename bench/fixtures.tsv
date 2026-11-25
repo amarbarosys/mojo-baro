@@ -1,0 +1,10 @@
+# Fixtures under the MAIN checkout's .work/ that tests and gates read. tools/fixture-check.sh checks each row
+# before a run: the file exists, is not reached through a dangling link, and has this sha256.
+# need: required = a missing or changed file FAILs; optional = missing is a SKIP with the reason (a test skips on it).
+# file	sha256	need	rebuild
+.work/ailab/pack-kq/tokenizer.json	2718ae83b1a9134c68549cb46eed52d8db5343a3f76ffe4f884d2b356f81d9d6	required	.work/gguf-tokenizer-json ~/Models/ornith-1.5-9b-q4_K_M/Ornith-1.5-9B-Q4_K_M.gguf .work/ailab/pack-kq (the plain GGUF the text oracle header names)
+.work/ailab/pack-kq/tokenizer-meta.json	65b905ef3cb328895a1fdf5a70ec47bcd00f3ce1f488c0d95eaf74252b62519c	required	same command as tokenizer.json
+.work/engine-pack-q4/identity.json	a3753baca6ae46cab900325321e111ac0eba93b088006d31745c151a47ed2607	required	the cached pack of the real Qwythos gguf (sha-cache.tsv), link .work/engine-pack-q4 to it
+.work/nerkyor/pack-q4/identity.json	c41d77dee75c789f54e4acc53a61f263cbde40b1b01ed1d5141db856eca45ba3	optional	.work/engine-pack ~/Models/qwen38-27b-nerkyor-coder-q4lynn/nerkyor-27B-BARO-91f72c9.gguf .work/nerkyor/pack-q4 --q4 (16.6 GB)
+.work/dflash2/draft-pack/identity.json	20750cd165a627a1a29a90150ed3209399a398f5244ac62901349dae50a79162	optional	.work/engine-pack ~/Models/qwen38-27b-nerkyor-coder-q4lynn/Qwen3.8-27B-nerkyor-DFlash2-Q8_0.gguf .work/dflash2/draft-pack --arch dflash
+.work/ornith-stint/pack-kq/identity.json	-	optional	test_kq_prefill_gemm skips without it: tools/baro run the Ornith BARO bake --no-serve --pack .work/ornith-stint/pack-kq

@@ -38,7 +38,7 @@ fi
 
 if [ "$phase" = bundle ]; then
   [ -n "${GPU_WAITING_ROOM_JOB:-}" ] || exec gpu-wait run --priority "${CV_PRIO:-90}" --vram 23 --timeout "${CV_TIMEOUT:-7200}" -- \
-    env HOME="$HOME" PATH="$PATH" CV_BIN="$bin" CV_MOE_PACK="${CV_MOE_PACK:-}" BARO_SERVE_BIN="$BARO_SERVE_BIN" ROUTER_BIN="$ROUTER_BIN" bash "$(realpath "$0")" "$out" bundle "$@"
+    env HOME="$HOME" PATH="$PATH" CV_BIN="$bin" CV_MOE_PACK="${CV_MOE_PACK:-}" BARO_SERVE_BIN="$BARO_SERVE_BIN" ROUTER_BIN="$ROUTER_BIN" bash "$(realpath "$0")" "$out" gpu "$@"
   phase=gpu
 fi
 if [ "$phase" != cpu ]; then
@@ -64,4 +64,5 @@ if [ "$phase" != cpu ]; then
   [ -n "${CV_TRAIN:-}" ] && step train "miniagi/train/ parity, 200 steps, bit-identical rerun" tools/train-gate.sh
 fi
 
+[ "$n" -gt 0 ] || { echo "FAIL 0/0: no step matched phase '$phase' and names '${only# }' ($tsv)"; exit 1; }
 if [ ${#fails[@]} -eq 0 ]; then echo "PASS $n/$n ($tsv)"; else echo "FAIL ${#fails[@]}/$n ${fails[*]} ($tsv)"; exit 1; fi

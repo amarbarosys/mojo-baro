@@ -10,7 +10,7 @@ Anthropic- and Ollama-compatible HTTP APIs, from a GGUF file, with no Python at 
 | Qwythos-9B q4, MTP k=2 with turbo window GEMVs (default) | **168.88 tok/s**, ids identical to the base build 20/20 |
 | Qwythos-9B Q8_0 | 80.38 tok/s, 1.07x llama.cpp |
 | Ornith-1.5-9B Q4_K_M, native K-quant pack | 99.53 tok/s, 1.06x llama.cpp; prefill 0.80x of llama.cpp's time at 16k |
-| Qwen3.8-27B q4, MTP k=2 (dot2 window, default) | 86.0 tok/s |
+| Qwen3.8-27B q4, DFlash2 on the 4-bit WMMA verify window (nerkyor profile) | **88.42 tok/s**, MTP k=2 86.28 in the same job |
 | RegesCore-35B MoE | 111.89 tok/s, level with llama.cpp |
 | Qwen3.8-Flash-Next, 74.5 GB, 512 experts from host RAM | 50 to 59 tok/s |
 | Llama-3.2-1B (generic engine) | 562.8 tok/s, 1.36x llama.cpp |
@@ -147,8 +147,10 @@ experts in host RAM ([`docs/ENGINE-PACK.md`](docs/ENGINE-PACK.md)).
 | `pair` | two sessions decoded by one R = 2 megakernel on dense packs (`--parallel`) |
 | `prefill` | the prompt in batched chunks through WMMA GEMMs |
 
-DFlash2 block drafting (`BARO_SPEC=dflash2`) is opt-in: it matches llama.cpp's port and
-reads 1.022x of MTP k=2, a thin margin, so MTP stays the default.
+DFlash2 block drafting (`BARO_SPEC=dflash2`) matches llama.cpp's port. With the 8-row
+verify window on 4-bit integer WMMA (`-D BARO_FEWROW=3`) it reads 88.42 tok/s against
+86.28 for MTP k=2 on the 27B, teacher-forced agreement 0.99687 against 1.00000 for the
+exact route. It is the default of the `nerkyor27b` profile only; other models keep MTP.
 
 **Memory.** KV is f32 by default or int8 (`BARO_KVQ=int8`, dense only, 33,280 bytes per
 token on the 9B, RULER 100.0 at 64k and 128k). MoE experts can live in host RAM with a
@@ -548,6 +550,7 @@ for the method; expect to edit paths before it runs elsewhere.
 | `embed/` | bge-small-en-v1.5 in Mojo, the process `baro-serve` starts for `/v1/embeddings` |
 | `face/`, `imkit/` | the window (`tools/baro gui`) and the vendored immediate-mode GUI |
 | `grammar/`, `minja/`, `uregex/`, `toml/`, `json/` | JSON-schema grammar, chat-template renderer, regex engine, TOML and JSON readers (all Mojo) |
+| `aio/`, `bento/`, `posix/`, `systemd/` | vendored Mojo libraries the Mojo front imports (`serve/front/`); `tools/ci-checks.sh` compares each with its upstream |
 | `latentos/` | state handoff between engine processes (memfd and HIP IPC) |
 | `miniagi/` | a Mojo training stack on the same card: trainer, flash attention forward and backward, WMMA GEMM kernels, tokenizer tools |
 | `profiles/` | named settings sets for `tools/baro serve --profile` |
@@ -555,6 +558,8 @@ for the method; expect to edit paths before it runs elsewhere.
 | `shim/` | C++ hipBLASLt shim behind a C ABI, the vendor reference |
 | `tools/` | `baro` CLI, GGUF packer, reference implementations, gates, ZLUDA tooling |
 | `phone/` | Adreno tooling and OpenCL race kernels |
+| `results/`, `tests/` | hardware receipts (`bench/report.sh` writes `results/report-*.json`) and run logs; chat-template corpora and the GPU-runtime test |
+| `scripts/`, `assets/`, `skills/` | desktop-entry installer, icons, the `mojo-baro-operate` agent skill |
 | `docs/` | current truth: BASELINE, CAPABILITIES, KERNELS, settings, design notes |
 
 The tokenizer is Mojo, bit-equal to llama.cpp on the same GGUF

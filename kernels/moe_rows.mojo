@@ -12,7 +12,7 @@ from std.utils import StaticTuple
 from moe import (
     q4k_sm_w,
     N_EXP, TOPK, MOE_WAVES, MOE_THREADS, Q4K, Q4K_BYTES, Q6K, Q6K_BYTES,
-    q8d_row_dot, q8_0_row_dot, q4k_dot_blocks, q6k_row_dot, q6k_value, q4k_q8_visit,
+    q8d_row_dot, q4k_dot_blocks, q6k_row_dot, q4k_q8_visit,
 )
 
 comptime f32 = DType.float32

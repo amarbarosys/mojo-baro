@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# usage: bench/cw-decode.sh ENGINE OUT [K=V ...] : corewait --pid on a resident engine during decode only,
+# usage: bench/cw-decode.sh ENGINE OUT [K=V ...] : corewait --pid on a resident engine during decode only, Env: BARO_PACK (pack dir), REQ_SPEC (true = the request asks for spec), CW_N (tokens to generate, default 1500; the 10 s record starts 8 s after the request, so n >= 18 s of decode).
 # plus gpu_busy_percent sampled every 50 ms in the same window. Run inside one gpu-wait job.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 eng=$(realpath "$1"); out=$(realpath -m "$2"); shift 2; mkdir -p "$out"
-pack=$(realpath ../nerkyor-vs-forge/.work/nerkyor/pack-q4)
+pack=$(realpath "${BARO_PACK:-../nerkyor-vs-forge/.work/nerkyor/pack-q4}")
 busy=$(ls /sys/class/drm/card*/device/gpu_busy_percent | head -1)
-req=$(printf '{"id":1,"prompt":[%s],"n":1500,"spec":false}' "$(tr -s ' \n' ',,' < bench/mtp-prompts/p02-python-fib.tokens | sed 's/,$//')")
+req=$(printf '{"id":1,"prompt":[%s],"n":%d,"spec":%s}' "$(tr -s ' \n' ',,' < bench/mtp-prompts/p02-python-fib.tokens | sed 's/,$//')" "${CW_N:-1500}" "${REQ_SPEC:-false}")
 fifo=$out/in; rm -f "$fifo"; mkfifo "$fifo"
 env BARO_PACK="$pack" BARO_SERVE=1 BARO_TMAX=16384 BARO_MEGA=0 "$@" "$eng" < "$fifo" > "$out/engine.log" 2>&1 &
 epid=$!

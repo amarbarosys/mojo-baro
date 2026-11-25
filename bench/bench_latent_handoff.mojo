@@ -27,22 +27,22 @@ from max.gpu.host import DeviceContext, DeviceBuffer
 
 from registry import *
 from window import *
-from harness import load_pack, alloc_bufs, Pack
+from harness import load_pack, alloc_bufs
 from realign import realign_expected_embedding, final_norm_hidden
 from tokenizer import Tokenizer
 from prefix import Chain, prefix_hash
 from latent import mint_kv_latent, ingest_kv_latent, mint_chain_slot, ingest_into_chain
 from e13_projector import load_projector, apply_projector_k
 from serve_proto import default_sample_params
-from identity import EngineIdentity, compute_engine_identity
+from identity import compute_engine_identity
 import latentos.proto as proto
 import latentos.sys as latentos_sys
 
 from grammar.automaton import Automaton
-from grammar.json_value import parse_json_file, parse_json_bytes, JSONDoc, JSONValue, JKindNull, JKindBool, JKindString, JKindNumber, JKindArray, JKindObject
+from grammar.json_value import parse_json_file, parse_json_bytes, JSONDoc, JKindNull, JKindBool, JKindString, JKindNumber, JKindArray, JKindObject
 from grammar.json_schema import compile_root_schema, str_bytes
 from grammar.vocab import Vocab, load_vocab
-from grammar.trie import TokenTrie, TrieNode, build_trie, greedy_tokenize
+from grammar.trie import TokenTrie, build_trie, greedy_tokenize
 from grammar.matcher import Matcher
 
 comptime COT_MAX = 300
